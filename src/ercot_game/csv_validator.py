@@ -17,6 +17,7 @@ from .csv_submission import (
     load_zenodo_bus_ids,
     read_student_csv,
 )
+from .calendars import half_year_calendar
 
 
 @dataclass(frozen=True)
@@ -269,15 +270,27 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check a student dispatch-game CSV submission.")
     parser.add_argument("--file", required=True, type=Path, help="CSV submission to validate")
     parser.add_argument("--artifact-dir", type=Path, help="prepared Zenodo artifact containing bus.csv and generator_limits.csv")
-    parser.add_argument("--horizon", required=True, type=int, choices=(4368, 4416), help="submission horizon: 4368 (Jan-Jun) or 4416 (Jul-Dec)")
+    parser.add_argument("--horizon", type=int, help="explicit submission horizon; use --year/--round for released calendars")
+    parser.add_argument("--year", type=int, choices=(2016, 2017, 2018), help="released data year")
+    parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
     parser.add_argument("--json", action="store_true", help="print a machine-readable JSON report")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.horizon is None:
+        if args.year is None or args.round_name is None:
+            print("CONFIGURATION ERROR: provide --horizon or both --year and --round")
+            return 2
+        horizon = half_year_calendar(args.year, args.round_name).horizon
+    else:
+        if args.horizon <= 0:
+            print("CONFIGURATION ERROR: horizon must be positive")
+            return 2
+        horizon = args.horizon
     try:
-        report = validate_csv_submission(args.file, artifact_dir=args.artifact_dir, horizon=args.horizon)
+        report = validate_csv_submission(args.file, artifact_dir=args.artifact_dir, horizon=horizon)
     except (OSError, ValueError) as exc:
         print(f"CONFIGURATION ERROR: {exc}")
         return 2

@@ -10,9 +10,17 @@ dataset. Student files use source `bus_id` values from that artifact and
 generator IDs from `generator_limits.csv`. This guide describes the only
 supported production evaluation path.
 
-The prepared Zenodo demand artifact is timestamped **2016**. The assignment
-uses its January--June and July--December halves as two teaching-round
-calendars; these timestamps are a historical replay, not a 2028 forecast.
+The Zenodo Texas topology and generator catalog are fixed. The original
+prepared demand artifact is 2016; the released 2017 and 2018 demand artifacts
+use official ERCOT eight-weather-zone hourly load archives allocated to the
+same Zenodo buses using their fixed base-`Pd` shares. These are historical
+replays, not forecasts.
+
+| Released year | January--June | July--December |
+|---|---:|---:|
+| 2016 | 4,368 h | 4,416 h |
+| 2017 | 4,344 h | 4,416 h |
+| 2018 | 4,344 h | 4,416 h |
 
 The supported execution mode is from a source checkout. The Python runtime
 packages, scoring rules, and prepared dispatch CSVs remain repository-level
@@ -20,38 +28,35 @@ resources and must be supplied by path.
 
 ## Run a batch
 
-January--June uses 4,368 one-hour local scoring periods and source rows
-`0..4367`:
+For a 2017 January--June release (4,344 one-hour periods):
 
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --horizon 4368 \
-  --source-period-offset 0 \
+  --year 2017 --round jan_jun \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
 
-July--December uses 4,416 one-hour local scoring periods and source rows
-`4368..8783`:
+For July--December, use the matching year artifact and round:
 
 ```bash
 ercot-game-batch run \
   --submissions-dir work/half_year_submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
   --rules data/teaching/dispatch_scoring_rules_jul_dec_v1.json \
-  --horizon 4416 \
-  --source-period-offset 4368 \
+  --year 2017 --round jul_dec \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jul_dec
 ```
 
-The command requires a submission directory, prepared dispatch artifact,
-scoring-rules JSON, output directory, and positive horizon. Student files
+The command requires a submission directory, prepared year-specific dispatch
+artifact, scoring-rules JSON, output directory, and either an explicit
+positive horizon or `--year` plus `--round`. Student files
 identify Zenodo source buses directly with `bus_id`. Every bus appearing in a
 production CSV must have one row for every period in the selected half-year.
 Partial pilot files are rejected before dispatch.
@@ -76,7 +81,8 @@ Use the active bus-based header:
 team_id,submission_id,period,bus_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh
 ```
 
-`period` is one-based in the CSV (`1..4368` or `1..4416`). Each submitted bus
+`period` is one-based in the CSV (`1..4344`, `1..4368`, or `1..4416`, depending
+on the released calendar). Each submitted bus
 must be present for every period, including periods with zero load. Generator
 IDs must be present in `generator_limits.csv`; their marginal operating costs
 come from that public-data catalog rather than from a student-supplied cost.

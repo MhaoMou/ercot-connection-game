@@ -9,6 +9,7 @@ description = "Deterministic offline evaluator domain model for the ERCOT data-c
 requires-python = ">=3.11"
 dependencies = [
     "highspy>=1.8,<2",
+    "openpyxl>=3.1,<4",
 ]
 
 [project.scripts]
@@ -20,6 +21,7 @@ ercot-game-check-csv = "ercot_game.csv_validator:main"
 packages = [
     "ercot_game",
     "tools",
+    "tools.ercot_loads",
     "tools.zenodo_texas",
 ]
 

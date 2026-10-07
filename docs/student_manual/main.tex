@@ -103,8 +103,9 @@ not submit a screenshot in place of the CSV.
 
 \subsection{Assignment rules at a glance}
 \begin{itemize}[leftmargin=*]
-  \item Submit exactly one complete \code{half-year horizon}: 4,368 hours for January--June or
-  4,416 hours for July--December.
+  \item Submit exactly one complete \code{half-year horizon}. The released calendar determines
+  the length: 2016 has 4,368/4,416 hours and 2017--2018 have 4,344/4,416 hours
+  for January--June/July--December.
   \item Use \code{bus IDs} and \code{generator IDs} from the supplied Zenodo artifact.
   \item Load is nonnegative and is specified directly in \code{MW} for every hour.
   \item \code{Generators} and \code{storage} are private to the submitting team.
@@ -135,16 +136,17 @@ on \code{Zenodo} by Xu et al.~\cite{xu2021ustestsystem}. The prepared Texas subs
 contains approximately \textbf{2,000 buses} and hourly demand
 and network data.
 
-The prepared demand artifact is timestamped 2016. The course uses its
-January--June and July--December halves as two teaching-round calendars; this
-is a historical replay for the exercise, not a 2028 forecast.
+The original Zenodo demand artifact is timestamped 2016. For later released
+rounds, official ERCOT eight-weather-zone hourly load archives are allocated to
+the same Zenodo buses using fixed base-demand shares. All released calendars
+are historical replays for the exercise, not forecasts.
 
 The conceptual pipeline is:
 \begin{center}
 \fbox{\parbox{0.82\textwidth}{\centering
-Public Zenodo dispatch data\\
+Public Zenodo dispatch data + official ERCOT hourly zone loads\\
 $\Downarrow$\\
-Source buses, branches, generators, demand, and costs\\
+Fixed Zenodo buses, branches, generators, costs, and year-specific demand\\
 $\Downarrow$\\
 DCOPF input and teaching scoring scenario\\
 $\Downarrow$\\
@@ -170,18 +172,20 @@ as a forecast of actual interconnection feasibility.
 
 Each submission governs \textbf{one half-year with a one-hour time step:}
 \begin{center}
-\begin{tabular}{lll}
+\begin{tabular}{llll}
 \toprule
-Round & Hours & Zero-based period indices\\
+Year & Round & Hours & Zero-based period indices\\
 \midrule
-January--June & 4,368 & $0,\ldots,4367$\\
-July--December & 4,416 & $0,\ldots,4415$\\
+2016 & January--June & 4,368 & $0,\ldots,4367$\\
+2016 & July--December & 4,416 & $0,\ldots,4415$\\
+2017 or 2018 & January--June & 4,344 & $0,\ldots,4343$\\
+2017 or 2018 & July--December & 4,416 & $0,\ldots,4415$\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The full source year contains 8,784 hourly records. A submission therefore has
-access to roughly 2,000 possible buses and roughly 4,500 hourly decision slots,
+The source year contains one full calendar year's hourly records. A submission therefore has
+access to roughly 2,000 possible buses and roughly 4,400 hourly decision slots,
 but it does \emph{not} need to contain 2,000$\times$4,500 CSV rows. The long-form
 CSV lists only the buses used by your team. For every bus that appears in the
 file, however, the release evaluator requires one row for every hour in the
@@ -290,8 +294,8 @@ For a released half-year submission, each selected bus must cover every period
 at least once; additional rows may declare distinct generator or storage
 resources, provided the load and resource specifications remain consistent. The short table below illustrates
 the column format only; it is not a complete half-year submission. A file that
-contains only the illustrated rows will be rejected when checked with
-\code{--horizon 4368} or \code{--horizon 4416}.
+contains only the illustrated rows will be rejected when checked against a
+released year and round.
 
 Example:
 \begin{lstlisting}
@@ -307,18 +311,17 @@ internal evaluator uses zero-based indices.
 
 The \code{validator} also checks complete horizon coverage. This prevents a short
 pilot file from silently becoming a mostly-zero half-year plan. The released
-checker accepts the two course horizons only: use 4368 for January--June or
-4416 for July--December.
+checker accepts the horizon implied by the selected year and round.
 
 \textbf{Before submitting, run the provided \code{CSV validator}.} From the project
 root, run (replace the artifact path with the released Zenodo artifact path):
 \begin{lstlisting}
 PYTHONPATH=src python scripts/check_submission.py \\
   --file team-blue.csv \\
-  --artifact-dir data/processed/texas_dispatch_source_v1 \\
-  --horizon 4368
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \\
+  --year 2017 --round jan\_jun
 \end{lstlisting}
-Use \code{--horizon 4416} for the July--December submission. The \code{checker} is
+Use \code{--year 2017 --round jul\_dec} for the July--December submission. The \code{checker} is
 also available after installation as \code{ercot-game-check-csv}. It checks UTF-8
 encoding, the exact header, numeric fields, bus and generator IDs, duplicate
 keys, consistent resource specifications, horizon bounds, and nonnegative

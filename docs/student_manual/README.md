@@ -19,10 +19,12 @@ Students can check a submission before uploading it with:
 ```bash
 PYTHONPATH=src python scripts/check_submission.py \
   --file team-blue.csv \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
-  --horizon 4368
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --year 2017 --round jan_jun
 ```
 
-Use `--horizon 4416` for the July--December half-year. The checker validates
+Use `--year 2017 --round jul_dec` for the July--December half-year. The
+released calendar determines whether January--June has 4,368 hours (2016) or
+4,344 hours (2017/2018); July--December has 4,416 hours. The checker validates
 the canonical `bus_id` schema against the released Zenodo bus and generator
 catalogs; the instructor-side evaluator remains authoritative.

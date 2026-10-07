@@ -50,8 +50,8 @@ python -m pip install -e .
 ```bash
 ercot-game-check-csv \
   --file path/to/team.csv \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
-  --horizon 4368
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --year 2017 --round jan_jun
 ```
 
 The active header is:
@@ -66,22 +66,26 @@ the generator capacity. Storage uses MW power capacity and MWh energy capacity.
 
 ## Evaluate a half-year round
 
-January--June:
+For a 2017 January--June round:
 
 ```bash
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --horizon 4368 \
-  --source-period-offset 0 \
+  --year 2017 --round jan_jun \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
 
-July--December uses `dispatch_scoring_rules_jul_dec_v1.json`, horizon `4416`,
-and source offset `4368`.
+Use `--year 2017 --round jul_dec` for July--December. The evaluator derives
+the correct half-year length and source-row offset from the calendar. For
+2016, January--June is 4,368 hours and July--December is 4,416 hours; for
+2017 and 2018, January--June is 4,344 hours and July--December is 4,416
+hours. The 2017/2018 year artifacts are generated from official ERCOT hourly
+weather-zone archives and fixed Zenodo bus `Pd` shares; see
+`data/raw/ercot_hourly_load/README.md`.
 
 If the joint plan is infeasible, the evaluator applies the documented fair
 continuous common service projection before deterministic fallback isolation.

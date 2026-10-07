@@ -38,8 +38,14 @@ docs/student_manual/*.toc
 # documented provenance steps rather than committing local downloads.
 data/raw/*
 !data/raw/README.md
+!data/raw/ercot_hourly_load/
+!data/raw/ercot_hourly_load/README.md
 !data/raw/*metadata*.json
 data/processed/texas_dispatch_source_v1/demand_bus.csv
+# Rebuildable year-specific expansions are intentionally not committed. They
+# are hundreds of MB each; the normalized zone inputs and builder are tracked.
+data/processed/texas_dispatch_source_v1_years/
+!data/processed/texas_dispatch_source_v1_years/.gitkeep
 
 # Local generated batch/evaluation results; the sanitized web package is
 # intentionally tracked under web/data/results/.

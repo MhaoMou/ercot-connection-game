@@ -16,6 +16,7 @@ from .batch_evaluation import (
     load_scoring_rules,
     write_batch_outputs,
 )
+from .calendars import half_year_calendar
 
 
 class _ParserExit(Exception):
@@ -69,9 +70,9 @@ def _source_period_offset(value: str) -> int:
     try:
         parsed = int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError("must be 0 or 4368") from None
-    if parsed not in (0, 4368):
-        raise argparse.ArgumentTypeError("must be 0 or 4368")
+        raise argparse.ArgumentTypeError("must be 0, 4344, or 4368") from None
+    if parsed not in (0, 4344, 4368):
+        raise argparse.ArgumentTypeError("must be 0, 4344, or 4368")
     return parsed
 
 
@@ -131,7 +132,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--artifact-dir", required=True, type=Path)
     run_parser.add_argument("--rules", required=True, type=Path)
     run_parser.add_argument("--output-dir", required=True, type=Path)
-    run_parser.add_argument("--horizon", required=True, type=_positive_int)
+    run_parser.add_argument("--horizon", type=_positive_int)
+    run_parser.add_argument("--year", type=int, choices=(2016, 2017, 2018), help="released data year")
+    run_parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="released half-year")
     run_parser.add_argument(
         "--workers",
         required=False,
@@ -173,10 +176,20 @@ def _run(args: argparse.Namespace) -> int:
         raise ValueError(
             f"artifact directory does not exist or is not a directory: {args.artifact_dir}"
         )
+    if args.horizon is None:
+        if args.year is None or args.round_name is None:
+            raise ValueError("provide --horizon or both --year and --round")
+        calendar = half_year_calendar(args.year, args.round_name)
+        horizon = calendar.horizon
+    else:
+        if args.year is not None or args.round_name is not None:
+            raise ValueError("--year/--round cannot be combined with --horizon")
+        calendar = None
+        horizon = args.horizon
     region_to_source_bus = _load_region_map(args.region_map) if args.region_map else None
     rules = load_scoring_rules(args.rules)
     period_indices = (
-        tuple(range(args.horizon))
+        tuple(range(horizon))
         if args.period_indices is None
         else args.period_indices
     )
@@ -184,10 +197,10 @@ def _run(args: argparse.Namespace) -> int:
         args.submissions_dir,
         artifact_dir=args.artifact_dir,
         region_to_source_bus=region_to_source_bus,
-        horizon=args.horizon,
+        horizon=horizon,
         rules=rules,
         period_indices=period_indices,
-        source_period_offset=args.source_period_offset,
+        source_period_offset=(calendar.source_row_start if calendar is not None and args.source_period_offset is None else args.source_period_offset),
         dispatch_workers=args.workers,
         projection_iterations=args.projection_iterations,
     )

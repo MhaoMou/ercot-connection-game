@@ -18,11 +18,13 @@ joint request is infeasible, and returns scores and diagnostics.
    ```bash
    python scripts/check_submission.py \
      --file submissions/team_a.csv \
-     --horizon 4368 \
+     --year 2017 --round jan_jun \
      --artifact-dir data/processed/texas_dispatch_source_v1
    ```
 
-   Use `4416` for the July--December release.
+   Use `--year 2017 --round jul_dec` for the July--December release. The
+   instructor will identify the released year; the checker derives the exact
+   horizon from that year and half-year.
 
 7. Submit the CSV through the instructor-designated channel.
 8. Use the returned score, dispatch summary, and binding-resource diagnostics
@@ -32,8 +34,9 @@ joint request is infeasible, and returns scores and diagnostics.
 
 - The Texas subset of the Zenodo dataset is the source of the bus and
   generator identifiers.
-- Each submission covers one half-year of one-hour periods: 4,368 hours for
-  January--June or 4,416 hours for July--December.
+- Each submission covers one half-year of one-hour periods. The released
+  calendar determines the exact horizon: 2016 has 4,368/4,416 hours and 2017
+  and 2018 have 4,344/4,416 hours for January--June/July--December.
 - A team's generators and storage serve only that team's load.
 - Generator operating costs are taken from the supplied Zenodo generator
   catalog. Student files specify the selected generator and capacity, not a

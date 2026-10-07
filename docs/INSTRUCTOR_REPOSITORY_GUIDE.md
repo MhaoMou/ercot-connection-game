@@ -42,22 +42,23 @@ python -m pip install -e .
 ```bash
 ercot-game-check-csv \
   --file path/to/team.csv \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
-  --horizon 4368
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
+  --year 2017 --round jan_jun
 
 ercot-game-batch run \
   --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/texas_dispatch_source_v1 \
+  --artifact-dir data/processed/texas_dispatch_source_v1_years/2017 \
   --rules data/teaching/dispatch_scoring_rules_jan_jun_v1.json \
-  --horizon 4368 \
-  --source-period-offset 0 \
+  --year 2017 --round jan_jun \
   --workers 8 \
   --projection-iterations 10 \
   --output-dir work/batch_results_jan_jun
 ```
 
-Use horizon `4416` and source offset `4368` with the July--December rules for
-the second half-year.
+Use `--year 2017 --round jul_dec` with the July--December rules for the second
+half-year. The calendar module derives the year-specific horizon and source
+offset. See `data/raw/ercot_hourly_load/README.md` for rebuilding 2017/2018
+inputs.
 
 The CSV uses source `bus_id` values directly. Generator operating costs come
 from `generator_limits.csv`; storage is specified in MW/MWh. Each team’s
