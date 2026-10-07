@@ -1,6 +1,8 @@
 # Dispatch-scoring sensitivity report
 
-**Status:** Instructor calibration draft generated from the prepared Texas dispatch artifact.
+**Status:** Historical instructor calibration draft for the retired six-period
+pilot. It is retained for provenance only and is not an active release
+configuration.
 
 Rules source: `data/teaching/dispatch_scoring_rules_v1.json` (legacy
 six-period pilot rules).
@@ -38,11 +40,14 @@ The test scenarios are intentionally small and synthetic. The next calibration c
 - `generator_capital_cost_per_mw = $85,000/MW-year`: rounded annualized combustion-turbine anchor based on EIA's $841/kW installation-cost reference, a 20-year life, and an 8% discount rate.
 - `site_cost_per_site = $50,000/site`: instructional site-level proxy, not a universal data-center interconnection tariff.
 
-These values are documented as provisional in the scoring calibration document and should be reviewed against pilot submissions.
+These values are documented as historical pilot values. They must not be used
+for current half-year evaluation; use the versioned half-year rules files with
+`time_step_hours = 1` instead.
 
 ## Instructor decisions still required
 
 1. Select a candidate-generator technology and replace the generic variable-cost placeholder.
-2. Approve the annualized capital-cost interpretation and six-period horizon weighting.
+2. Do not approve the six-period horizon weighting for the current release;
+   review the half-year rules instead.
 3. Confirm whether site cost should remain per site or become a per-MW/interconnection-cost proxy.
 4. Review score/ranking spread against actual pilot CSVs before approving release rules.

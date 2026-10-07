@@ -74,14 +74,19 @@ based on brand labels. If the course later wants heterogeneous business
 strategies, expose workload class as an explicit scenario choice rather than
 implicitly assigning teams to Google, Amazon, or OpenAI.
 
-For a six-period time-varying scenario, a defensible starting vector is:
+For the released hourly evaluator, a short six-level value profile can be
+repeated across the selected half-year. The entries are profile levels, not
+six operating periods and not a replacement for the 4,344/4,368/4,416-hour
+submission horizon. A defensible starting profile is:
 
 ```json
 [1100, 950, 800, 800, 1050, 950]
 ```
 
-This represents higher-value evening/peak service periods without creating an
-order-of-magnitude difference between periods. A simpler constant vector of
+The evaluator repeats this six-level template across the selected hourly
+calendar, preserving the one-hour time step. It represents higher-value
+evening/peak service periods without creating an order-of-magnitude difference
+between hours. A simpler constant profile of
 `[1000, 1000, 1000, 1000, 1000, 1000]` is preferable for the first student
 pilot because it isolates network-location and generator decisions.
 

@@ -13,15 +13,17 @@ curtailment.
 
 Use ERCOT real-time Settlement Point Prices as the market anchor. ERCOT settles
 at 15-minute intervals and reports 2024 real-time Hub average prices of
-`$27.37/MWh`, compared with `$52.48/MWh` in 2023. The six game periods should
-be selected from actual hourly observations rather than hand-authored prices.
+`$27.37/MWh`, compared with `$52.48/MWh` in 2023. The released evaluator
+operates on one-hour periods across a complete half-year. Any compact price
+vector is therefore a repeating hourly teaching profile, not a six-period
+submission horizon.
 
 Sources:
 
 - [ERCOT 2024 ORDC report](https://www.ercot.com/files/docs/2024/10/31/2024-biennial-ercot-report-on-the-ordc-20241031.pdf)
 - [ERCOT real-time SPP display](https://www.ercot.com/content/cdr/html/20241107_real_time_spp.html)
 
-**Legacy pilot vector:** `dispatch_scoring_rules_v1.json` uses ERCOT Day-Ahead Market
+**Legacy pilot profile:** `dispatch_scoring_rules_v1.json` uses ERCOT Day-Ahead Market
 `HB_HUBAVG` prices for operating day `2026-10-04`, at hour-ending values
 `[1, 6, 11, 13, 20, 23]`:
 
@@ -35,8 +37,10 @@ low-price midday, and evening conditions. The source page is the [ERCOT DAM
 Settlement Point Prices display](https://www.ercot.com/content/cdr/html/dam_spp.html);
 the exact operating day and hours are recorded in the JSON provenance block.
 The released half-year files use this six-value profile as a transparent
-repeated instructional profile with `time_step_hours = 1`; they do not claim
-to reconstruct 4,368 or 4,416 historical ERCOT hourly prices.
+repeated instructional profile with `time_step_hours = 1`; the profile is
+repeated over the selected 4,344-, 4,368-, or 4,416-hour calendar. It does not
+replace the complete student submission horizon or claim to reconstruct
+historical ERCOT hourly prices.
 
 ### Existing and candidate generator costs
 
@@ -95,7 +99,7 @@ tariff. The half-year rules files record the same provenance in JSON.
 ### Generator capital cost
 
 Convert source CAPEX from `$ / kW` to `$ / MW`, then annualize it with the
-chosen capital-recovery assumptions. The legacy six-period pilot used
+chosen capital-recovery assumptions. The legacy calibration note used
 `1,460` hours per representative period. The released half-year files use
 literal one-hour intervals, so capital coefficients are applied once to the
 plan and hourly operating quantities are multiplied by `1` hour.
@@ -143,7 +147,7 @@ The following cannot be responsibly inferred as a single market number:
 | Maximum load per site/team | Choose from DCOPF feasibility sweeps so both feasible and infeasible plans exist. |
 | Maximum candidate-generator capacity | Set relative to site peak load. |
 | Number of sites/generators | Decide whether assets are unlimited or bounded. |
-| Period horizon and selected source hours | Confirm whether six periods represent six consecutive hours or representative hours. |
+| Period horizon and selected source hours | The submission horizon is the complete released half-year; confirm the selected hourly price/profile source separately. |
 | Weekly submission aggregation | Decide replace-versus-accumulate policy before student release. |
 | Tie breaking | Confirm deterministic team-ID ordering or choose an explicit secondary metric. |
 
@@ -160,7 +164,7 @@ Before publishing the student rules:
 2. select and document candidate generator technologies;
 3. review the annualized combustion-turbine anchor and horizon weighting;
 4. review the `$50,000/site` instructional proxy and storage coefficients;
-5. replace the repeated six-hour teaching profile with an approved hourly
+5. replace the repeated compact teaching profile with an approved hourly
    price/value series if one is available;
 6. run a parameter sweep over IT value, price, generator cost, CAPEX, storage
    cost, site cost,
