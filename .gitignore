@@ -40,6 +40,7 @@ data/raw/*
 !data/raw/README.md
 !data/raw/ercot_hourly_load/
 !data/raw/ercot_hourly_load/README.md
+data/raw/ercot_hourly_load/*.zip
 !data/raw/*metadata*.json
 data/processed/texas_dispatch_source_v1/demand_bus.csv
 # Rebuildable year-specific expansions are intentionally not committed. They
