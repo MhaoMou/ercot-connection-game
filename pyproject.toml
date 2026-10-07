@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ercot-game"
+version = "0.3.0"
+description = "Deterministic offline evaluator domain model for the ERCOT data-center competition"
+requires-python = ">=3.11"
+dependencies = [
+    "highspy>=1.8,<2",
+]
+
+[project.scripts]
+ercot-game = "ercot_game.cli:main"
+ercot-game-practice = "ercot_game.practice_server:main"
+ercot-game-batch = "ercot_game.batch_cli:main"
+ercot-game-check-csv = "ercot_game.csv_validator:main"
+
+# The browser and dispatch artifacts remain repository-level resources. The
+# Python runtime packages are mapped explicitly so a wheel contains both the
+# core package and the Zenodo batch adapter.
+[tool.setuptools]
+packages = [
+    "ercot_game",
+    "tools",
+    "tools.zenodo_texas",
+    "tools.ercot_public_network",
+    "tools.ercot_reduced_network",
+]
+
+[tool.setuptools.package-dir]
+ercot_game = "src/ercot_game"
+tools = "tools"
+"tools.zenodo_texas" = "tools/zenodo_texas"
+"tools.ercot_public_network" = "tools/ercot_public_network"
+"tools.ercot_reduced_network" = "tools/ercot_reduced_network"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

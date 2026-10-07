@@ -1,0 +1,45 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# macOS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Local databases, logs, and temporary outputs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+outputs/
+work/
+.superpowers/
+docs/superpowers/
+
+# LaTeX build products; keep the source, bibliography, README, and PDF.
+docs/student_manual/*.aux
+docs/student_manual/*.bbl
+docs/student_manual/*.blg
+docs/student_manual/*.fdb_latexmk
+docs/student_manual/*.fls
+docs/student_manual/*.out
+docs/student_manual/*.synctex.gz
+docs/student_manual/*.toc
+
+# Raw downloads and large source artifacts. Obtain raw datasets through the
+# documented provenance steps rather than committing local downloads.
+data/raw/*
+!data/raw/README.md
+!data/raw/*metadata*.json
+data/processed/texas_dispatch_source_v1/demand_bus.csv
+
+# Local generated batch/evaluation results; the sanitized web package is
+# intentionally tracked under web/data/results/.
