@@ -546,7 +546,6 @@ def _source_indexed_plans(
                 ConnectionPlan(
                     connection.connection_id,
                     connection.bus_id,
-                    connection.path_corridors,
                     connection.capacity_mw,
                     tuple(source_profile),
                 )
@@ -557,9 +556,6 @@ def _source_indexed_plans(
                 connections=tuple(connections),
                 generators=plan.generators,
                 storages=plan.storages,
-                intervention_budget_k=plan.intervention_budget_k,
-                curtailment_depth_mu=plan.curtailment_depth_mu,
-                flexibility_fee_per_mwh=plan.flexibility_fee_per_mwh,
             )
         )
     return tuple(remapped)
@@ -599,7 +595,6 @@ def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
         ConnectionPlan(
             connection.connection_id,
             connection.bus_id,
-            connection.path_corridors,
             connection.capacity_mw * alpha,
             connection.profile,
         )
@@ -610,9 +605,6 @@ def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
         connections=connections,
         generators=plan.generators,
         storages=plan.storages,
-        intervention_budget_k=plan.intervention_budget_k,
-        curtailment_depth_mu=plan.curtailment_depth_mu,
-        flexibility_fee_per_mwh=plan.flexibility_fee_per_mwh,
     )
 
 

@@ -12,29 +12,21 @@ dependencies = [
 ]
 
 [project.scripts]
-ercot-game = "ercot_game.cli:main"
-ercot-game-practice = "ercot_game.practice_server:main"
 ercot-game-batch = "ercot_game.batch_cli:main"
 ercot-game-check-csv = "ercot_game.csv_validator:main"
 
-# The browser and dispatch artifacts remain repository-level resources. The
-# Python runtime packages are mapped explicitly so a wheel contains both the
-# core package and the Zenodo batch adapter.
+# The package contains the canonical CSV evaluator and Zenodo DCOPF adapter.
 [tool.setuptools]
 packages = [
     "ercot_game",
     "tools",
     "tools.zenodo_texas",
-    "tools.ercot_public_network",
-    "tools.ercot_reduced_network",
 ]
 
 [tool.setuptools.package-dir]
 ercot_game = "src/ercot_game"
 tools = "tools"
 "tools.zenodo_texas" = "tools/zenodo_texas"
-"tools.ercot_public_network" = "tools/ercot_public_network"
-"tools.ercot_reduced_network" = "tools/ercot_reduced_network"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

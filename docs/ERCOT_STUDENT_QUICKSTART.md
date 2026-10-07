@@ -1,23 +1,48 @@
 # Student Quickstart
 
-This exercise asks you to propose where and how much data-center demand should connect over several periods, then compare the resulting score with other plans.
+This assignment is a file-based planning game. Each team submits one CSV
+proposal for the released half-year horizon. The instructor-side evaluator
+checks the file, combines valid team proposals, solves the hourly DCOPF
+dispatch problem, applies the documented fair continuous projection if the
+joint request is infeasible, and returns scores and diagnostics.
 
-The map has three layers:
+## Workflow
 
-1. **Public Network** — geographic context derived from public data.
-2. **Planning Model** — 12 Planning Regions and 20 Planning Interfaces used by the exercise.
-3. **Teaching Scenario** — instructional headroom, transfer limits, prices, and other operating assumptions for the selected period.
+1. Read the assignment handout and the released data dictionary.
+2. Inspect the Zenodo Texas bus, branch, generator, and demand tables.
+3. Choose one or more source `bus_id` values and create an hourly load profile.
+4. Optionally attach team-owned generators and storage devices to those buses.
+5. Write the required CSV file using the exact header and one-based period index.
+6. Run the local format checker before submitting:
 
-The geography is informed by public data, but the operating conditions and score are part of the exercise. Results are not actual ERCOT planning recommendations.
+   ```bash
+   python scripts/check_submission.py \
+     --file submissions/team_a.csv \
+     --horizon 4368 \
+     --artifact-dir data/processed/texas_dispatch_source_v1
+   ```
 
-## Suggested workflow
+   Use `4416` for the July--December release.
 
-1. Inspect several Planning Regions on the map and change the period selector.
-2. Select a region and use **Add connection site**, or add a site from the Plan section.
-3. Enter a capacity and a profile for each period. Select Planning Interfaces when the site should use a shared interface.
-4. Optionally add one or more generators and attach each to a connection site.
-5. Run the practice evaluation.
-6. Read the result in this order: feasibility, total score, accepted/curtailed energy, binding resources, and site/generator diagnostics.
+7. Submit the CSV through the instructor-designated channel.
+8. Use the returned score, dispatch summary, and binding-resource diagnostics
+   to refine the next submission.
 
-If a Planning Region or Planning Interface is binding, reconsider the location, capacity, profile, or shared path. The evaluator explains what constrained the submitted plan; it does not prescribe one correct answer.
+## Important modeling facts
 
+- The Texas subset of the Zenodo dataset is the source of the bus and
+  generator identifiers.
+- Each submission covers one half-year of one-hour periods: 4,368 hours for
+  January--June or 4,416 hours for July--December.
+- A team's generators and storage serve only that team's load.
+- Generator operating costs are taken from the supplied Zenodo generator
+  catalog. Student files specify the selected generator and capacity, not a
+  replacement operating-cost curve.
+- Storage is specified in MW and MWh. It must respect its power and energy
+  limits, cannot discharge more energy than is currently stored, and must end
+  the horizon with at least half of its energy capacity available.
+- The exercise does not include a student-controlled curtailment decision.
+
+See [Instructor Batch Evaluation](ERCOT_INSTRUCTOR_BATCH_EVALUATION.md) for
+the canonical CSV schema and evaluation outputs. See the assignment handout in
+`docs/student_manual/` for the full rules and scoring explanation.

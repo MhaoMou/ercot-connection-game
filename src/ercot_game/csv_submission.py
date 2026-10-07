@@ -282,7 +282,7 @@ def read_student_csv(
         profile = tuple(loads.get((period, site_id), 0.0) for period in range(1, horizon + 1))
         capacity = max(profile)
         normalized = tuple((value / capacity) if capacity else 0.0 for value in profile)
-        connections.append(ConnectionPlan(site_id, site_id, (), capacity, normalized))
+        connections.append(ConnectionPlan(site_id, site_id, capacity, normalized))
     generators = tuple(
         GeneratorPlan(
             generator_id,

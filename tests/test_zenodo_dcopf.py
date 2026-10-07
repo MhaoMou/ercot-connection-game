@@ -185,7 +185,7 @@ def test_dcopf_does_not_create_load_shedding_variables():
 def test_plan_adapter_adds_submitted_load_and_candidate_generator():
     plan = TeamPlan(
         "team-1",
-        connections=(ConnectionPlan("site-1", "3002054", (), 2.0, (1.0,)),),
+        connections=(ConnectionPlan("site-1", "3002054", 2.0, (1.0,)),),
         generators=(GeneratorPlan("gen-1", "site-1", 1.0, 5.0),),
     )
 
@@ -205,7 +205,7 @@ def test_batch_adapter_solves_teams_jointly():
     plans = tuple(
         TeamPlan(
             team_id,
-            connections=(ConnectionPlan(f"site-{team_id}", "3002054", (), 2.0, (1.0,)),),
+            connections=(ConnectionPlan(f"site-{team_id}", "3002054", 2.0, (1.0,)),),
             generators=(),
         )
         for team_id in ("team-1", "team-2")
@@ -224,7 +224,7 @@ def test_batch_adapter_solves_teams_jointly():
 def _batch_plan(team_id: str, generator_ids: tuple[str, ...]) -> TeamPlan:
     return TeamPlan(
         team_id,
-        connections=(ConnectionPlan(f"site-{team_id}", "3002054", (), 2.0, (1.0,)),),
+        connections=(ConnectionPlan(f"site-{team_id}", "3002054", 2.0, (1.0,)),),
         generators=tuple(
             GeneratorPlan(generator_id, f"site-{team_id}", 1.0, 5.0)
             for generator_id in generator_ids

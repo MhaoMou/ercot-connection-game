@@ -7,18 +7,16 @@ truth for the ranking and audit record.
 
 The production data path is the Texas portion of the Zenodo U.S. Test System
 dataset. Student files use source `bus_id` values from that artifact and
-generator IDs from `generator_limits.csv`; this batch workflow is distinct from
-the older browser teaching fixture and does not use the browser's planning-
-region IDs.
+generator IDs from `generator_limits.csv`. This guide describes the only
+supported production evaluation path.
 
 The prepared Zenodo demand artifact is timestamped **2016**. The assignment
 uses its January--June and July--December halves as two teaching-round
 calendars; these timestamps are a historical replay, not a 2028 forecast.
 
-The supported full-application execution mode is from a source checkout. A
-wheel contains the Python runtime packages, but browser assets, scoring rules,
-and prepared dispatch CSVs remain repository-level resources and must be
-supplied by path.
+The supported execution mode is from a source checkout. The Python runtime
+packages, scoring rules, and prepared dispatch CSVs remain repository-level
+resources and must be supplied by path.
 
 ## Run a batch
 
@@ -53,12 +51,10 @@ ercot-game-batch run \
 ```
 
 The command requires a submission directory, prepared dispatch artifact,
-scoring-rules JSON, output directory, and positive horizon. Canonical student
-files identify Zenodo source buses directly with `bus_id`; `--region-map`
-remains optional compatibility support for older files using the legacy
-`site_id` alias. Every bus appearing in a production CSV must have one row for
-every period in the selected half-year. Partial pilot files are rejected before
-dispatch.
+scoring-rules JSON, output directory, and positive horizon. Student files
+identify Zenodo source buses directly with `bus_id`. Every bus appearing in a
+production CSV must have one row for every period in the selected half-year.
+Partial pilot files are rejected before dispatch.
 
 `--period-indices`, when supplied, selects local scoring periods and is reserved
 for explicitly labeled smoke tests or debugging. `--source-period-offset`

@@ -29,7 +29,7 @@ def test_zenodo_adapter_contract_documents_fixed_load_and_active_storage_feature
 def _batch_plan(*, generator: GeneratorPlan | None = None) -> TeamPlan:
     return TeamPlan(
         "team-a",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (1.0,)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 1.0, (1.0,)),),
         generators=() if generator is None else (generator,),
     )
 
@@ -109,8 +109,8 @@ def test_plan_adapter_is_invariant_to_connection_and_generator_input_order(monke
     forward = TeamPlan(
         "team-1",
         connections=(
-            ConnectionPlan("site-b", "bus-b", (), 2.0, (1.0,)),
-            ConnectionPlan("site-a", "bus-a", (), 1.0, (1.0,)),
+            ConnectionPlan("site-b", "bus-b", 2.0, (1.0,)),
+            ConnectionPlan("site-a", "bus-a", 1.0, (1.0,)),
         ),
         generators=(
             GeneratorPlan("gen-b", "site-b", 1.0, 20.0),
@@ -163,8 +163,8 @@ def test_joint_batch_adapter_is_invariant_to_connection_input_order(monkeypatch)
     forward = TeamPlan(
         "team-1",
         connections=(
-            ConnectionPlan("site-b", "bus-b", (), 2.0, (1.0,)),
-            ConnectionPlan("site-a", "bus-a", (), 1.0, (1.0,)),
+            ConnectionPlan("site-b", "bus-b", 2.0, (1.0,)),
+            ConnectionPlan("site-a", "bus-a", 1.0, (1.0,)),
         ),
         generators=(
             GeneratorPlan("gen-b", "site-b", 1.0, 20.0),
@@ -215,7 +215,7 @@ def test_joint_adapter_parallel_workers_preserve_period_order(monkeypatch):
     monkeypatch.setattr("tools.zenodo_texas.plan_adapter.solve_prepared_period", fake_solve)
     plan = TeamPlan(
         "team-a",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (1.0, 1.0, 1.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 1.0, (1.0, 1.0, 1.0)),),
     )
 
     serial = plan_adapter.evaluate_plans_with_prepared_dcopf(
@@ -242,7 +242,7 @@ def test_joint_adapter_early_stop_does_not_solve_periods_after_infeasibility(mon
     monkeypatch.setattr("tools.zenodo_texas.plan_adapter.solve_prepared_period", fake_solve)
     plan = TeamPlan(
         "team-a",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (1.0, 1.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 1.0, (1.0, 1.0)),),
     )
 
     with pytest.raises(DCOPFInfeasible):
@@ -273,7 +273,7 @@ def test_prepared_artifact_loader_is_cached(tmp_path):
 def test_storage_schedule_respects_discharge_and_terminal_energy_constraints():
     plan = TeamPlan(
         "team-storage",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 4.0, (0.25, 0.5, 0.75, 1.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 4.0, (0.25, 0.5, 0.75, 1.0)),),
         storages=(StoragePlan("storage-a", "site-a", 2.0, 4.0),),
     )
 
@@ -290,7 +290,7 @@ def test_storage_schedule_respects_discharge_and_terminal_energy_constraints():
 def test_storage_schedule_is_time_step_aware_and_bounds_discharge_by_local_site_load():
     plan = TeamPlan(
         "team-storage",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (0.0, 0.5, 1.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 1.0, (0.0, 0.5, 1.0)),),
         storages=(StoragePlan("storage-a", "site-a", 2.0, 4.0),),
     )
 
@@ -317,7 +317,7 @@ def test_storage_schedule_is_time_step_aware_and_bounds_discharge_by_local_site_
 def test_storage_schedule_aggregates_discharge_limit_for_storages_at_one_site():
     plan = TeamPlan(
         "team-storage",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (0.0, 1.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 1.0, (0.0, 1.0)),),
         storages=(
             StoragePlan("storage-a", "site-a", 1.0, 4.0),
             StoragePlan("storage-b", "site-a", 1.0, 4.0),
@@ -348,7 +348,7 @@ def test_owned_generator_capacity_is_capped_by_each_teams_local_net_load(monkeyp
     plans = (
         TeamPlan(
             "team-a",
-            connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (1.0,)),),
+            connections=(ConnectionPlan("site-a", "bus-a", 1.0, (1.0,)),),
             generators=(
                 GeneratorPlan("gen-a", "site-a", 5.0, 10.0),
                 GeneratorPlan("gen-b", "site-a", 5.0, 10.0),
@@ -356,7 +356,7 @@ def test_owned_generator_capacity_is_capped_by_each_teams_local_net_load(monkeyp
         ),
         TeamPlan(
             "team-b",
-            connections=(ConnectionPlan("site-b", "bus-a", (), 20.0, (1.0,)),),
+            connections=(ConnectionPlan("site-b", "bus-a", 20.0, (1.0,)),),
         ),
     )
 
@@ -389,7 +389,7 @@ def test_storage_falls_back_to_idle_when_peak_shaving_makes_dispatch_infeasible(
     monkeypatch.setattr("tools.zenodo_texas.plan_adapter.solve_prepared_period", fake_solve)
     plan = TeamPlan(
         "team-storage",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 1.0, (0.0, 1.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 1.0, (0.0, 1.0)),),
         storages=(StoragePlan("storage-a", "site-a", 1.0, 4.0),),
     )
 
@@ -417,7 +417,7 @@ def test_single_and_batch_submitted_load_exclude_storage_activity(monkeypatch):
     monkeypatch.setattr("tools.zenodo_texas.plan_adapter.solve_prepared_period", fake_solve)
     plan = TeamPlan(
         "team-storage",
-        connections=(ConnectionPlan("site-a", "bus-a", (), 2.0, (0.0, 2.0)),),
+        connections=(ConnectionPlan("site-a", "bus-a", 2.0, (0.0, 2.0)),),
         storages=(StoragePlan("storage-a", "site-a", 1.0, 4.0),),
     )
 
