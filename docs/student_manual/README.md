@@ -3,6 +3,10 @@
 This directory contains the LaTeX source for the competitive data-center
 connection-planning assignment manual.
 
+For a compact inventory of the current game, scoring, storage, and
+instructor-side evaluator settings, see
+[`HYPERPARAMETERS.md`](HYPERPARAMETERS.md).
+
 ```text
 main.tex       # document source
 references.bib # cited sources
