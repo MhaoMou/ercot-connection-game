@@ -102,3 +102,26 @@ def test_loading_legend_reports_periods_for_multi_hour_steps():
     )
     assert "Peak line loading over 728 periods of 6 h" in svg
     assert "at or near limit in 3 of 728 periods" in svg
+
+
+def test_geographic_layout_draws_background_outline_and_note(tmp_path):
+    from ercot_game.grid_map import load_layout_background
+
+    layout = tmp_path / "geo.json"
+    layout.write_text(json.dumps({
+        "positions": {"1": [0.1, 0.1], "2": [0.9, 0.5]},
+        "background_paths": [[[0.0, 0.0], [1.0, 0.0], [1.0, 0.6], [0.0, 0.6]]],
+        "provenance": {"kind": "approximate geographic"},
+    }), encoding="utf-8")
+    paths, kind = load_layout_background(layout)
+    svg = render_svg(
+        positions={"1": (0.1, 0.1), "2": (0.9, 0.5)},
+        branches=(MapBranch("b1", "1", "2", 10.0),),
+        connection_by_bus={"2": 5.0},
+        background_paths=paths,
+        layout_kind=kind,
+    )
+    xml.dom.minidom.parseString(svg)
+    assert "<polygon" in svg
+    assert "Approximate geographic layout" in svg
+    assert "Schematic layout" not in svg

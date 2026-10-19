@@ -139,6 +139,21 @@ def load_or_create_layout(
     return positions
 
 
+def load_layout_background(layout_path: str | Path) -> tuple[list[list[tuple[float, float]]], str | None]:
+    """Optional outline paths and layout kind stored with a layout file.
+
+    Geographic layouts (``tools/activsg2000/build_geo_layout.py``) carry a
+    ``background_paths`` outline, such as the Texas border, in the same unit
+    coordinates as the bus positions.
+    """
+    path = Path(layout_path)
+    if not path.is_file():
+        return [], None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    paths = [[(float(x), float(y)) for x, y in polyline] for polyline in payload.get("background_paths", [])]
+    return paths, payload.get("provenance", {}).get("kind")
+
+
 def aggregate_connection_by_bus(
     submission_dirs: Iterable[str | Path],
     bus_ids: Iterable[str],
@@ -248,11 +263,16 @@ def render_svg(
     time_step_hours: float = 1.0,
     title: str = "Grid map",
     subtitle: str = "",
+    background_paths: Sequence[Sequence[tuple[float, float]]] = (),
+    layout_kind: str | None = None,
 ) -> str:
     """Return a self-contained interactive SVG document."""
     width, margin, panel = 1200, 40, 170
     plot = width - 2 * margin
-    y_extent = max((y for _, y in positions.values()), default=1.0) or 1.0
+    y_extent = max(
+        [y for _, y in positions.values()] + [y for path in background_paths for _, y in path],
+        default=1.0,
+    ) or 1.0
     height = round(panel + y_extent * plot + margin)
     base_load_by_bus = base_load_by_bus or {}
 
@@ -261,6 +281,11 @@ def render_svg(
         return margin + x * plot, panel + y * plot
 
     max_mw = max(connection_by_bus.values(), default=0.0)
+    layout_note = (
+        "Approximate geographic layout (bus locations from the 2016 ACTIVSg2000 release)."
+        if layout_kind == "approximate geographic"
+        else "Schematic layout, not geographic."
+    )
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
         f'width="{width}" height="{height}" font-family="Helvetica, Arial, sans-serif">',
@@ -272,7 +297,7 @@ def render_svg(
     if subtitle:
         out.append(f'<text x="{margin}" y="64" font-size="14">{escape(subtitle)}</text>')
     out.append(
-        f'<text x="{margin}" y="86" font-size="12" fill="#57606a">Schematic layout, not geographic. '
+        f'<text x="{margin}" y="86" font-size="12" fill="#57606a">{layout_note} '
         "Bus color = total connection capacity of all teams at that bus. "
         "Hover for details; scroll to zoom, drag to pan, double-click to reset.</text>"
     )
@@ -295,6 +320,9 @@ def render_svg(
             out.append(f'<text x="{x0}" y="{legend_y + 46}" font-size="11">{escape(label)}</text>')
 
     out.append('<g id="view">')
+    for path in background_paths:
+        points = " ".join(f"{margin + x * plot:.1f},{panel + y * plot:.1f}" for x, y in path)
+        out.append(f'<polygon points="{points}" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>')
     ordered = sorted(
         branches,
         key=lambda b: (loading_by_branch or {}).get(b.branch_id, (0.0, 0))[0],
@@ -349,6 +377,7 @@ def build_map(
 ) -> str:
     bus_ids, branches, base_load = load_network(artifact_dir)
     positions = load_or_create_layout(layout_path, bus_ids, branches)
+    background_paths, layout_kind = load_layout_background(layout_path)
     connection, _ = aggregate_connection_by_bus(submission_dirs, load_bus_ids(artifact_dir))
     loading, hours = (None, 0)
     if dispatch_dir is not None:
@@ -361,6 +390,8 @@ def build_map(
         loading_by_branch=loading,
         hours=hours,
         time_step_hours=time_step_hours,
+        background_paths=background_paths,
+        layout_kind=layout_kind,
         title=title,
         subtitle=subtitle,
     )
