@@ -196,23 +196,25 @@ classroom dispatch.
 
 ## Fair projection and execution parameters
 
-Projection is evaluator policy, not a student control. Before projection, the
-evaluator applies fixed anti-manipulation request caps:
+Projection is evaluator policy, not a student control. When the joint request
+is infeasible, the evaluator applies the uniform rule: a common level `t` (MW)
+rises, each team is served `min(requested MW, t)` with all of its sites scaled
+by one fraction, and teams that are not blocked keep rising together until
+every unfilled team is blocked. A team served below the minimum allocation
+gets nothing: the largest such request is dropped and the allocation is
+recomputed. There are no per-site or per-team request caps.
 
 | Parameter | Value | Units | Origin | Rationale / reference |
 |---|---:|---|---|---|
-| Per-site request cap | 100 | MW | INSTRUCTOR-CHOSEN | Prevents one oversized site from dominating projection. |
-| Per-team request cap | 500 | MW | INSTRUCTOR-CHOSEN | Fixed team-level anti-manipulation cap. |
-| Multi-team request ratio | 1.0 times the smallest positive team request | ratio | INSTRUCTOR-CHOSEN | Equalizes the largest request to the smallest positive request before projection. |
-| Minimum positive service fraction | 1e-6 | fraction | INSTRUCTOR-CHOSEN | Keeps every positive valid request eligible for service. |
-| Feasibility tolerance | 1e-6 | fraction | INSTRUCTOR-CHOSEN | Bisection and boundary-search stopping tolerance. |
-| Total-load tolerance | max(1e-6, 1e-6 times optimum) | MWh | INSTRUCTOR-CHOSEN | Defines the near-optimal set for fairness tie-breaking. |
-| Projection objective | total served load, then sum of log served loads | objective | INSTRUCTOR-CHOSEN | Maximizes total service first, then proportional fairness among near-optimal solutions. |
-| CLI `--projection-iterations` | 10 default; internal ray search at least 32 | iterations | INSTRUCTOR-CHOSEN | Runtime lower bound with deterministic refinement. |
+| Allocation rule | uniform rule (max-min fair in requested MW) with water-filling | policy | INSTRUCTOR-CHOSEN | Strategy-proof for one divisible resource (Sprumont, "The Division Problem with Single-Peaked Preferences," *Econometrica* 59(2), 1991): inflating a request earns nothing beyond the common level. |
+| Minimum allocation | 0.5 | fraction of request | INSTRUCTOR-CHOSEN | Near the ~44% served share at which a Submission 1 site breaks even. On a network an inflated request can lower everyone's level; this drops it. Patterned on the minimum allocation in [ERCOT's batch study for large loads](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf). |
+| Feasibility tolerance | min(0.1, 1e-3 times the largest request) | MW | INSTRUCTOR-CHOSEN | Bisection stopping tolerance for each level; finer values only add dispatch calls. |
+| Projection objective label | `uniform_rule_max_min_capacity` | objective | INSTRUCTOR-CHOSEN | Recorded in the audit with the common level `common_level_mw`. |
+| CLI `--projection-iterations` | 10 default; lower bound on bisection steps | iterations | INSTRUCTOR-CHOSEN | Runtime lower bound with deterministic refinement. |
 | Malformed submission | Reject file; continue valid teams | policy | INSTRUCTOR-CHOSEN | Failure isolation prevents one file from erasing other teams' results. |
 
 The result records a separate service fraction and projected load for each team,
-the cap policy, and the projection scope. It does not use first-come-first-
+the common level, and the projection scope. It does not use first-come-first-
 serve ordering. If joint projection is unavailable, deterministic leave-one-
 team-out and individual fallback attempts are recorded where possible.
 

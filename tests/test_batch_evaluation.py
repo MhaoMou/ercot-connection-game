@@ -665,7 +665,7 @@ def test_evaluate_csv_batch_uses_legacy_subset_then_individual_fallback(
     assert "fair continuous projection unavailable" in result.isolation_events[-1].reason
 
 
-def test_fair_continuous_projection_finds_fraction_below_old_bisection_resolution(
+def test_fair_continuous_projection_drops_lone_team_below_minimum_allocation(
     tmp_path, monkeypatch
 ):
     submission = tmp_path / "team-a.csv"
@@ -697,8 +697,8 @@ def test_fair_continuous_projection_finds_fraction_below_old_bisection_resolutio
 
     assert projection is not None
     _dispatch, service_fraction, _projected_plans = projection
-    assert 0.0 < service_fraction < 1 / 1024
-    assert service_fraction == pytest.approx(0.0001, abs=2e-6)
+    assert service_fraction == 0.0
+    assert projection.diagnostics.cap_policy["dropped_team_count"] == 1.0
     assert observed_alphas[0] == 0.0
 
 
@@ -733,8 +733,8 @@ def test_zero_service_projection_prevents_order_dependent_team_removal(
         event for event in result.isolation_events if event.outcome == "joint_projected"
     )
     assert "service fraction=0" in projection_event.reason
-    assert "minimum positive service fraction=1e-06" in projection_event.reason
-    assert "bisection tolerance=1e-06" in projection_event.reason
+    assert "minimum allocation fraction=0.5" in projection_event.reason
+    assert "bisection tolerance MW=" in projection_event.reason
     assert not any(
         event.outcome in {"feasible_remainder", "individual_fallback"}
         for event in result.isolation_events
@@ -785,7 +785,7 @@ def _run_projection_with_capacity_oracle(
     return projection, calls
 
 
-def test_fair_projection_computes_heterogeneous_team_fractions(tmp_path, monkeypatch):
+def test_fair_projection_gives_equal_mw_when_both_teams_bind(tmp_path, monkeypatch):
     projection, _calls = _run_projection_with_capacity_oracle(
         monkeypatch,
         tmp_path,
@@ -794,14 +794,67 @@ def test_fair_projection_computes_heterogeneous_team_fractions(tmp_path, monkeyp
     )
 
     assert projection is not None
-    assert projection.service_fraction_by_team["team-a"] == pytest.approx(1.0, abs=2e-5)
-    assert projection.service_fraction_by_team["team-b"] == pytest.approx(0.5, abs=2e-5)
     assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 4.0, "team-b": 2.0}, abs=2e-4
+        {"team-a": 8.0 / 3.0, "team-b": 8.0 / 3.0}, abs=5e-3
+    )
+    assert projection.diagnostics.objective == "uniform_rule_max_min_capacity"
+    assert projection.diagnostics.cap_policy["common_level_mw"] == pytest.approx(8.0 / 3.0, abs=5e-3)
+    assert projection.diagnostics.cap_policy["dropped_team_count"] == 0.0
+
+
+def test_fair_projection_water_fills_teams_that_are_not_blocked(tmp_path, monkeypatch):
+    projection, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path,
+        (
+            _projection_plan("team-a", 2.0),
+            _projection_plan("team-b", 2.0),
+            _projection_plan("team-c", 4.0),
+        ),
+        lambda capacities: capacities["team-a"] + capacities["team-b"] <= 2.0 + 1e-8
+        and capacities["team-c"] <= 3.0 + 1e-8,
+    )
+
+    assert projection is not None
+    assert projection.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 1.0, "team-b": 1.0, "team-c": 3.0}, abs=5e-3
     )
 
 
-def test_fair_projection_maximizes_total_load_before_fair_tie_break(tmp_path, monkeypatch):
+def test_fair_projection_drops_inflated_request_below_minimum_allocation(
+    tmp_path, monkeypatch
+):
+    def feasible(capacities):
+        return sum(capacities.values()) <= 6.0 + 1e-8
+
+    (tmp_path / "honest").mkdir()
+    (tmp_path / "inflated").mkdir()
+
+    honest, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path / "honest",
+        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
+        feasible,
+    )
+    inflated, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path / "inflated",
+        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 100.0)),
+        feasible,
+    )
+
+    assert honest is not None and inflated is not None
+    assert honest.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 3.0, "team-b": 3.0}, abs=5e-3
+    )
+    # Inflating to 100 MW would be served 3% of the request: below the
+    # minimum, so it gets nothing and the honest team is served in full.
+    assert inflated.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 4.0, "team-b": 0.0}, abs=5e-3
+    )
+
+
+def test_fair_projection_splits_shared_limit_equally(tmp_path, monkeypatch):
     projection, _calls = _run_projection_with_capacity_oracle(
         monkeypatch,
         tmp_path,
@@ -817,7 +870,7 @@ def test_fair_projection_maximizes_total_load_before_fair_tie_break(tmp_path, mo
     assert projection.service_fraction_by_team["team-b"] == pytest.approx(0.625, abs=3e-5)
 
 
-def test_fair_projection_uses_proportional_fair_tie_break(tmp_path, monkeypatch):
+def test_fair_projection_reports_proportional_fair_utility(tmp_path, monkeypatch):
     projection, _calls = _run_projection_with_capacity_oracle(
         monkeypatch,
         tmp_path,
@@ -874,13 +927,19 @@ def test_fair_projection_preserves_undefined_pf_utility_as_negative_infinity(
         lambda capacities: sum(value > 1e-8 for value in capacities.values()) <= 1,
     )
 
+    # No single team is blocked but any two are, so every team is below the
+    # minimum; teams are dropped by request size, then team id.
     assert projection is not None
-    assert projection.total_projected_load_mwh == pytest.approx(1.0, abs=2e-5)
+    assert projection.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 0.0, "team-b": 0.0, "team-c": 1.0}, abs=5e-3
+    )
     assert math.isinf(projection.proportional_fair_utility)
     assert projection.proportional_fair_utility < 0.0
 
 
-def test_fair_projection_caps_oversized_requests_before_scaling(tmp_path, monkeypatch):
+def test_fair_projection_serves_small_request_in_full_against_oversized_request(
+    tmp_path, monkeypatch
+):
     projection, _calls = _run_projection_with_capacity_oracle(
         monkeypatch,
         tmp_path,
@@ -889,29 +948,14 @@ def test_fair_projection_caps_oversized_requests_before_scaling(tmp_path, monkey
     )
 
     assert projection is not None
-    capped = projection.capped_request_capacity_mw_by_team
-    assert capped["team-adversarial"] < 10_000.0
-    assert capped["team-adversarial"] <= batch_evaluation._FAIR_PROJECTION_MAX_TEAM_CAPACITY_MW
-    assert projection.projected_capacity_mw_by_team["team-adversarial"] <= capped["team-adversarial"]
-    assert all(0.0 <= alpha <= 1.0 for alpha in projection.service_fraction_by_team.values())
-
-
-def test_fair_projection_equalizes_oversized_request_against_small_request(
-    tmp_path, monkeypatch
-):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (_projection_plan("team-adversarial", 10_000.0), _projection_plan("team-small", 1.0)),
-        lambda capacities: sum(capacities.values()) <= 60.0 + 1e-8,
+    assert projection.capped_request_capacity_mw_by_team == pytest.approx(
+        {"team-adversarial": 10_000.0, "team-small": 10.0}
     )
-
-    assert projection is not None
-    capped = projection.capped_request_capacity_mw_by_team
-    assert capped == pytest.approx({"team-adversarial": 1.0, "team-small": 1.0})
+    assert projection.service_fraction_by_team["team-small"] == pytest.approx(1.0)
     assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-adversarial": 1.0, "team-small": 1.0}, abs=2e-5
+        {"team-adversarial": 0.0, "team-small": 10.0}, abs=2e-2
     )
+    assert all(0.0 <= alpha <= 1.0 for alpha in projection.service_fraction_by_team.values())
 
 
 def test_fair_projection_reports_projected_load_in_mwh(tmp_path, monkeypatch):

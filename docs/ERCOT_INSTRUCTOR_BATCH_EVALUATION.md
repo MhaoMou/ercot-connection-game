@@ -209,20 +209,33 @@ common convex curve above.
 ## Fair projection and failure isolation
 
 Malformed files are rejected independently so valid teams remain eligible. If
-the valid joint request is infeasible, the evaluator applies fixed caps before
-projection:
+the valid joint request is infeasible, the evaluator allocates connection
+capacity with the uniform rule (max-min fair in MW):
 
-- 100 MW per site;
-- 500 MW per team;
-- in a multi-team case, no request exceeds the smallest positive team request.
+- a common level `t` rises, and team `i` is served `min(r_i, t)`, where `r_i`
+  is its total requested connection MW; all sites of a team are scaled by the
+  same fraction `alpha_i`;
+- a team asking for less than `t` is served in full, so asking for more than
+  the common level earns nothing extra;
+- when `t` is blocked, the teams that can still grow on their own keep rising
+  together (water-filling) until every unfilled team is blocked;
+- minimum allocation: a team served below 50% of its request gets nothing.
+  The largest such request (ties by team id) is dropped and the allocation is
+  recomputed until every remaining team meets the minimum, as in ERCOT's batch
+  study for large loads.
 
-It then chooses separate `alpha_i` values by first maximizing total served load.
-Within a tolerance of the optimum, it maximizes proportional-fair utility,
-the sum of log served loads, while enforcing a minimum positive service
-fraction of `1e-6`. Projection tolerance is `1e-6`; the CLI option
-`--projection-iterations 10` is a lower bound and internal ray search uses at
-least 32 iterations. The audit records per-team fractions, projected load,
-request caps, objective, and scope.
+The uniform rule is strategy-proof for one divisible resource (Sprumont,
+1991). On the network, an inflated request at a congested bus does not help
+its team but can lower everyone's level, because one fraction scales all of a
+team's sites; the minimum allocation removes such requests (a 2028 Jul-Dec
+stress test with a 300 MW request at bus 1002 lowered the level from 73.3 to
+67.9 MW without it). There are no per-site or per-team caps. Each level is
+found by bisection to `min(0.1 MW, 1e-3 x largest request)`; the CLI option
+`--projection-iterations 10` is a lower bound on bisection iterations. The audit records per-team fractions,
+projected load, requested MW, the common level, minimum fraction, tolerance and dropped-team count
+(`cap_policy`),
+the objective (`uniform_rule_max_min_capacity`), and scope. Proportional-fair
+utility is still reported as a diagnostic.
 
 No first-come-first-serve ordering is used. If projection is unavailable, the
 evaluator records deterministic leave-one-team-out and individual fallback

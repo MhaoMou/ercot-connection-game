@@ -113,7 +113,7 @@ only to the next submission in the same week. Week reset discards it.
 Projection diagnostics are validated before state commit. Every diagnostic map
 must contain only accepted materialized team IDs; rejected or unknown teams
 cause the transaction to fail. Per-team service fractions, projected loads,
-request caps, and proportional-fair utility are audit data, not student input.
+requested MW, the common level, and proportional-fair utility are audit data, not student input.
 
 Classroom output is split from raw audit output. The shared safe output contains
 aggregate counts, aggregate periods, and aggregate projection metadata. Each
