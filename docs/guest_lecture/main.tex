@@ -1,334 +1,341 @@
 \documentclass[aspectratio=169,11pt]{beamer}
 
-% Moloch (maintained Metropolis successor) with Purdue colors.
-\usetheme[progressbar=frametitle, sectionpage=progressbar, numbering=fraction]{moloch}
-\definecolor{PurdueBlack}{HTML}{000000}
-\definecolor{PurdueGold}{HTML}{CFB991}
-\definecolor{PurdueRush}{HTML}{DAAA00}
-\definecolor{PurdueAged}{HTML}{8E6F3E}
-\definecolor{PurdueSteel}{HTML}{555960}
-\definecolor{PurdueDust}{HTML}{EBD99F}
-\definecolor{LecBlue}{HTML}{0969DA}
-\setbeamercolor{normal text}{fg=black!90, bg=white}
-\setbeamercolor{frametitle}{fg=white, bg=PurdueBlack}
-\setbeamercolor{progress bar}{fg=PurdueRush, bg=PurdueDust}
-\setbeamercolor{title separator}{fg=PurdueRush}
-\setbeamercolor{progress bar in section page}{fg=PurdueRush, bg=PurdueDust}
-\setbeamercolor{alerted text}{fg=PurdueAged}
-\setbeamercolor{example text}{fg=LecBlue}
-\setbeamercolor{block title}{fg=black, bg=PurdueDust!70}
-\setbeamercolor{block body}{bg=PurdueDust!20}
+% Standard Beamer (Madrid) with a light-blue theme color.
+\usetheme{Madrid}
+\definecolor{ThemeBlue}{HTML}{5B9BD5}
+\definecolor{ThemeDark}{HTML}{1F4E79}
+\usecolortheme[named=ThemeBlue]{structure}
+\setbeamercolor{alerted text}{fg=ThemeDark}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{itemize items}[circle]
+\setbeamertemplate{enumerate items}[default]
+\AtBeginSection[]{%
+  \begin{frame}
+    \vfill
+    \centering
+    \begin{beamercolorbox}[sep=10pt,center,rounded=true]{title}
+      \usebeamerfont{title}\insertsectionhead
+    \end{beamercolorbox}
+    \vfill
+  \end{frame}}
+\setbeamerfont{footnote}{size=\tiny}
 
 \usepackage{amsmath,amssymb,mathtools,bm}
 \usepackage{booktabs}
-\usepackage{tikz}
-\usetikzlibrary{positioning,calc,arrows.meta,backgrounds,fit}
-\usepackage{pgfplots}
-\pgfplotsset{compat=1.18}
-\usepgfplotslibrary{fillbetween}
 \usepackage{listings}
 \lstset{basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
-  backgroundcolor=\color{PurdueDust!25}, frame=none, breaklines=true}
+  backgroundcolor=\color{ThemeBlue!12}, frame=none, breaklines=true}
+\usepackage[backend=bibtex, style=numeric, sorting=none, maxbibnames=3,
+  minbibnames=1, maxcitenames=1, mincitenames=1, giveninits=true, doi=false, url=false, isbn=false]{biblatex}
+\addbibresource{references.bib}
+\renewcommand*{\bibfont}{\tiny}
 
 \input{data/numbers.tex}
 
 \newcommand{\HC}{\ensuremath{\mathrm{HC}}}
 \newcommand{\MW}{\ensuremath{\,\mathrm{MW}}}
 \newcommand{\MWh}{\ensuremath{\,\mathrm{MWh}}}
-\newcommand{\src}[1]{{\scriptsize\color{PurdueSteel}[#1]}}
+% Decision variables of the hosting-capacity LP, each in its own color.
+\definecolor{varL}{HTML}{C0392B}
+\definecolor{varPg}{HTML}{0969DA}
+\definecolor{varP}{HTML}{1A7F37}
+\definecolor{varF}{HTML}{8250DF}
+\newcommand{\vL}{{\color{varL}L}}
+\newcommand{\vpg}{{\color{varPg}\mathbf{p}^{\mathrm{g}}}}
+\newcommand{\vp}{{\color{varP}\mathbf{p}}}
+\newcommand{\vf}{{\color{varF}\mathbf{f}}}
+\definecolor{varU}{HTML}{D35400}
+\definecolor{varE}{HTML}{117A8B}
+\newcommand{\vu}{{\color{varU}u}}
+\newcommand{\ve}{{\color{varE}e}}
+\definecolor{varG}{HTML}{B8860B}
+\definecolor{varD}{HTML}{6D4C41}
+\newcommand{\vg}{{\color{varG}g}}
+\newcommand{\vd}{{\color{varD}\delta}}
+% Company logo at text height, aligned with the baseline.
+\newcommand{\companylogo}[2][1em]{\raisebox{-0.15em}{\includegraphics[height=#1]{figures/logos/#2.pdf}}}
+% Compact reference (first author, venue, year) as a footnote on the slide
+% where it is cited; the full entries are on the References slide.
+\DeclareCiteCommand{\fcite}[\mkbibfootnote]
+  {\usebibmacro{prenote}}
+  {\printtext[labelnumberwidth]{\printfield{labelnumber}}\addspace
+   \printnames[labelname][1-1]{labelname}%
+   \setunit{\addcomma\space}%
+   \iffieldundef{journaltitle}
+     {\iffieldundef{booktitle}
+       {\iffieldundef{howpublished}
+         {\iflistundef{institution}{\printfield[emph]{title}}{\printlist{institution}}}
+         {\printfield{howpublished}}}
+       {\printfield{booktitle}}}
+     {\printfield[journaltitle]{journaltitle}}%
+   \setunit{\addcomma\space}\printfield{year}}
+  {\multicitedelim}
+  {\usebibmacro{postnote}}
 
 \title{Hosting Capacity and the Data-Center Connection Game}
-\subtitle{How much load can a bus take, and who gets it?}
 \author{Minghao Mou}
-\institute{Elmore Family School of Electrical and Computer Engineering, Purdue University}
-\date{Guest lecture, October 2026}
+\institute{Purdue ECE}
+\date{\today}
 
 \begin{document}
 
-\maketitle
+\begin{frame}
+  \maketitle
+\end{frame}
 
 % ===========================================================================
-\begin{frame}{Why this question, now}
+\begin{frame}{An unprecedented surge in demand for electricity}
   \begin{itemize}
-    \item Large new loads, especially AI data centers, ask for hundreds of MW at
-      one point of the transmission grid.
-    \item Before a request is approved, the utility must answer:
-      \alert{how much load can this bus take without violating network limits?}
-    \item When several requests compete for the same headroom:
-      \alert{who gets served, and how much?}
+    \item \textbf{Scale.} ERCOT is tracking more than \alert{438\,GW} of
+      connection requests from large loads as of \alert{mid-2026}, nearly 90\%
+      of them data centers, against an all-time peak demand of
+      85.5\,GW set on \alert{August 2023}.\fcite{ercot2026batch}
+    \item \textbf{Single sites are now GW-sized.}
+      \begin{itemize}
+        \item \companylogo{openai_symbol}\,OpenAI's Stargate: nearly \alert{7\,GW}
+          planned across its announced sites.\fcite{openai2025stargate}
+        \item \companylogo[0.75em]{anthropic_wordmark}: \$50B of new data centers in Texas and New
+          York;\fcite{anthropic2025invest} up to \alert{5\,GW} of compute with
+          Amazon;\fcite{anthropic2026amazon} single training sites of
+          \alert{2\,GW} (2027) and \alert{5\,GW} (2028) expected.\fcite{anthropic2025energy}
+      \end{itemize}
   \end{itemize}
-  \vspace{0.6em}
-  \textbf{Today}
+\end{frame}
+
+\begin{frame}{Who decides, and the two questions for today}
+  \begin{itemize}
+    \item In ERCOT, the transmission service provider (e.g., Oncor) and ERCOT
+      study each large-load request.
+    \item Since 2026, ERCOT studies eligible large loads \emph{together} and
+      allocates transmission capacity ``based on what the grid can reliably
+      support''.\fcite{ercot2026batch}
+  \end{itemize}
+  \vspace{0.8em}
   \begin{enumerate}
-    \item Hosting capacity as an optimization problem: one bus, many periods,
-      many buses, with local generation and storage, with flexibility.
-    \item The connection game: a classroom version of this planning problem on a
-      2{,}000-bus synthetic Texas grid.
+    \item How much load can a bus take? \hfill \textcolor{gray}{Part I: hosting capacity}
+    \item When requests compete, who gets served? \hfill \textcolor{gray}{Part II: the connection game}
   \end{enumerate}
 \end{frame}
 
 % ===========================================================================
-\section{Hosting capacity}
+\section{Part I: Hosting capacity}
 
 \begin{frame}{What is hosting capacity?}
-  \begin{block}{Definition}
-    The largest amount of new generation or \emph{load} that can be connected
-    without performance becoming unacceptable, with the existing network and
+  \begin{block}{Hosting capacity of a location}
+    The largest amount of new \emph{load} that can be connected there without
+    violating the network's operating limits, with the existing network and
     controls.
-    \src{Bollen \& Hassan 2011; Bollen \& R\"onnberg 2017}
   \end{block}
   \begin{itemize}
-    \item EPRI: ``the amount of PV that can be accommodated without impacting
-      power quality or reliability under existing control and infrastructure
-      configurations'' \src{Rylander et al., EPRI 2015}
-    \item Originally for PV on distribution feeders; the same idea applies to
-      large loads on transmission \src{Cicilio et al. 2021; Wan et al. 2026}.
-    \item Ways to compute it: stochastic (Monte Carlo), streamlined, time-series,
-      and \alert{optimization-based} \src{Mulenga et al. 2020; Ismael et al. 2019}.
+    \item The idea started with \emph{distributed generation}, e.g.\ rooftop
+      solar photovoltaic (PV) panels on distribution feeders: how much PV can a
+      feeder absorb?\fcite{bollen2011integration,epri2015feeder}
+    \item The same question applies to large new consumption,\fcite{bollen2017hosting}
+      and to transmission-level loads such as data
+      centers.\fcite{cicilio2021transmission,wan2026hosting}
+    \item Computed by stochastic simulation, streamlined rules, time series, or
+      \alert{optimization} (today).\fcite{mulenga2020review,ismael2019state}
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Single-bus load hosting capacity as an LP}
-  Extra load $L$ at bus $k$ in period $t$; existing generators redispatch:
+\begin{frame}{Single-bus hosting capacity as a linear program}
+  Extra load $\vL$ at bus $k$ in hour $t$; existing generators redispatch:\fcite{alturki2018optimization,wan2026hosting}
+  \vspace{-0.3em}
   \begin{align*}
-    \HC_{k,t} = \max_{L,\,p,\,\theta} \quad & L\\
-    \text{s.t.}\quad
-    & \textstyle\sum_{g\in\mathcal G_n} p_g + s_{n,t} - d_{n,t} - L\,\mathbf{1}[n=k]
-      = \sum_{\ell:\,o(\ell)=n} f_\ell - \sum_{\ell:\,r(\ell)=n} f_\ell \quad \forall n\\
-    & f_\ell = b_\ell(\theta_{o(\ell)} - \theta_{r(\ell)}),\quad |f_\ell| \le F_\ell
-      \quad \forall \ell\\
-    & p_g^{\min} \le p_g \le p_g^{\max}\quad \forall g,\qquad \theta_{\mathrm{ref}} = 0,\quad L\ge 0
+    \HC_{k,t} = \max_{\vL,\,\vpg,\,\vp,\,\vf}\ \ & \vL\\[-0.2em]
+    \text{s.t.}\ \ &
+      \underbrace{\vp = C\,\vpg - \mathbf d_t - \vL\,\mathbf e_k}_{\text{net injections (new load at } k)},\qquad
+      \underbrace{\mathbf 1^{\top}\vp = 0}_{\text{system balance}},\qquad
+      \underbrace{\vf = H\,\vp}_{\text{DC power flow}}\\[0.2em]
+    & \underbrace{|\vf| \le \mathbf F}_{\text{line thermal limits}},\qquad
+      \underbrace{\mathbf p^{\min} \le \vpg \le \mathbf p^{\max}}_{\text{generator limits}},\qquad
+      \\
+    & \vL \ge 0
   \end{align*}
-  \begin{itemize}
-    \item The DCOPF constraints with one extra load; the cost objective is
-      replaced by ``make $L$ as large as possible'' \src{Alturki et al. 2018; Wan et al. 2026}.
-    \item At the optimum a line or the generation limit binds: the
-      \alert{bottleneck} of bus $k$ (read off the duals).
-    \item PTDF view: $|f_\ell(L)| = |f^0_\ell - \mathrm{PTDF}_{\ell,k}L + \dots| \le F_\ell$,
-      so buses ``far'' from tight lines host more.
-  \end{itemize}
+  \vspace{-0.4em}
+  {\footnotesize \textbf{Decision variables:} $\vL$ new load, $\vpg$ generator outputs,
+  $\vp$ net bus injections, $\vf$ line flows.
+  Data: $C$ maps generators to buses, $\mathbf d_t$ bus loads, $H$ the PTDF (shift-factor) matrix, $\mathbf F$
+  line limits.}\\[0.3em]
 \end{frame}
 
 \begin{frame}{Hosting capacity varies a lot across buses}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.55\textwidth}
-      \begin{tikzpicture}
-        \begin{axis}[width=0.9\linewidth, height=5.4cm, ybar, bar width=4pt,
-          xlabel={$\min_t \HC_{k,t}$ on the peak day (MW)}, ylabel={buses},
-          ymin=0, xmin=0, axis lines*=left, tick label style={font=\scriptsize},
-          label style={font=\scriptsize}]
-          \addplot[fill=PurdueGold, draw=PurdueAged] table[x=bin_mw, y=count, col sep=comma]{data/hc_histogram.csv};
-        \end{axis}
-      \end{tikzpicture}
+    \begin{column}{0.5\textwidth}
+      \includegraphics[width=\linewidth]{figures/hc_histogram.pdf}
     \end{column}
-    \begin{column}{0.42\textwidth}
+    \begin{column}{0.48\textwidth}
       \small
-      ACTIVSg2000, 2028 Jul--Dec, peak-load day (four 6-hour periods),
-      all \HCbuses{} buses:
+      ACTIVSg2000 synthetic Texas grid,\fcite{birchfield2017grid} 2028 Jul--Dec,
+      the 24 hours of the peak-load day, all \HCbuses{} buses:
       \begin{itemize}
         \item median \HCmedian\MW
         \item 10\% of buses below \HCpten\MW
-        \item 90\% of buses below \HCpninety\MW; \HCabove{} buses above 2{,}000\MW{} (not shown)
+        \item 90\% below \HCpninety\MW; \HCabove{} buses above 2{,}000\MW{} (not shown)
         \item smallest: \HCmin\MW
       \end{itemize}
-      \vspace{0.3em}
-      Computed with the course tool
-      \texttt{ercot-game-hosting-capacity} (Gurobi, \HCruntime).
+      \vspace{0.2em}
+      % \HCruntime{} with \texttt{ercot-game-hosting-capacity} (Gurobi).
     \end{column}
   \end{columns}
 \end{frame}
 
-\begin{frame}{Over time: the stressed periods bind}
+\begin{frame}{Over time: the stressed hours bind}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.58\textwidth}
-      \begin{tikzpicture}
-        \begin{axis}[width=0.9\linewidth, height=5.2cm, xlabel={6-hour period of 2028 Jul--Dec},
-          ylabel={$\HC_{k,t}$ (MW)}, axis lines*=left, legend style={font=\scriptsize, draw=none, at={(0.98,0.98)}, anchor=north east},
-          tick label style={font=\scriptsize}, label style={font=\scriptsize}, xmin=0, xmax=736]
-          \addplot[PurdueAged, thin] table[x=period, y=b7419, col sep=comma]{data/hc_series.csv};
-          \addlegendentry{bus 7419}
-          \addplot[LecBlue, thin] table[x=period, y=b1002, col sep=comma]{data/hc_series.csv};
-          \addlegendentry{bus 1002}
-        \end{axis}
-      \end{tikzpicture}
+    \begin{column}{0.5\textwidth}
+      \includegraphics[width=\linewidth]{figures/hc_series.pdf}
     \end{column}
-    \begin{column}{0.4\textwidth}
+    \begin{column}{0.48\textwidth}
       \small
-      A constant load must be served in \emph{every} period:
+      A constant load must be served in \emph{every} hour:
       \[
-        \HC_k = \min_t \HC_{k,t}
+        \HC_k = \min_t \HC_{k,t}\quad\text{(dashed)}
       \]
       \begin{itemize}
-        \item Bus \SerTwoBus: min \SerTwoMin, median \SerTwoMed\MW{}
-          (load-driven: tight in peak periods)
-        \item Bus \SerOneBus: min \SerOneMin, median \SerOneMed\MW{}
-          (structural: almost constant)
+        \item Bus \SerTwoBus: \SerTwoMin\MW{} to \SerTwoMax\MW, median
+          \SerTwoMed\MW{}: tight at peak hours.
+        \item Bus \SerOneBus: \SerOneMin\MW{} to \SerOneMax\MW{}: the network
+          limits it, not the load cycle.
       \end{itemize}
-      ``Dynamic hosting capacity'' treats this time variation explicitly
-      \src{de Oliveira et al. 2019}.
+      ``Dynamic hosting capacity'' treats this time variation
+      explicitly.\fcite{deoliveira2019dynamic}
     \end{column}
   \end{columns}
 \end{frame}
 
 \begin{frame}{Many buses at once: the hosting-capacity region}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.5\textwidth}
-      \begin{tikzpicture}
-        \begin{axis}[width=0.9\linewidth, height=5.4cm, xlabel={new load at bus 1002 (MW)},
-          ylabel={new load at bus 1010 (MW)}, axis lines*=left, xmin=0, ymin=0,
-          tick label style={font=\scriptsize}, label style={font=\scriptsize}]
-          \addplot[name path=b, thick, PurdueAged] table[x=la, y=lb, col sep=comma]{data/pair_boundary.csv};
-          \path[name path=axis] (axis cs:0,0) -- (axis cs:\PairHCa,0);
-          \addplot[PurdueGold!60] fill between[of=b and axis];
-          \draw[dashed, PurdueSteel] (axis cs:\PairHCa,0) |- (axis cs:0,\PairHCb);
-          \node[font=\scriptsize, anchor=north east, align=right] at (axis cs:\PairHCa,\PairHCb) {box of\\single-bus HCs};
-        \end{axis}
-      \end{tikzpicture}
-    \end{column}
     \begin{column}{0.48\textwidth}
-      \small
+      \includegraphics[width=\linewidth]{figures/hc_region.pdf}
+    \end{column}
+    \begin{column}{0.51\textwidth}
+      \footnotesize
       \[
-        \begin{gathered}
-          \mathcal H = \bigl\{x \ge 0 :\ \exists\,p_t \text{ feasible}\\
-          \text{with loads } d_t + x\ \ \forall t\bigr\}
-        \end{gathered}
+        \mathcal H = \left\{\mathbf x \ge 0 :\
+        \begin{aligned}
+          &\forall t\ \exists\, {\vpg}_t, \vp_t:\\
+          &\vp_t = C\,\vpg_t - \mathbf d_t - \mathbf x,\ \ \mathbf 1^{\top}\vp_t = 0,\\
+          &|H\vp_t| \le \mathbf F,\ \ \mathbf p^{\min} \le \vpg_t \le \mathbf p^{\max}
+        \end{aligned}\right\}
       \]
+      The LP's constraints with new loads $\mathbf x$ (one per bus) in place
+      of $\vL\,\mathbf e_k$.
       \begin{itemize}
-        \item A convex polytope (projection of the DCOPF feasible set)
-          \src{Gong \& Cobben 2024}.
-        \item Single-bus HCs are its axis intercepts; they \alert{do not add up}
-          \src{Wan et al. 2026}.
-        \item Peak period: bus 1002 hosts \PairHCa\MW{} alone, but only
-          \PairHCaGiven\MW{} once 60\MW{} sit at neighbor 1010.
+        \item A convex polytope: the projection of the DCOPF feasible
+          set.\fcite{gong2024adaptive}
+        \item Single-bus HCs are its axis intercepts; they \alert{do not add
+          up}.\fcite{wan2026hosting}
+        \item Peak hour: bus 1002 hosts \PairHCa\MW{} alone, only
+          \PairHCaGiven\MW{} with 60\MW{} at neighbor 1010.
       \end{itemize}
     \end{column}
   \end{columns}
 \end{frame}
 
 \begin{frame}{With a local generator}
-  Site at bus $k$: load $L$, private generator $0\le g_t\le G$. The grid only
-  sees the \emph{net} withdrawal $L-g_t$:
+  Site at bus $k$: load $\vL$, private generator $0\le \vg_t\le G$. The grid only
+  sees the \emph{net} withdrawal $\vL-\vg_t$:
   \[
-    \text{feasible} \iff \exists\, g_t\in[0,G]:\ L - g_t \le \HC_{k,t}\ \ \forall t
-    \quad\Longrightarrow\quad \HC_k^{G} = \min_t \HC_{k,t} + G .
+    \text{feasible} \iff \exists\, \vg_t\in[0,G]:\ \underbrace{\vL - \vg_t}_{\text{net withdrawal}} \le \HC_{k,t}\ \ \forall t
+    \quad\Longrightarrow\quad \alert{\HC_k^{G} = \min_t \HC_{k,t} + G}.
   \]
   \begin{itemize}
     \item Exact when the generator is always available; with outages, ramping,
       or fuel limits, $\HC^G_k \le \HC_k + G$.
-    \item It runs only when the grid is short or when its cost
-      ($\$80$--$250$/MWh in the game) is below the local price.
-    \item Buying headroom: in the game \$1.5M per MW of generator, versus
-      \$25M per MW of site that would otherwise go unserved.
+    \item The generator runs only when the grid is short or when its cost
+      is below the local price.
+    % \item Buying headroom: in the game \$1.5M per MW of generator, versus
+    %   \$25M per MW of site that would otherwise go unserved.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{With storage: periods become coupled}
-  Battery at bus $k$: power $P$, energy $B$, signed output $p_t$
-  (positive = discharge), period length $\Delta t$:
+\begin{frame}{With storage: the hours become coupled}
+  \textbf{Battery at bus $k$}: power $P$, energy $B$, signed output $\vu_t$
+  (positive = discharge), time step $\Delta t$; $\HC_{k,t}$ comes from the
+  single-bus LP:
   \begin{align*}
-    \HC_k^{S} = \max_{L,\,p,\,e}\ L \quad \text{s.t.}\quad
-      & L - p_t \le \HC_{k,t}, \qquad -P \le p_t \le P,\\
-      & e_t = e_{t-1} - \Delta t\, p_t,\qquad 0 \le e_t \le B,\qquad e_0 = e_T .
+    \HC_k^{S} = \max_{\vL,\,\vu,\,\ve}\ \vL \quad \text{s.t.}\quad
+      & \underbrace{\vL - \vu_t \le \HC_{k,t}}_{\text{grid limit on net withdrawal}},
+        \qquad \underbrace{-P \le \vu_t \le P}_{\text{power}},\\
+      & \underbrace{\ve_t = \ve_{t-1} - \Delta t\, \vu_t,\quad 0 \le \ve_t \le B}_{\text{energy}},
+        \qquad \underbrace{\ve_0 = \ve_T}_{\text{daily cycle}} .
   \end{align*}
+  {\footnotesize Decision variables: $\vL$ new load, $\vu_t$ battery output,
+  $\ve_t$ stored energy.}
+  \small
   \begin{itemize}
-    \item A multi-period LP: the battery discharges in tight periods and must
-      recharge in slack ones, using the same headroom.
-    \item Summing over a cycle ($\sum_t p_t = 0$) gives
-      $\HC^S_k \le \frac1T \sum_t \HC_{k,t}$: storage can at best lift the
-      limit from the \emph{minimum} to the \emph{average} headroom.
-    \item Power ($L \le \HC_{k,t} + P$) and energy (the running deficit must
-      fit in the battery) keep it below that.
+    \item A multi-period LP: discharge in tight hours, recharge in slack
+      ones.\fcite{macedo2017increasing}
+    \item Summing over the cycle ($\sum_t \vu_t = 0$):
+      $\HC^S_k \le \frac1T \sum_t \HC_{k,t}$, so storage lifts the limit at
+      most from the \alert{minimum} to the \alert{average} headroom.
+    \item Power ($\vL \le \HC_{k,t} + P$) and energy ($B$) keep it below that.
   \end{itemize}
-  \src{Macedo et al. 2017 (storage to raise HC); general formulation}
 \end{frame}
 
-\begin{frame}{Storage in the game: one day, four 6-hour periods}
+\begin{frame}{Storage over one day}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.52\textwidth}
-      \begin{tikzpicture}
-        \begin{axis}[width=0.9\linewidth, height=5.0cm, ybar, bar width=12pt,
-          symbolic x coords={1,2,3,4}, xtick=data, xlabel={period of the peak day},
-          ylabel={MW}, ymin=0, axis lines*=left, enlarge x limits=0.2,
-          legend style={font=\scriptsize, draw=none, at={(0.5,1.02)}, anchor=south, legend columns=3},
-          tick label style={font=\scriptsize}, label style={font=\scriptsize}]
-          \addplot[fill=PurdueGold, draw=PurdueAged] table[x=t, y=hc, col sep=comma]{data/storage_day.csv};
-          \addlegendentry{$\HC_{k,t}$}
-          \draw[thick, LecBlue] (axis cs:1,\StoMin) -- (axis cs:4,\StoMin)
-            node[pos=0, anchor=north west, font=\tiny, text=LecBlue] {no battery};
-          \draw[thick, dashed, PurdueAged] (axis cs:1,\StoWith) -- (axis cs:4,\StoWith)
-            node[pos=0, anchor=south west, font=\tiny, text=PurdueAged] {with battery};
-        \end{axis}
-      \end{tikzpicture}
+    \begin{column}{0.56\textwidth}
+      \includegraphics[width=\linewidth]{figures/storage_day.pdf}
     \end{column}
-    \begin{column}{0.46\textwidth}
+    \begin{column}{0.42\textwidth}
       \small
-      Game rules: $\Delta t = 6$\,h, $B = 4P$, each day starts and ends at
-      $e = B/2$. Bus \StoBus, peak day:
+      Bus \StoBus, peak day, hourly steps, daily cycle
+      ($\ve_0 = \ve_{24} = B/2$), $B = 4P$:
       \begin{itemize}
-        \item no battery: \textcolor{LecBlue}{\StoMin\MW}
-        \item average headroom: \StoMean\MW{} (upper limit)
-        \item with $P=\StoP\MW$, $B=\StoB\MWh$: \textcolor{PurdueAged}{\StoWith\MW}
+        \item no battery: \textcolor{varL}{\StoMin\MW}
+        \item average headroom (dotted): \StoMean\MW{}, the upper limit
+        \item $P = \StoP\MW$, $B = \StoB\MWh$: \textbf{\StoWith\MW}
       \end{itemize}
-      A 6-hour period at full power would need $6P > B = 4P$\,MWh, so the
-      \alert{energy} limit binds: even fully charged beforehand, the battery
-      adds at most $B/\Delta t = \tfrac23 P$ in one tight period
-      (here $+33\MW$). Over the half-year: \StoHalfNo{} $\to$ \StoHalfWith\MW.
+      $B$ limits how long a shortfall the battery can cover. Half-year:
+      \StoHalfNo{} $\to$ \StoHalfWith\MW.\\[0.2em]
     \end{column}
   \end{columns}
 \end{frame}
 
-\begin{frame}{Flexibility: curtail in a few periods}
+\begin{frame}{Flexibility: curtail in a few hours}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.52\textwidth}
-      \begin{tikzpicture}
-        \begin{axis}[width=0.9\linewidth, height=5.0cm, xlabel={$K$ = 6-hour periods that may be curtailed},
-          ylabel={$\HC^{(K)}_{k}$ (MW)}, axis lines*=left, xmin=0,
-          tick label style={font=\scriptsize}, label style={font=\scriptsize}]
-          \addplot[thick, PurdueAged, mark=*, mark size=1.2pt] table[x=K, y=hc, col sep=comma]{data/order_statistic.csv};
-        \end{axis}
-      \end{tikzpicture}
+    \begin{column}{0.42\textwidth}
+      \includegraphics[width=\linewidth]{figures/order_statistic.pdf}
     \end{column}
-    \begin{column}{0.46\textwidth}
-      \small
-      Flexible connection \src{Gu, Chen \& Qin 2026}:
+    \begin{column}{0.56\textwidth}
+      \footnotesize
+      Flexible connection:\fcite{gu2026flexible}
       \[
         \begin{aligned}
-          \max_{C,u}\ & C\\
-          \text{s.t.}\ & C + u_t \le \HC_{k,t},\quad u\le 0,\quad \|u\|_0 \le K
+          \max_{\vL,\,\vd}\ & \vL\\
+          \text{s.t.}\ & \vL - \vd_t \le \HC_{k,t},\quad \vd\ge 0,\quad \|\vd\|_0 \le K
         \end{aligned}
       \]
-      Nonconvex ($\|u\|_0$), but for one bus:
-      \[
-        \HC_k^{(K)} = \HC_{k,[K+1]},
-      \]
-      the $(K{+}1)$-th \emph{smallest} value. Bus \OrdBus: \OrdZero\MW{} at $K=0$,
-      \OrdTen\MW{} at $K=10$ (60\,h, $+$\OrdTenGain\%), \OrdForty\MW{} at
-      $K=40$ ($+$\OrdFortyGain\%). Diminishing returns in $K$; on a
-      distribution feeder Gu et al.\ report $+78\%$ at 1\% of slots.
-      See also \src{Etherden \& Bollen 2011; Sarker \& Dahlin 2026}.
+      \begin{itemize}
+        \item $\vd_t$ is the load curtailed in hour $t$; nonconvex ($\|\vd\|_0$ counts curtailed hours).
+        \item $\HC_k^{(K)} = \HC_{k,[K+1]}$, the $(K{+}1)$-th \emph{smallest} hourly value.
+        \item Bus \OrdBus:
+        \OrdZero\MW{} at $K=0$, \OrdTwentyFour\MW{} at $K=24$
+        ($+$\OrdTwentyFourGain\%), \OrdHundred\MW{} at $K=100$
+        ($+$\OrdHundredGain\%). Diminishing returns in $K$.\fcite{etherden2011increasing,sarker2026risk}
+      \end{itemize}
     \end{column}
   \end{columns}
 \end{frame}
 
 \begin{frame}{How much should we trust a hosting-capacity number?}
   \begin{itemize}
-    \item \textbf{Security.} Dropping N-1 contingencies overstates data-center HC
-      by about 20\% on the IEEE RTS-24 \src{Wan et al. 2026}.
+    \item \textbf{Security.} Dropping N-1 contingencies overstates data-center
+      hosting capacity by about 20\% on the IEEE RTS-24.\fcite{wan2026hosting}
     \item \textbf{Dynamics.} The data center's own ride-through limits (UPS,
-      converters) can be the binding constraint \src{Ren, Sun \& Teng 2026}.
+      converters) can be the binding constraint.\fcite{ren2026ride}
     \item \textbf{Model.} DC power flow has no voltage or reactive-power limits
       and no losses.
-    \item \textbf{Time resolution.} Averaging hours into longer periods smooths
-      peaks and can overstate HC.
     \item \textbf{Simultaneity.} Single-bus numbers ignore everyone else who is
       connecting at the same time.
   \end{itemize}
-  \vspace{0.3em}
-  The last point is what the game is about.
+  \vspace{0.4em}
+  The last point leads to the second question: \alert{who gets served?}
 \end{frame}
 
 % ===========================================================================
-\section{The connection game}
+\section{Part II: The connection game}
 
 \begin{frame}{The game}
   \small
@@ -343,7 +350,7 @@
     \end{column}
     \begin{column}{0.49\textwidth}
       \begin{itemize}
-        \item Six-hour periods (mean of 6 source hours), 4 per day,
+        \item Six-hour periods (mean of 6 hours), 4 per day,
           724--736 per half-year.
         \item The instructor solves one joint DCOPF with every team's sites.
       \end{itemize}
@@ -351,7 +358,7 @@
   \end{columns}
   \vspace{0.6em}
   \centering
-  \resizebox{0.84\textwidth}{!}{\input{figures/site.tex}}
+  \includegraphics[width=0.82\textwidth]{figures/site.pdf}
 \end{frame}
 
 \begin{frame}{Schedule and scoring}
@@ -401,12 +408,12 @@
   For each day $d$ and period $t = 1,\dots,4$ ($\Delta t = 6$\,h): a DCOPF with
   all teams' sites, coupled through each battery's daily cycle.
   \begin{align*}
-    \min\ & \textstyle\sum_{d,t} \Delta t \big(\sum_g c_g p_{g,dt} + \sum_s \sum_m c^m q^m_{s,dt}\big)\\
+    \min\ & \textstyle\sum_{d,t} \Delta t \big(\mathbf c^{\top}\vpg_{dt} + \sum_s \sum_m c^m q^m_{s,dt}\big)\\
     \text{s.t.}\ & \text{DCOPF balance and line limits with loads } \alpha_i C_s
-      \text{ and private } q_s, u_s\\
-    & e_{s,d,t} = e_{s,d,t-1} - \Delta t\, u_{s,dt},\ \ 0\le e\le B_s,\ \ |u|\le P_s,\ \
-      e_{s,d,0} = e_{s,d,4} = B_s/2\\
-    & \textstyle\sum_{s\in i,\,k(s)=n} u_{s,dt} \le \sum_{s\in i,\,k(s)=n} \alpha_i C_s
+      \text{ and private } q_s, \vu_s\\
+    & \ve_{s,d,t} = \ve_{s,d,t-1} - \Delta t\, \vu_{s,dt},\ \ 0\le \ve\le B_s,\ \ |\vu|\le P_s,\ \
+      \ve_{s,d,0} = \ve_{s,d,4} = B_s/2\\
+    & \textstyle\sum_{s\in i,\,k(s)=n} \vu_{s,dt} \le \sum_{s\in i,\,k(s)=n} \alpha_i C_s
       \quad\text{(a team's assets serve only its own load)}
   \end{align*}
   \begin{itemize}
@@ -415,31 +422,33 @@
   \end{itemize}
 \end{frame}
 
-\begin{frame}{When requests exceed the hosting-capacity region}
+\begin{frame}{Who gets served when requests exceed the region?}
   \small
-  The evaluator never uses first-come-first-served. It projects onto
-  the region:
+  The game's evaluator uses the \emph{uniform rule}, never first-come-first-served:
   \begin{enumerate}
-    \item \textbf{Caps:} 100\MW{} per site, 500\MW{} per team, largest team
-      capped at the smallest positive team request $\Rightarrow \hat d_i$.
-    \item \textbf{Most service:} choose $\alpha_i\in[10^{-6},1]$ maximizing
-      $\sum_i \alpha_i \hat d_i$ subject to joint feasibility in every period.
-    \item \textbf{Proportional fairness} among near-optimal solutions
-      \src{Kelly, Maulloo \& Tan 1998}:
-      \[\textstyle \max \sum_i \log(\alpha_i \hat d_i).\]
+    \item \textbf{Common level:} the largest $t$ such that serving
+      $\min(r_i, t)$ to every team $i$ is feasible in every period
+      ($r_i$ = requested MW, one fraction $\alpha_i$ for all of $i$'s sites).
+    \item \textbf{Water-filling:} teams that are not blocked keep rising
+      until each is fully served or blocked.
+    \item \textbf{Minimum allocation:} a team served $<50\%$ of its request
+      gets nothing (largest dropped first), as in ERCOT's batch study.
   \end{enumerate}
+  Uniform rule is strategy-proof for one resource;\fcite{sprumont1991division}
+  on a network an inflated request can lower everyone's level, hence step 3.
   \begin{itemize}
     \item Capital is charged on what you \emph{asked} for, not on what is served.
-    \item Alternatives worth discussing: first-come-first-served (today's
-      interconnection queues), max--min fairness, prices
-      \src{Liu et al. 2020; Gebbran et al. 2021}.
+    \item Real counterparts: interconnection queues (first come, first served),
+      ERCOT's 2026 batch allocation of transmission
+      capacity,\fcite{ercot2026batch} fairness rules for curtailing distributed
+      generation.\fcite{liu2020fairness,gebbran2021fair}
   \end{itemize}
 \end{frame}
 
 \begin{frame}{A two-team example on the real grid}
   \small
   Team A at bus 1002, team B at neighbor 1010; each picks 50 or 100\MW, built in
-  Submission 1. Peak period, every period treated alike; payoffs per week (\$M):
+  Submission 1. Peak hour, every hour treated alike; payoffs per week (\$M):
   \vspace{0.3em}
   \begin{center}
     \begin{tabular}{@{}lcc@{}}
@@ -452,18 +461,17 @@
     \end{tabular}
   \end{center}
   \begin{itemize}
-    \item One large, one small: infeasible; the caps cut the large request to
-      50\MW, but it still pays for 100\MW.
-    \item Both large: projection maximizes total service; the bus that uses less
-      of the shared bottleneck is favored (\GameLLserved).
-    \item \GameNashText
+    \item One large, one small: the small team is served in full, the large one
+      gets the rest (\GameLSserved{} or \GameSLserved\MW) and pays for 100\MW.
+    \item Both large: both cut to the same level (\GameLLserved); both lose.
+    \item \GameNashText{} A game of \emph{chicken}.
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]{What students get, and a live demo}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.5\textwidth}
-      \small
+    \begin{column}{0.46\textwidth}
+      \footnotesize
       \begin{itemize}
         \item \texttt{ercot-game-check-csv}: format and bus checks
         \item \texttt{ercot-game-preview}: approximate score, plan alone
@@ -471,20 +479,20 @@
         \item After each round: score breakdown, every team's $\alpha$,
           projection on/off, and a grid map
       \end{itemize}
-      \vspace{0.3em}
+      \vspace{0.2em}
 \begin{lstlisting}
 ercot-game-hosting-capacity \
   --artifact-dir .../2028/jul_dec \
   --start-period 304 --period-count 4 \
-  --bus-id 1002 --bus-id 1010 \
-  --output-dir demo/hc
+  --bus-id 1002 --bus-id 1010 --output-dir demo/hc
 \end{lstlisting}
+      {\scriptsize Demo on the students' six-hour package.}
     \end{column}
-    \begin{column}{0.48\textwidth}
+    \begin{column}{0.52\textwidth}
       \centering
-      \includegraphics[width=0.92\linewidth]{figures/grid_map.png}\\[-0.2em]
-      {\scriptsize Eight-team example: bus color = total MW of all teams; line
-      color = peak loading.}
+      \includegraphics[width=0.68\linewidth]{figures/grid_map.png}\\[-0.2em]
+      {\scriptsize Eight-team example, hourly dispatch: bus color = total MW of
+      all teams, line color = peak loading; approximate locations.}
     \end{column}
   \end{columns}
 \end{frame}
@@ -493,42 +501,22 @@ ercot-game-hosting-capacity \
   \begin{itemize}
     \item Hosting capacity is an LP: the DCOPF with a ``maximize the new load''
       objective.
-    \item Time: a constant load is limited by the \alert{worst} period.
+    \item Time: a constant load is limited by the \alert{worst} hour.
       Generation adds $G$; storage moves the limit toward the
       \alert{average}; flexibility toward the $(K{+}1)$-th worst.
     \item Space: single-bus numbers are intercepts of a region and
       \alert{do not add up}.
-    \item With many applicants, allocation is a design choice (queue,
-      proportional fairness, prices), and it turns planning into a game.
+    \item With many applicants, \alert{who gets served} is a design choice
+      (queue, batch allocation, proportional fairness, prices), and it turns
+      planning into a game.
   \end{itemize}
   \vspace{0.6em}
-  \textbf{Discussion.} How should a utility allocate scarce headroom among
-  data centers? What would you change in the game's projection rule?
+  \textbf{Discussion.} How should a grid operator allocate scarce headroom
+  among data centers? What would you change in the game's projection rule?
 \end{frame}
 
 \begin{frame}[allowframebreaks]{References}
-  \scriptsize
-  \begin{itemize}
-    \item M. H. J. Bollen and F. Hassan, \emph{Integration of Distributed Generation in the Power System}, Wiley-IEEE Press, 2011.
-    \item M. Bollen and S. R\"onnberg, ``Hosting capacity of the power grid for renewable electricity production and new large consumption equipment,'' \emph{Energies} 10(9):1325, 2017.
-    \item M. Rylander, L. Rogers, J. Smith, ``Distribution feeder hosting capacity: what matters when planning for DER?'' EPRI 3002004777, 2015.
-    \item E. Mulenga, M. H. J. Bollen, N. Etherden, ``A review of hosting capacity quantification methods for photovoltaics in low-voltage distribution grids,'' \emph{IJEPES} 115:105445, 2020.
-    \item S. M. Ismael et al., ``State-of-the-art of hosting capacity in modern power systems with distributed generation,'' \emph{Renewable Energy} 130:1002--1020, 2019.
-    \item M. Alturki, A. Khodaei, A. Paaso, S. Bahramirad, ``Optimization-based distribution grid hosting capacity calculations,'' \emph{Applied Energy} 219:350--360, 2018.
-    \item T. E. C. de Oliveira et al., ``The concept of dynamic hosting capacity for distributed energy resources,'' \emph{Energies} 12(13):2576, 2019.
-    \item S. Gong and J. F. G. Cobben, ``Adaptive facet selection in multidimensional hosting capacity region assessment,'' \emph{EPSR} 234:110654, 2024.
-    \item P. Cicilio et al., ``Transmission hosting capacity of distributed energy resources,'' \emph{IEEE TSTE} 12(2):794--801, 2021.
-    \item H. Wan et al., ``Impact of security modeling fidelity on hyperscale data center hosting capacity assessment,'' arXiv:2610.18405, 2026.
-    \item P. Ren, W. Sun, F. Teng, ``Hosting capacity assessment of data centers with voltage ride-through capability in power systems,'' arXiv:2609.03030, 2026.
-    \item N. Etherden and M. H. J. Bollen, ``Increasing the hosting capacity of distribution networks by curtailment of renewable energy resources,'' IEEE PowerTech, 2011.
-    \item L. H. Macedo et al., ``Increasing the hosting capacity for renewable energy in distribution networks,'' IEEE ISGT, 2017.
-    \item N. Gu, G. Chen, J. Qin, ``The role of flexible connection in accelerating load interconnection in distribution networks,'' HICSS 2026, arXiv:2510.11476.
-    \item N. Gu, V. Kekatos, J. Qin, ``Flexible connection to accelerate load interconnection in partially measured distribution grids,'' ACM e-Energy 2026.
-    \item G. C. Sarker and N. Dahlin, ``Risk-aware hosting capacity analysis for flexible load interconnection in distribution networks,'' arXiv:2604.20185, 2026.
-    \item F. P. Kelly, A. K. Maulloo, D. K. H. Tan, ``Rate control for communication networks: shadow prices, proportional fairness and stability,'' \emph{JORS} 49(3):237--252, 1998.
-    \item M. Z. Liu et al., ``On the fairness of PV curtailment schemes in residential distribution networks,'' \emph{IEEE TSG} 11(5):4502--4512, 2020.
-    \item D. Gebbran et al., ``Fair coordination of distributed energy resources with Volt-Var control and PV curtailment,'' \emph{Applied Energy} 286:116546, 2021.
-  \end{itemize}
+  \printbibliography[heading=none]
 \end{frame}
 
 \end{document}

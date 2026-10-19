@@ -7,13 +7,13 @@
   "complete": true,
   "counts": {
     "bus_count": 2000,
-    "completed_count": 8000,
-    "completed_period_count": 4,
+    "completed_count": 48000,
+    "completed_period_count": 24,
     "failed_count": 0,
-    "optimal_count": 8000,
+    "optimal_count": 48000,
     "pending_count": 0,
-    "period_count": 4,
-    "point_count": 8000
+    "period_count": 24,
+    "point_count": 48000
   },
   "diagnostics": {},
   "formulation": "one_bus_additional_demand_v1",
@@ -2022,15 +2022,35 @@
     ],
     "formulation": "one_bus_additional_demand_v1",
     "period_indices": [
-      304,
-      305,
-      306,
-      307
+      1824,
+      1825,
+      1826,
+      1827,
+      1828,
+      1829,
+      1830,
+      1831,
+      1832,
+      1833,
+      1834,
+      1835,
+      1836,
+      1837,
+      1838,
+      1839,
+      1840,
+      1841,
+      1842,
+      1843,
+      1844,
+      1845,
+      1846,
+      1847
     ],
     "schema_version": 1,
     "solver_backend": "gurobi",
     "solver_threads": 1,
-    "source_identity": "source:22a5fe57632fbec0dd1108ad646602938f5b26be430d30f69ad7cd613a36c24a"
+    "source_identity": "source:7bee003d85cc36df1d8aa812ba3829239f2f9e089a3d3365653347bc776a2e92"
   },
   "ordering": {
     "array_axes": [
@@ -4040,10 +4060,30 @@
       "8160"
     ],
     "period_indices": [
-      304,
-      305,
-      306,
-      307
+      1824,
+      1825,
+      1826,
+      1827,
+      1828,
+      1829,
+      1830,
+      1831,
+      1832,
+      1833,
+      1834,
+      1835,
+      1836,
+      1837,
+      1838,
+      1839,
+      1840,
+      1841,
+      1842,
+      1843,
+      1844,
+      1845,
+      1846,
+      1847
     ]
   },
   "requested_solver_backend": "gurobi",
@@ -4051,7 +4091,7 @@
   "resumed_from_checkpoint": false,
   "scenario_artifact_identity": {
     "artifact_dir": "jul_dec",
-    "artifact_path_identity": "jul_dec:8f99fdd24efd",
+    "artifact_path_identity": "jul_dec:aba4da56788d",
     "scenario_block": "jul_dec",
     "scenario_year": 2028,
     "source": "prepared_artifact"
@@ -4059,40 +4099,200 @@
   "schema_version": 1,
   "settings": {
     "solver_threads": 1,
-    "workers": 4
+    "workers": 16
   },
   "solver_backend": "gurobi",
   "solver_threads": 1,
-  "source_identity": "source:22a5fe57632fbec0dd1108ad646602938f5b26be430d30f69ad7cd613a36c24a",
+  "source_identity": "source:7bee003d85cc36df1d8aa812ba3829239f2f9e089a3d3365653347bc776a2e92",
   "source_metadata": [
     {
       "artifact_dir": "jul_dec",
-      "artifact_path_identity": "jul_dec:8f99fdd24efd",
-      "period_index": 304,
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1824,
       "scenario_block": "jul_dec",
       "scenario_year": 2028,
       "source": "prepared_artifact"
     },
     {
       "artifact_dir": "jul_dec",
-      "artifact_path_identity": "jul_dec:8f99fdd24efd",
-      "period_index": 305,
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1825,
       "scenario_block": "jul_dec",
       "scenario_year": 2028,
       "source": "prepared_artifact"
     },
     {
       "artifact_dir": "jul_dec",
-      "artifact_path_identity": "jul_dec:8f99fdd24efd",
-      "period_index": 306,
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1826,
       "scenario_block": "jul_dec",
       "scenario_year": 2028,
       "source": "prepared_artifact"
     },
     {
       "artifact_dir": "jul_dec",
-      "artifact_path_identity": "jul_dec:8f99fdd24efd",
-      "period_index": 307,
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1827,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1828,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1829,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1830,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1831,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1832,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1833,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1834,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1835,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1836,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1837,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1838,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1839,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1840,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1841,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1842,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1843,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1844,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1845,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1846,
+      "scenario_block": "jul_dec",
+      "scenario_year": 2028,
+      "source": "prepared_artifact"
+    },
+    {
+      "artifact_dir": "jul_dec",
+      "artifact_path_identity": "jul_dec:aba4da56788d",
+      "period_index": 1847,
       "scenario_block": "jul_dec",
       "scenario_year": 2028,
       "source": "prepared_artifact"

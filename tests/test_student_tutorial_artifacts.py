@@ -16,6 +16,7 @@ TUTORIAL_ROOT = REPO_ROOT / "docs" / "student_tutorial"
 EXPECTED_PRIVACY_LEVEL = "public-or-instructor-approved-fixture"
 EXPECTED_NOTEBOOK_ROOT = "notebooks/"
 RENDERED_FIGURES = [
+    "submission_timeline.tex",
     "pipeline.tex",
     "student_vs_evaluator.tex",
     "storage_soc.tex",

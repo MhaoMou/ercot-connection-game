@@ -1,9 +1,9 @@
-"""Two-bus hosting-capacity region and two-team example on the 6-hour package."""
+"""Two-bus hosting-capacity region and two-team example at one hour (or period)."""
 import json, math, sys
 from tools.activsg2000.dcopf import DCOPFInfeasible, DCOPFUnresolved, solve_prepared_period
 
-BLOCK = "data/processed/activsg2000_scenarios_v2_6h/2028/jul_dec"
-PERIOD = int(sys.argv[1]) if len(sys.argv) > 1 else 306
+PERIOD = int(sys.argv[1]) if len(sys.argv) > 1 else 1837
+BLOCK = sys.argv[2] if len(sys.argv) > 2 else "data/processed/activsg2000_scenarios_v1/2028/jul_dec"
 A, B = "1002", "1010"
 
 def ok(la, lb):

@@ -16,6 +16,7 @@ EXPECTED_NOTEBOOKS = {
     "06_student_preview.ipynb", "07_strategy_ablation.ipynb",
 }
 RENDERED_FIGURES = (
+    "submission_timeline.tex",
     "pipeline.tex",
     "student_vs_evaluator.tex",
     "storage_soc.tex",
@@ -187,7 +188,7 @@ def _check_coverage(root: Path, texts: list[tuple[str, str]], errors: list[str])
         errors.append("tutorial must contain exactly the seven required notebooks")
     actual_figures = {path.name for path in (root / "figures").glob("*.tex") if path.is_file()}
     if actual_figures != EXPECTED_FIGURES:
-        errors.append("tutorial must contain exactly the seven required figures")
+        errors.append("tutorial must contain exactly the eight required figures")
     main = next((text for name, text in texts if name == "main.tex"), "")
     active_main = _strip_latex_comments(main)
     figure_blocks = re.findall(r"\\begin\{figure\}.*?\\end\{figure\}", active_main, re.DOTALL)
@@ -274,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print("audited the tutorial text, 7 notebooks, and 7 figures")
+    print("audited the tutorial text, 7 notebooks, and 8 figures")
     return 0
 
 

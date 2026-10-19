@@ -21,7 +21,7 @@
 \usepackage[titles]{tocloft}
 \setlength{\cftbeforesecskip}{3pt}
 \usepackage{tikz}
-\usetikzlibrary{positioning,backgrounds,fit,calc}
+\usetikzlibrary{positioning,backgrounds,fit,calc,decorations.pathreplacing}
 \usepackage{xcolor}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
@@ -39,8 +39,8 @@
 \definecolor{codeborder}{HTML}{D0D7DE}
 
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,
-  pdftitle={Data-Center Connection Planning Game: Student Tutorial},
-  pdfauthor={Power Systems Course}}
+  pdftitle={Data-Center Connection Planning Game: Assignment and Student Tutorial},
+  pdfauthor={ECE 51032, Purdue University}}
 
 \lstdefinestyle{tutorialcode}{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},
   frame=single,rulecolor=\color{codeborder},framerule=0.5pt,columns=fullflexible,
@@ -76,33 +76,240 @@
 \setlength{\headheight}{15pt}
 \fancyhf{}
 \lhead{Data-Center Connection Planning Game}
-\rhead{Student Tutorial}
+\rhead{Assignment and Tutorial}
 \cfoot{\thepage\ of \pageref{LastPage}}
 \newcommand{\code}[1]{\path{#1}}
 % Literal text that contains spaces (\path drops them).
 \newcommand{\msg}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\MW}{\ensuremath{\,\mathrm{MW}}}
 \newcommand{\MWh}{\ensuremath{\,\mathrm{MWh}}}
+% Placeholder for a decision the instructor still has to fill in.
+\newcommand{\instr}[1]{\textcolor{red}{\textbf{[Instructor: #1]}}}
+% Unnumbered page heading in Part I that still appears in the table of contents.
+\newcommand{\assignsection}[2]{\section*{#1}\phantomsection\addcontentsline{toc}{section}{#1}\label{#2}}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.55em}
 \emergencystretch=3em
 \captionsetup{font=small,labelfont=bf}
 \setlist{itemsep=2pt,topsep=3pt}
 
-\title{\vspace{-2em}\textbf{Data-Center Connection Planning Game}\\[0.3em]\large Student Tutorial}
-\date{October 2026}
-\author{Course Title}
+\title{\vspace{-2em}ECE 51032: Computational Methods for Power System Analysis\\ \textbf{Data-Center Connection Planning Game}\\[0.3em]\large Assignment and Student Tutorial}
+\date{Fall 2026}
+\author{Purdue University\\[0.2em]\instr{instructor and TA names}}
 \begin{document}
 \maketitle
 
-This tutorial walks you through the assignment from start to finish: what the
-game is, how your plan is scored, how to explore the data, how to write and
-check your submission, and how to use AI tools along the way. The numbers in
-this tutorial come from the scoring-rules files in \code{data/teaching/}, and
-\code{docs/HYPERPARAMETERS.md} lists every game parameter with its source.
+This document has two parts. \textbf{Part I} is the official
+assignment: the rules, the scoring, what you submit, and how it is graded. \textbf{Part II} is the tutorial: it explains the game, the model,
+the tools, and strategy, and walks you through your first plan.
 
+\phantomsection\addcontentsline{toc}{part}{Part I: The Assignment}
+\begin{center}
+\Large\bfseries Part I: The Assignment
+\end{center}
+
+% ---------------------------------------------------------------------------
+\assignsection{Assignment at a glance}{asg:glance}
+
+\paragraph{Your role.} Your team is a data-center operator in Texas. Each week
+you decide where to connect computing load to a model of the Texas grid, how
+many MW to request at each site, and whether to build a private generator or
+battery next to it. The instructor, acting as the grid operator, dispatches
+every team's plan together on the same network and scores each team in
+dollars. Your goal is the highest total score over the graded weeks.
+
+\paragraph{What you submit.} One CSV file per team per submission: two
+submissions a week for three weeks, six files in all. The CSV lists your sites
+and capacities (\nameref{asg:rules}). Nothing else is submitted: there is no
+report.
+
+\paragraph{Key dates.}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l X X X X@{}}
+\toprule
+Week & Submission 1 due & Results 1 & Submission 2 due & Results 2\\
+\midrule
+1 (practice) & \instr{date} & \instr{date} & \instr{date} & \instr{date}\\
+2 (graded)   & \instr{date} & \instr{date} & \instr{date} & \instr{date}\\
+3 (graded)   & \instr{date} & \instr{date} & \instr{date} & \instr{date}\\
+\bottomrule
+\end{tabularx}
+\end{center}
+Each Submission 2 is due after the Submission 1 results are released.
+
+\paragraph{Teams.} \instr{team size and how teams are formed}. Each team
+submits one CSV per submission, uploaded by one member, with the same
+\code{team_id} all game long.
+
+\paragraph{Getting help.} Office hours: \instr{times and places}. Questions
+about the rules: \instr{course forum}. Code, data, and this document: the
+course GitHub repository (\cref{sec:setup}).
+
+\newpage
+% ---------------------------------------------------------------------------
+\assignsection{Rules of the game}{asg:rules}
+
+\paragraph{Schedule.} The game runs for three weeks, one planning year per
+week. Each week has two submissions, one for each half-year. Week 1 is
+practice: it is scored so that you can see how the evaluation works, but it
+does not count. Weeks 2 and 3 count, and both of their submissions count
+(\cref{fig:timeline}).
+
+\begin{figure}[!h]
+  \centering
+  \input{figures/submission_timeline.tex}
+  \caption{The submission timeline. Green arrows: builds from Submission 1 stay for
+  Submission 2 of the same week; everything is removed between weeks. Only
+  the four submissions of Weeks 2 and 3 count.}
+  \label{fig:timeline}
+\end{figure}
+
+\paragraph{Within a week.}
+\begin{itemize}[leftmargin=*]
+  \item Sites, generators, and batteries built in Submission 1 \textbf{stay
+    built} in Submission 2. You cannot move or resize them, but you can add new
+    sites in Submission 2.
+  \item Capital cost is charged \textbf{once}, in the submission where an asset
+    is first built.
+  \item Everything \textbf{resets} at the start of the next week.
+\end{itemize}
+
+\paragraph{Time model.} Each submission covers one half-year in six-hour
+operating periods (724--736 periods). Batteries follow a daily cycle: they
+start each day half full and must end it half full. The grid operator, not
+you, decides how your generator and battery run in every period, and they can
+serve only your own load (\cref{sec:game,sec:model}).
+
+\paragraph{Submission format.} One UTF-8 CSV per team with exactly this header
+and one row per site:
+\begin{lstlisting}[style=csvfile]
+team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
+\end{lstlisting}
+\begin{itemize}[leftmargin=*]
+  \item One \code{team_id} on every row; every \code{site_id} unique; every
+    \code{bus_id} must exist in the block you are planning for.
+  \item Connection capacity $C \ge 0$, generator capacity $0 \le G \le C$, and
+    storage either $P = B = 0$ or $B = 4P$.
+  \item In Submission 2, keep every Submission 1 row \textbf{unchanged} and add
+    rows only for new sites.
+  \item File name: \instr{e.g. \code{team-07_week2_sub1.csv}}. Upload to:
+    \instr{submission channel}.
+\end{itemize}
+Details and examples are in \cref{sec:csv}.
+
+\paragraph{Validity.} Run \code{ercot-game-check-csv} with
+\code{--artifact-dir} on the exact file you upload. \textbf{A file that fails
+validation scores 0} for that submission; the other teams are evaluated
+without it.
+
+\newpage
+% ---------------------------------------------------------------------------
+\assignsection{Scoring and evaluation}{asg:scoring}
+
+\paragraph{Score of one submission} (in US dollars):
+\[
+  \text{score} = \text{IT value} - \text{energy cost} - \text{generator operating cost}
+  - \text{generator capital} - \text{storage capital} - \text{site cost}.
+\]
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+Term & Value & How it is charged\\
+\midrule
+IT value & \$6,500 per MWh & Paid for every MWh of your load \textbf{that is actually served}.\\
+Energy cost & \textbf{L}ocational \textbf{M}arginal \textbf{P}rice (LMP) at your site & Grid purchases times the LMP and six-hour interval length. \textbf{Submission 2 only; Submission 1 has no energy cost.}\\
+Generator operating cost & \$80 / \$150 / \$250 per MWh & Piecewise: first 25\% of capacity at \$80, next 50\% at \$150, last 25\% at \$250.\\
+Generator capital & \$1.5M per MW & On generator capacity, in the submission where it is first built.\\
+Storage capital & \$400k per MW + \$250k per MWh & In the submission where it is first built. A 4-hour battery costs \$1.4M per MW of power.\\
+Site cost & \$25M per MW & On connection capacity, in the submission where the site is first built.\\
+\bottomrule
+\label{tab:hyperparameters}
+\end{tabularx}
+\end{center}
+Storage has no operating cost. The scoring-rules files in \code{data/teaching/}
+are the source of these numbers.
+
+\paragraph{Final score.} Your final score is the \textbf{sum of your four
+submission scores in Weeks 2 and 3}. Ties are broken by \instr{tie-break rule}.
+
+\paragraph{One joint evaluation.} All valid plans are dispatched together in one
+DCOPF per operating period, so whether your load is served depends on where
+the other teams build. If the combined plan does not fit the grid, the
+evaluator never serves first-come-first-served. Instead:
+\begin{itemize}[leftmargin=*]
+  \item every team is served up to a \textbf{common MW level}, and a team that
+    asked for less is served in full;
+  \item teams that can still grow keep rising until they are blocked;
+  \item a team that would be served \textbf{less than half} of its request
+    gets \textbf{nothing}.
+\end{itemize}
+Capital is always charged on what you \emph{requested}, served or not. The rule
+is explained in \cref{sec:projection} and specified in \cref{app:projection}.
+
+\paragraph{What you get back.} After each submission: your score breakdown,
+every team's service fraction $\alpha$, whether the projection was triggered,
+and an interactive grid map with the total connection capacity per bus
+(\cref{sec:results}). Other teams never see your individual plan.
+
+\paragraph{Preview versus official score.} \code{ercot-game-preview} gives an
+approximate score for your plan alone. Only the official evaluator, run by the
+instructor with every team's plan, produces your score.
+
+\newpage
+% ---------------------------------------------------------------------------
+\assignsection{Deliverables, grading, and conduct}{asg:conduct}
+
+\paragraph{What you will learn.} By the end of the game you should be able to
+\begin{itemize}[leftmargin=*]
+  \item formulate a power-system planning decision as an optimization problem
+    and solve it with an optimization package (DCOPF, hosting capacity);
+  \item read locational marginal prices and congestion as signals for where
+    new load can connect;
+  \item size distributed generation and storage against network limits and
+    energy prices;
+  \item reason about a planning decision whose outcome depends on what other
+    players do, as in an electricity market;
+  \item use computational tools, including AI assistants, critically and
+    reproducibly.
+\end{itemize}
+
+\paragraph{Deliverables.} The six CSV files, one per submission, uploaded by the
+deadlines in \nameref{asg:glance}. Week 1 files are \instr{required or
+optional}. No report, code, or presentation is required.
+
+\paragraph{Grading.} \instr{weight of this assignment in the course grade}.
+Within the assignment, \instr{how the final score maps to a grade, e.g. by
+rank, by thresholds, or relative to a baseline plan}. \instr{whether Week 1
+participation earns credit}.
+
+\paragraph{Late and invalid submissions.} \instr{late policy}. Because all teams
+are evaluated together, a late file cannot be added to a round that has
+already been run; it is treated as \instr{a zero, or the previous plan}.
+
+\paragraph{Working with other teams.} \instr{whether teams may talk to or
+coordinate with each other}. In any case, do not share your CSV, your exact
+plan, or shared chat links that contain it with another team.
+
+\paragraph{Use of AI.} You may use AI tools for any part of this assignment
+(\cref{sec:ai}). Your team is responsible for every number you submit and
+must be able to explain its plan. Do not paste passwords, tokens, or other
+teams' information into an AI tool. \instr{any additional course rules}.
+
+\paragraph{Academic integrity.} Purdue's academic integrity policy applies.
+Each team's plans must be its own work.
+
+\paragraph{Problems with your results.} If you think your submission was
+evaluated incorrectly, contact \instr{whom} within \instr{number} days of the
+results release.
+
+\newpage
 \begin{keybox}[Quick start]
 \begin{enumerate}[leftmargin=*]
+  \item Read Part I, the assignment (\nameref{asg:glance} to
+    \nameref{asg:conduct}).
   \item Set up the GitHub repository (\cref{sec:setup}).
   \item Read \cref{sec:game,sec:score} so you know what earns points.
   \item Explore the scenario data for the half-year you are planning (\cref{sec:data}).
@@ -119,6 +326,17 @@ this tutorial come from the scoring-rules files in \code{data/teaching/}, and
 \tableofcontents
 \endgroup
 \newpage
+
+\phantomsection\addcontentsline{toc}{part}{Part II: The Tutorial}
+\begin{center}
+\Large\bfseries Part II: The Tutorial
+\end{center}
+
+This part walks you through the assignment from start to finish: what the
+game is, how your plan is scored, how to explore the data, how to write and
+check your submission, and how to use AI tools along the way. The numbers come
+from the scoring-rules files in \code{data/teaching/}, and
+\code{docs/HYPERPARAMETERS.md} lists every game parameter with its source.
 
 % ---------------------------------------------------------------------------
 \section{The game in one page}\label{sec:game}
@@ -152,24 +370,11 @@ generator and battery run in each six-hour operating period. Your generator and 
 your own load: they never export to the grid or to another team.
 
 \subsection{Schedule}
-The game runs for three weeks with each week focusing on the data-center planning for the year of 2027, 2028, and 2029, respectively. Each week has two submissions, and each
-submission covers the plan for one half-year with six-hour operating intervals. Each
-operating interval represents six consecutive real hours. The first week is for
-practice and the results will not be counted for grades. The second and third
-weeks are for real game playing and the results will be counted for grades.
-
-\begin{center}
-\small
-\begin{tabularx}{\linewidth}{@{}X r r r@{}}
-\toprule
-Week & Submission 1 & Submission 2 & Counts toward final grade?\\
-\midrule
-1 & 2027 Jan--Jun & 2027 Jul--Dec & \textcolor{red}{\(\times\)}\\
-2 & 2028 Jan--Jun & 2028 Jul--Dec & \textcolor{green!60!black}{\(\checkmark\)}\\
-3 & 2029 Jan--Jun & 2029 Jul--Dec & \textcolor{green!60!black}{\(\checkmark\)}\\
-\bottomrule
-\end{tabularx}
-\end{center}
+The schedule, the carry-over rules, and the timeline are set out in
+\nameref{asg:rules} (\cref{fig:timeline}). In short: three weeks, one planning
+year per week (2027, 2028, 2029), two half-year submissions per week, and only
+Weeks 2 and 3 count. Each submission covers one half-year in six-hour operating
+intervals; each interval represents six consecutive real hours.
 
 The released six-hour half-year horizons are 728 operating periods for
 January--June 2028, 724 periods for January--June 2027 and 2029, and 736
@@ -195,24 +400,10 @@ that period. A day therefore contains four game periods. With
 \code{daily\_exact\_cycle}, storage starts at $B/2$ and must end every day at
 exactly $B/2$; the grid operator chooses its signed charging/discharging power.
 \end{keybox}
-\textbf{Your final score is the sum of your four submission scores from
-Weeks 2 and 3}.
-
-Each of these horizons is an integer number of 24-hour dispatch blocks.
-
-Within a week, the two submissions are linked:
-\begin{itemize}[leftmargin=*]
-  \item Sites, generators, and storages built in Submission 1 \textbf{stay built} in
-    Submission 2. The battery's installed capacity remains available, but its
-    operating state is reset to half full at the start of each daily dispatch
-    block.
-  \item You cannot move or resize a site you built in Submission 1, but you
-    can add new sites in Submission 2.
-  \item Capital cost is charged once, in the submission where an asset is
-    first built. Submission 2 does not pay again for what you built in
-    Submission 1.
-  \item Everything \textbf{resets} at the start of the next week.
-\end{itemize}
+Each of these horizons is an integer number of 24-hour dispatch blocks. A
+battery built in Submission 1 keeps its installed capacity in Submission 2,
+but its operating state is reset to half full at the start of each daily
+dispatch block.
 
 \begin{keybox}
 A site built in Submission 1 is paid for once but earns IT value in both
@@ -241,25 +432,12 @@ For each submission, your score in US dollars is
   &- \text{generator capital} - \text{storage capital} - \text{site cost}.
 \end{aligned}
 \]
-
-\begin{center}
-\small
-\begin{tabularx}{\linewidth}{@{}l X X@{}}
-\toprule
-Term & Value & How it is charged\\
-\midrule
-IT value & \$6,500 per MWh & Paid for every MWh of your load \textbf{that is actually served}.\\
-Energy cost & \textbf{L}ocational \textbf{M}arginal \textbf{P}rice (LMP) at your site & Grid purchases times the LMP and six-hour interval length. \textbf{Submission 2 only; Submission 1 has no energy cost.}\\
-Generator operating cost & \$80 / \$150 / \$250 per MWh & Piecewise: first 25\% of capacity at \$80, next 50\% at \$150, last 25\% at \$250.\\
-Generator capital & \$1.5M per MW & On generator capacity, in the submission where it is first built.\\
-Storage capital & \$400k per MW + \$250k per MWh & In the submission where it is first built. A 4-hour battery costs \$1.4M per MW of power.\\
-Site cost & \$25M per MW & On connection capacity, in the submission where the site is first built.\\
-\bottomrule
-\label{tab:hyperparameters}
-\end{tabularx}
-\end{center}
-
-\textbf{Storage has no operating cost.} A file that fails validation scores 0.
+The coefficients are in the table in \nameref{asg:scoring}: IT value
+\$6,500/MWh served, energy at the LMP in Submission 2 only, a generator curve of
+\$80/\$150/\$250 per MWh, and capital of \$25M/MW for a site, \$1.5M/MW for a
+generator, and \$400k/MW plus \$250k/MWh for storage, charged once when built.
+Storage has no operating cost. This section shows what those numbers mean for
+a plan.
 
 \subsection{A worked example}\label{subsec:worked_example}
 Suppose in Week 2 you build one 50\MW{} site in Submission 1 and nothing else,
@@ -317,22 +495,29 @@ a bit, realizing it's `not all about you.'\,''
 
 When the combined plan of all teams is infeasible, the evaluator has to decide who gets
 served. It does not use first-come-first-served. It applies a \textbf{fair
-projection}:
+projection} based on the \emph{uniform rule}:
 \begin{enumerate}[leftmargin=*]
-  \item \textbf{Caps.} Each site's request is capped at 100\MW{} and each team's
-    at 500\MW{}. With several teams, the largest team's request is also capped
-    at the smallest positive team request.
   \item \textbf{Service fractions.} Each team $i$ gets a single fraction
-    $\alpha_i \in [0,1]$ that scales its connection capacities of all sites of the half-year.
-  \item \textbf{Objective.} The evaluator first maximizes total served load,
-    then, among near-optimal solutions, maximizes $\sum_i \log(\alpha_i d_i)$
-    (proportional fairness).
+    $\alpha_i \in [0,1]$ that scales the connection capacities of all its
+    sites for the half-year.
+  \item \textbf{Equal level.} A common level $t$ (in MW) rises from zero, and
+    team $i$ is served $\min(r_i, t)$, where $r_i$ is its total requested
+    connection capacity. The level stops at the largest $t$ for which the
+    joint dispatch is feasible in every operating period. A team that asked
+    for less than $t$ is served in full.
+  \item \textbf{Fill the slack.} If some teams can still grow without hurting
+    a team that is already stuck, their level keeps rising until every team is
+    either fully served or blocked.
+  \item \textbf{Minimum allocation.} A team that would be served less than
+    \textbf{50\%} of its request gets \emph{nothing}. The largest such request
+    is dropped first, and the allocation is recomputed for the rest.
 \end{enumerate}
 
 This changes the question you should ask. Your served load, and so
 whether you clear the break-even points above, depends on what everyone else
-builds. A bigger request does not buy you priority: the caps cut
-it down to the smallest team's size, while capital is still charged on the full
+builds. A bigger request does not buy you priority: you are never served more
+than the common level, and a request so large that it would be served less than
+half is dropped entirely, while capital is still charged on the full
 capacity you submitted. So the question is not only ``how much load can my
 site take?'' but also ``how much room will be left for me once the other teams
 have built, and what do they expect me to do?''
@@ -366,7 +551,7 @@ shows what one row of your CSV adds at a bus $k$.
 For a site at bus $k$ in aggregate period $t$, the evaluator adds:
 \begin{itemize}[leftmargin=*]
   \item a fixed load $\alpha C$ (normally $\alpha \in [0,1]$, cf. Section~\ref{sec:projection});
-  \item a private generator $0 \le g_t \le G$ with the piecewise cost in Table~\ref{tab:hyperparameters};
+  \item a private generator $0 \le g_t \le G$ with the piecewise cost in \nameref{asg:scoring};
   \item a battery with signed power $p_t$ (positive = discharge), limited by
     $-P \le p_t \le P$.
 \end{itemize}
@@ -822,8 +1007,8 @@ This section strings the previous steps together for Week 2, Submission 1
     peak-load periods of this block (\cref{app:hc}). Keep buses whose smallest
     hosting capacity is well above the size you have in mind.
   \item \textbf{Choose sizes.} Start without a generator or battery. Keep each
-    site well below its hosting capacity and below the 100\MW{} projection
-    cap, and remember that other teams may be looking at the same buses.
+    site well below its hosting capacity, and remember that other teams may be
+    looking at the same buses.
   \item \textbf{Write the CSV} by hand or with the \code{write_plan} helper
     from \cref{sec:csv}, for example \code{runs/plan-a/plan.csv}.
   \item \textbf{Check it:}
@@ -882,9 +1067,9 @@ location where the network is tight in some operating periods. Remember that the
 does not dispatch storage, so it will not show this benefit.
 
 \textbf{Other teams.} Your preview runs without them, but the official
-dispatch includes everyone. If the combined plan is infeasible, the caps in
-\cref{sec:projection} cut sites above 100\MW{} and teams larger than the
-smallest team first, and you still pay for everything you submitted.
+dispatch includes everyone. If the combined plan is infeasible, the projection
+in \cref{sec:projection} cuts the largest requests first, down to a common
+level, and you still pay for everything you submitted.
 
 \textbf{Use Week 1.} Week 1 does not count. Use it to see how your plan is
 treated in the joint evaluation with everyone else.
@@ -907,8 +1092,8 @@ week, and each built MW costs \$25M.
 \toprule
 Payoffs per week, A / B (\$M) & B small (50\MW) & B large (100\MW)\\
 \midrule
-A small (50\MW) & 1,601 / 1,601 & 1,601 / 351\\
-A large (100\MW) & 351 / 1,601 & 3,202 / $-39$\\
+A small (50\MW) & 1,601 / 1,601 & 1,601 / 2,606\\
+A large (100\MW) & 2,787 / 1,601 & 1,523 / 1,520\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -916,22 +1101,23 @@ A large (100\MW) & 351 / 1,601 & 3,202 / $-39$\\
 \begin{itemize}[leftmargin=*]
   \item \textbf{Both small.} The grid can serve both sites in full.
   \item \textbf{One large, one small.} The combined plan is infeasible. The
-    caps cut the large request down to the other team's 50\MW, so both teams
-    get 50\MW{} served, but the large team still pays for 100\MW.
-  \item \textbf{Both large.} The plan is infeasible, and the caps change
-    nothing because the requests are equal. The projection maximizes total
-    served load. Each MW served at bus 1002 uses less of the shared
-    bottleneck than a MW at bus 1010, so A is served in full and B gets only
-    43.2\MW.
+    small team asked for less than the common level, so it is served in full;
+    the large team gets what is left (89.6\MW{} for B, 92.7\MW{} for A) and
+    still pays for 100\MW. Being the only large team pays off.
+  \item \textbf{Both large.} The plan is infeasible, and both teams are cut to
+    the same level, about 70.5\MW. Each pays for 100\MW{} but is served only
+    70\%, so both do worse than if both had gone small.
 \end{itemize}
 
-Team B should go small whatever A does: 1,601 beats both 351 and $-39$.
-Knowing that, A's best reply is also small. So (small, small) is the stable
-outcome, the Nash equilibrium of this game (\cref{app:game}). A would do far
-better if both went large, but B will never cooperate with that. Three lessons
-carry over to the real game: over-requesting next to another team is punished
-by the caps; when the grid is short, your position in the network decides who
-gets served; and your best plan depends on what you expect the others to do.
+There is no plan that is best whatever the other team does. If B goes small,
+A should go large (2,787 beats 1,601); if B goes large, A should go small
+(1,601 beats 1,523), and the same holds for B. The game has two stable outcomes,
+(large, small) and (small, large): the Nash equilibria of this game
+(\cref{app:game}). It is a game of \emph{chicken}: each team wants to be the
+large one, but if both insist, both lose. Three lessons carry over to the real
+game: asking for more than your share of a shared bottleneck is not rewarded;
+the grid's spare capacity goes to whoever does not crowd it; and your best plan
+depends on what you expect the others to do.
 
 This example simplifies the real evaluator, which uses every six-hour
 operating period of the half-year and every team's sites at once.
@@ -1010,7 +1196,8 @@ first three lines of my CSV are: [paste]. What is wrong and how do I fix it?
   \item For Submission 2, every Submission 1 row is unchanged.
   \item The checker prints \code{VALID} for the exact file you will upload.
   \item You can explain why you chose each bus and capacity.
-  \item The file name and upload location match your instructor's instructions.
+  \item The file name and upload location match \nameref{asg:rules}, and you
+    upload before the deadline in \nameref{asg:glance}.
 \end{itemize}
 
 
@@ -1035,7 +1222,9 @@ Read them in this order:
 \begin{enumerate}[leftmargin=*]
   \item \textbf{Was the projection triggered?} If not, the combined plan fit
     the grid and every team has $\alpha = 1$. If it was, compare your
-    $\alpha$ with the other teams'.
+    $\alpha$ with the other teams'. An $\alpha$ of exactly 0 means your
+    request would have been served less than half and was dropped
+    (\cref{sec:projection}).
   \item \textbf{Is your $\alpha$ above break-even?} A site built in
     Submission 1 needs about 88\% served to pay for itself within that
     submission, and about 44\% over the whole week. A site added in
@@ -1075,7 +1264,8 @@ teams have learned from the results too.
   and charges capital for every site in the file (\cref{sec:preview}). Use it to
   compare your own candidates.
 \item[Does Week 1 count?]
-  No. Weeks 2 and 3 count, and both submissions in each of those weeks count.
+  No. Weeks 2 and 3 count, and both submissions in each of those weeks count
+  (\nameref{asg:rules}).
 \item[Do I pay for energy in Submission 1?]
   No. Energy is paid at the LMP in Submission 2 only.
 \item[Can I schedule my battery or sell power from my generator?]
@@ -1086,8 +1276,14 @@ teams have learned from the results too.
 \item[Can I resize or move a site in Submission 2?]
   No. You can only add new sites, generators, and batteries.
 \item[What happens if my file is invalid?]
-  It scores 0 for that submission. Other teams are evaluated without it. Run the
-  checker on the exact file you upload.
+  It scores 0 for that submission (\nameref{asg:rules}). Other teams are
+  evaluated without it. Run the checker on the exact file you upload.
+\item[Why is my $\alpha$ zero?]
+  The combined plan did not fit the grid, and at the common level your team
+  would have been served less than half of its request, so the minimum
+  allocation dropped it (\cref{sec:projection}). You still pay capital for
+  what you built. Ask for less at congested buses, or move to buses with more
+  room.
 \item[Can other teams see my plan?]
   Not in detail. They see the score breakdown, every team's $\alpha$, and the
   total connection capacity at each bus, not who built what.
@@ -1120,6 +1316,7 @@ LMP & Locational marginal price: the cost of one more MWh at a bus. & \cref{sec:
 SOC & State of charge: the energy stored in a battery. & \cref{sec:model}\\
 Fair projection & How the evaluator shares the grid when not every request fits. & \cref{sec:projection}\\
 Service fraction $\alpha$ & The share of your requested load that is served. & \cref{sec:projection}\\
+Minimum allocation & A team that would be served less than half of its request gets nothing. & \cref{sec:projection}\\
 Hosting capacity & The most new load a bus can take without making the grid infeasible. & \cref{sec:hc}\\
 Checker & \code{ercot-game-check-csv}; checks your file's format. & \cref{sec:csv}\\
 Preview & \code{ercot-game-preview}; an approximate score for your plan alone. & \cref{sec:preview}\\
@@ -1382,32 +1579,46 @@ where $\Delta t = 6$ hours, the energy cost applies to Submission 2 only, and
 
 When the combined plan of all valid teams is infeasible, the evaluator reduces
 service in four steps. Malformed files have already been set aside, so they
-cannot block anyone else.
+cannot block anyone else. Let $r_i$ be team $i$'s total requested connection
+capacity (MW); team $i$ is served $\alpha_i r_i$ with one fraction
+$\alpha_i \in [0, 1]$ for all of its sites.
 \begin{enumerate}[leftmargin=*]
-  \item \textbf{Caps.} Each site's request is limited to 100\MW{} and each
-    team's to 500\MW{}. Then the largest team request is limited to the
-    smallest positive team request. Call the capped request of team $i$
-    $\hat d_i$.
-  \item \textbf{Most total service.} Find service fractions
-    $\alpha_i \in [10^{-6}, 1]$ that make the joint dispatch feasible in every
-    operating period and maximize the total served load $\sum_i \alpha_i \hat d_i$. Call the
-    maximum $L^* := \max_{d_i, \forall i} \sum_i \alpha_i \hat d_i$.
-  \item \textbf{Proportional fairness.} Among the fractions whose total is
-    within $\max(10^{-6}, 10^{-6}L^*)$ of $L^*$, choose the ones that maximize
-    $\sum_i \log(\alpha_i \hat d_i)$.
+  \item \textbf{Common level.} Find the largest level $t$ such that serving
+    every team $\min(r_i, t)$ is feasible in every operating period. Teams with
+    $r_i \le t$ are served in full.
+  \item \textbf{Water-filling.} A team that cannot grow on its own, even by a
+    tiny amount, is \emph{blocked} and keeps its level. The teams that are
+    neither blocked nor fully served raise their common level again, and the
+    step repeats until every team is fully served or blocked. Each level is
+    found by bisection to within 0.1\MW.
+  \item \textbf{Minimum allocation.} If some team is served less than half of
+    its request, $\alpha_i < 0.5$, the team with the largest request among them
+    (ties broken by team ID) is dropped to $\alpha_i = 0$, and steps 1--2 are
+    repeated for the remaining teams. This continues until every remaining team
+    gets at least half of its request.
   \item \textbf{Fallback.} If no joint solution is found, the evaluator tries
     leaving one team out at a time, then each team alone, and records what
     happened.
 \end{enumerate}
 
-The logarithm in step 3 is Kelly's proportional fairness~\cite{kelly1998rate}.
-At such an allocation, any change that raises one team's service by some
-percentage must lower the others' by at least as much in total percentage
-terms. The caps exist because without them a team could win a bigger share
-simply by asking for more. Step 2 comes first because the grid's capacity is
-valuable: the evaluator will not waste headroom just to make shares equal.
-That is why, in the two-team example of \cref{sec:twoteam}, the team whose MW
-uses less of the bottleneck is served in full.
+This is the \emph{uniform rule}, the max-min fair division of a single
+divisible resource, which is \emph{strategy-proof} for one shared
+resource~\cite{sprumont1991division}. On the grid a team above the common level
+is still cut to that level whatever it asked, so asking for more than you can
+use buys no extra service. But the grid has many lines rather than one
+resource: an inflated request at a congested bus puts more of the team's load
+on the bottleneck and can lower the level for \emph{everyone}. Step 3 removes
+such requests. It follows ERCOT's batch study for large loads, which allocates
+available capacity across a batch of requests studied together rather than
+first-come-first-served, and gives nothing to a request that cannot receive a
+minimum share of what it asked for~\cite{ercot2026batch}.
+
+The rule shares MW equally, not by network position. A MW at a bus that uses
+little of a shared bottleneck counts the same as a MW at a bus that uses a lot,
+which is why, in the two-team example of \cref{sec:twoteam}, both large teams
+are cut to the same level. Kelly's proportional
+fairness~\cite{kelly1998rate}, which maximizes $\sum_i \log(\alpha_i r_i)$, is
+reported in the results as a diagnostic.
 
 % ---------------------------------------------------------------------------
 \section{A little game theory}\label{app:game}
@@ -1421,7 +1632,9 @@ and the others play strategies $x_{-i}$, which is defined to be the collection o
   \item A \textbf{best response} to $x_{-i}$ is a plan $x_i$ that maximizes
     $u_i(x_i, x_{-i})$.
   \item A \textbf{dominant strategy} is a best response to everything the
-    others might do. In \cref{sec:twoteam}, ``small'' is dominant for team B.
+    others might do. In \cref{sec:twoteam} neither team has one: ``large'' is
+    the best response to ``small'' and ``small'' is the best response to
+    ``large''.
   \item A \textbf{Nash equilibrium}~\cite{nash1950equilibrium} is a profile
     $x^*$ in which every plan is a best response to the others:
     $u_i(x_i^*, x_{-i}^*) \ge u_i(x_i, x_{-i}^*)$ for every team $i$ and every

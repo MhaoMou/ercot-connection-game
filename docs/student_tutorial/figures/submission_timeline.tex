@@ -1,0 +1,26 @@
+% Submission timeline: three weeks, two submissions per week, Week 1 practice,
+% Submission 1 builds carried into Submission 2, reset between weeks.
+\begin{tikzpicture}[font=\scriptsize, >=latex,
+  sub/.style={draw, rounded corners=2pt, align=center, minimum height=13mm, text width=19mm, inner sep=2pt},
+  practice/.style={sub, draw=gray!70, fill=gray!8, text=gray!70!black},
+  graded/.style={sub, draw=blue!65!black, fill=blue!7},
+  carry/.style={->, thick, draw=green!50!black},
+  reset/.style={dashed, thick, draw=red!65!black}]
+  \foreach \w/\yr/\x/\style in {1/2027/0/practice, 2/2028/5.6/graded, 3/2029/11.2/graded} {
+    \node[\style] (s1w\w) at (\x,0) {{\bfseries Submission 1}\\\yr{} Jan--Jun\\build sites\\no energy cost};
+    \node[\style, right=8mm of s1w\w] (s2w\w) {{\bfseries Submission 2}\\\yr{} Jul--Dec\\may add sites\\energy at LMP};
+    \draw[carry] (s1w\w.east) -- (s2w\w.west);
+  }
+  \node[above=2mm of $(s1w1.north)!0.5!(s2w1.north)$, font=\footnotesize\bfseries, text=gray!70!black] {Week 1: practice};
+  \node[above=2mm of $(s1w2.north)!0.5!(s2w2.north)$, font=\footnotesize\bfseries, text=blue!65!black] {Week 2: graded};
+  \node[above=2mm of $(s1w3.north)!0.5!(s2w3.north)$, font=\footnotesize\bfseries, text=blue!65!black] {Week 3: graded};
+  \foreach \a/\b in {1/2, 2/3} {
+    \coordinate (r\a) at ($(s2w\a.east)!0.5!(s1w\b.west)$);
+    \draw[reset] ($(r\a)+(0,0.9)$) -- ($(r\a)+(0,-0.8)$);
+    \node[font=\scriptsize, text=red!65!black, align=center, above] at ($(r\a)+(0,0.9)$) {reset};
+  }
+  \draw[decorate, decoration={brace, mirror, amplitude=5pt}, thick, blue!65!black]
+    ($(s1w2.south west)+(0,-0.15)$) -- ($(s2w3.south east)+(0,-0.15)$)
+    node[midway, below=6pt, text=blue!65!black] {final score = sum of these four submission scores};
+  \node[below=3mm of $(s1w1.south)!0.5!(s2w1.south)$, font=\scriptsize, text=gray!70!black] {scored for feedback only};
+\end{tikzpicture}

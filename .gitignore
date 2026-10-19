@@ -107,3 +107,10 @@ tools/colab_instructor/
 /rl_gym/
 tests/test_rl_gym_*.py
 tests/test_colab_benchmark_package.py
+
+# LaTeX build by-products
+docs/guest_lecture/main-blx.bib
+docs/guest_lecture/*.bbl
+docs/guest_lecture/*.blg
+docs/guest_lecture/*.run.xml
+docs/guest_lecture/*.synctex.gz
