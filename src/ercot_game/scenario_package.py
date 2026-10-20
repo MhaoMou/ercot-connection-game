@@ -1,4 +1,4 @@
-"""Validation contract for the production ACTIVSg2000 scenario package."""
+"""Validation contract for the ACTIVSg2000 and IEEE-14 demo scenario packages."""
 
 from __future__ import annotations
 
@@ -26,8 +26,14 @@ AGGREGATED_EXPECTED_HORIZONS = {
     block: horizon // AGGREGATED_TIME_STEP_HOURS
     for block, horizon in EXPECTED_HORIZONS.items()
 }
+# The IEEE-14 teaching demo is a single one-week block of one-hour periods.
+# It is not a game network and has its own horizon contract.
+IEEE14_DEMO_PACKAGE_VERSION = "ieee14-demo-1h"
+IEEE14_DEMO_BLOCK = "ieee14_demo_week"
+IEEE14_DEMO_TIME_STEP_HOURS = 1
+IEEE14_DEMO_EXPECTED_HORIZONS = {IEEE14_DEMO_BLOCK: 168}
 SUPPORTED_PACKAGE_VERSIONS = frozenset(
-    {"activsg2000-scenarios-v1", "activsg2000-scenarios-v2-6h"}
+    {"activsg2000-scenarios-v1", "activsg2000-scenarios-v2-6h", IEEE14_DEMO_PACKAGE_VERSION}
 )
 
 
@@ -38,6 +44,8 @@ def expected_horizons_for_manifest(payload: dict[str, Any]) -> dict[str, int]:
         return EXPECTED_HORIZONS
     if version == "activsg2000-scenarios-v2-6h":
         return AGGREGATED_EXPECTED_HORIZONS
+    if version == IEEE14_DEMO_PACKAGE_VERSION:
+        return IEEE14_DEMO_EXPECTED_HORIZONS
     raise ScenarioPackageError("unsupported scenario package_version")
 
 
@@ -63,12 +71,16 @@ def load_scenario_manifest(root: str | Path, *, require_validated: bool = True) 
         raise ScenarioPackageError("scenario manifest validation_status is not passed")
     blocks = payload.get("blocks")
     if not isinstance(blocks, dict) or set(blocks) != set(expected_horizons):
+        if payload.get("package_version") == IEEE14_DEMO_PACKAGE_VERSION:
+            raise ScenarioPackageError("IEEE-14 demo manifest must contain exactly the demo block")
         raise ScenarioPackageError("scenario manifest must contain all six half-year blocks")
     for block, horizon in expected_horizons.items():
         entry = blocks.get(block)
         if not isinstance(entry, dict) or entry.get("horizon") != horizon:
             raise ScenarioPackageError(f"invalid horizon for scenario block {block}")
         if payload.get("package_version") == "activsg2000-scenarios-v2-6h" and entry.get("time_step_hours") != AGGREGATED_TIME_STEP_HOURS:
+            raise ScenarioPackageError(f"invalid time_step_hours for scenario block {block}")
+        if payload.get("package_version") == IEEE14_DEMO_PACKAGE_VERSION and entry.get("time_step_hours") != IEEE14_DEMO_TIME_STEP_HOURS:
             raise ScenarioPackageError(f"invalid time_step_hours for scenario block {block}")
         if not isinstance(entry.get("sha256"), str) or not entry["sha256"]:
             raise ScenarioPackageError(f"missing hash for scenario block {block}")
@@ -98,4 +110,9 @@ def require_validated_block(root: str | Path) -> dict[str, Any]:
         raise ScenarioPackageError("unsupported scenario block package_version")
     if payload.get("validation_status") != "passed":
         raise ScenarioPackageError("scenario block validation_status is not passed")
+    if payload.get("package_version") == IEEE14_DEMO_PACKAGE_VERSION:
+        if payload.get("horizon") != IEEE14_DEMO_EXPECTED_HORIZONS[IEEE14_DEMO_BLOCK]:
+            raise ScenarioPackageError("invalid horizon for the IEEE-14 demo block")
+        if payload.get("time_step_hours") != IEEE14_DEMO_TIME_STEP_HOURS:
+            raise ScenarioPackageError("invalid time_step_hours for the IEEE-14 demo block")
     return payload

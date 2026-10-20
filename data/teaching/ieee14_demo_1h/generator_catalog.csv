@@ -1,0 +1,6 @@
+generator_id,bus_id,p_min_mw,p_max_mw,marginal_cost_c1_per_mwh,status,profile_type
+g1,1,0.0,332.4,14.0,1,thermal
+g2,2,0.0,140.0,18.0,1,thermal
+g3,3,0.0,100.0,24.0,1,thermal
+g6,6,0.0,100.0,27.0,1,thermal
+g8,8,0.0,100.0,30.0,1,thermal
