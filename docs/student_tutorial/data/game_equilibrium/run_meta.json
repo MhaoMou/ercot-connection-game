@@ -1,0 +1,317 @@
+{
+ "run_exp_3": {
+  "started": "2026-10-19 15:04:09",
+  "quick": false,
+  "workers": 40,
+  "margin_per_served_mw_before_energy": 140913.04000000004,
+  "it_value_per_mwh": 6500.0,
+  "site_cost_per_mw": 951086.96,
+  "cli_validation": [
+   {
+    "profile": [
+     [
+      "13",
+      20.0,
+      0.0
+     ],
+     [
+      "14",
+      20.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-a": 2771220.8000000007,
+     "team-b": 2771220.8000000007
+    },
+    "oracle_scores": [
+     2771220.8000000007,
+     2771220.8000000007
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint"
+   },
+   {
+    "profile": [
+     [
+      "13",
+      40.0,
+      0.0
+     ],
+     [
+      "14",
+      30.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-b": -183883.13536523655,
+     "team-a": -9542011.365070727
+    },
+    "oracle_scores": [
+     -9542011.365070727,
+     -183883.13536523655
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint_projection"
+   }
+  ],
+  "seconds": 17.84870171546936,
+  "oracle_new_evaluations": 0,
+  "oracle_seconds": 0.0
+ },
+ "run_exp_5": {
+  "started": "2026-10-19 16:47:42",
+  "quick": false,
+  "workers": 32,
+  "margin_per_served_mw_before_energy": 140913.04000000004,
+  "it_value_per_mwh": 6500.0,
+  "site_cost_per_mw": 951086.96,
+  "cli_validation": [
+   {
+    "profile": [
+     [
+      "13",
+      20.0,
+      0.0
+     ],
+     [
+      "14",
+      20.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-a": 2771220.8000000007,
+     "team-b": 2771220.8000000007
+    },
+    "oracle_scores": [
+     2771220.8000000007,
+     2771220.8000000007
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint"
+   },
+   {
+    "profile": [
+     [
+      "13",
+      40.0,
+      0.0
+     ],
+     [
+      "14",
+      30.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-b": -183883.13536523655,
+     "team-a": -9542011.365070727
+    },
+    "oracle_scores": [
+     -9542011.365070727,
+     -183883.13536523655
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint_projection"
+   }
+  ],
+  "seconds": 1356.5806138515472,
+  "oracle_new_evaluations": 10449,
+  "oracle_seconds": 1255.4892649650574
+ },
+ "run_exp_2_4": {
+  "started": "2026-10-19 17:19:50",
+  "quick": false,
+  "workers": 48,
+  "margin_per_served_mw_before_energy": 140913.04000000004,
+  "it_value_per_mwh": 6500.0,
+  "site_cost_per_mw": 951086.96,
+  "cli_validation": [
+   {
+    "profile": [
+     [
+      "13",
+      20.0,
+      0.0
+     ],
+     [
+      "14",
+      20.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-a": 2771220.8000000007,
+     "team-b": 2771220.8000000007
+    },
+    "oracle_scores": [
+     2771220.8000000007,
+     2771220.8000000007
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint"
+   },
+   {
+    "profile": [
+     [
+      "13",
+      40.0,
+      0.0
+     ],
+     [
+      "14",
+      30.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-b": -183883.13536523655,
+     "team-a": -9542011.365070727
+    },
+    "oracle_scores": [
+     -9542011.365070727,
+     -183883.13536523655
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint_projection"
+   }
+  ],
+  "seconds": 665.3345234394073,
+  "oracle_new_evaluations": 2638,
+  "oracle_seconds": 53.66445255279541
+ },
+ "run_exp_6": {
+  "started": "2026-10-19 17:52:58",
+  "quick": false,
+  "workers": 48,
+  "margin_per_served_mw_before_energy": 140913.04000000004,
+  "it_value_per_mwh": 6500.0,
+  "site_cost_per_mw": 951086.96,
+  "cli_validation": [
+   {
+    "profile": [
+     [
+      "13",
+      20.0,
+      0.0
+     ],
+     [
+      "14",
+      20.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-a": 2771220.8000000007,
+     "team-b": 2771220.8000000007
+    },
+    "oracle_scores": [
+     2771220.8000000007,
+     2771220.8000000007
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint"
+   },
+   {
+    "profile": [
+     [
+      "13",
+      40.0,
+      0.0
+     ],
+     [
+      "14",
+      30.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-b": -183883.13536523655,
+     "team-a": -9542011.365070727
+    },
+    "oracle_scores": [
+     -9542011.365070727,
+     -183883.13536523655
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint_projection"
+   }
+  ],
+  "seconds": 6594.737412452698,
+  "oracle_new_evaluations": 79784,
+  "oracle_seconds": 6409.090137720108
+ },
+ "run_exp_1_5_6": {
+  "started": "2026-10-19 20:37:47",
+  "quick": false,
+  "workers": 48,
+  "margin_per_served_mw_before_energy": 140913.04000000004,
+  "it_value_per_mwh": 6500.0,
+  "site_cost_per_mw": 951086.96,
+  "cli_validation": [
+   {
+    "profile": [
+     [
+      "13",
+      20.0,
+      0.0
+     ],
+     [
+      "14",
+      20.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-a": 2771220.8000000007,
+     "team-b": 2771220.8000000007
+    },
+    "oracle_scores": [
+     2771220.8000000007,
+     2771220.8000000007
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint"
+   },
+   {
+    "profile": [
+     [
+      "13",
+      40.0,
+      0.0
+     ],
+     [
+      "14",
+      30.0,
+      0.0
+     ]
+    ],
+    "cli_exit": 0,
+    "cli_scores": {
+     "team-b": -183883.13536523655,
+     "team-a": -9542011.365070727
+    },
+    "oracle_scores": [
+     -9542011.365070727,
+     -183883.13536523655
+    ],
+    "max_abs_diff": 0.0,
+    "cli_scope": "joint_projection"
+   }
+  ],
+  "seconds": 16524.3881213665,
+  "oracle_new_evaluations": 174822,
+  "oracle_seconds": 15671.39236330986
+ }
+}

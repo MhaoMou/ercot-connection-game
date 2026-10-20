@@ -13,7 +13,7 @@
   % Vertical bus: both inputs reach both evaluators without crossing a box.
   \coordinate (bus) at ([xshift=9mm]package.east);
   \node[outcome, anchor=west] (preview) at ([xshift=9mm]bus |- package) {{\bfseries Student preview}\\{\scriptsize local, non-authoritative}};
-  \node[outcome, anchor=west] (eval) at ([xshift=9mm]bus |- csv) {{\bfseries Daily-cycle DCOPF}\\{\scriptsize official score + LMP}};
+  \node[outcome, anchor=west] (eval) at ([xshift=9mm]bus |- csv) {{\bfseries DCOPF}\\{\scriptsize official score + LMP}};
   \draw[flow] (public) -- (package);
   \draw[thick, draw=ink] (package.east) -- (bus |- package) -- (bus |- csv);
   \draw[thick, draw=ink] (csv.east) -- (bus |- csv);

@@ -1,0 +1,1 @@
+I just cloned this repository for my ECE 51032 course project. Read the README and Part I of docs/student_tutorial/main.tex, then explain in under 150 words: what my team submits, how it is scored, and which commands I will use. Do not change any files.

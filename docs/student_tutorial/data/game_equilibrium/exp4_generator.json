@@ -1,0 +1,491 @@
+{
+ "n_strategies": 340,
+ "ne_checks": [
+  {
+   "profile": [
+    "1:240",
+    "1:240"
+   ],
+   "max_gain_with_generator": [
+    0.0,
+    0.0
+   ],
+   "best_response": [
+    "1:240",
+    "1:240"
+   ],
+   "still_ne": true
+  },
+  {
+   "profile": [
+    "1:240",
+    "2:240"
+   ],
+   "max_gain_with_generator": [
+    0.0,
+    0.0
+   ],
+   "best_response": [
+    "1:240",
+    "2:240"
+   ],
+   "still_ne": true
+  },
+  {
+   "profile": [
+    "2:240",
+    "1:240"
+   ],
+   "max_gain_with_generator": [
+    0.0,
+    0.0
+   ],
+   "best_response": [
+    "2:240",
+    "1:240"
+   ],
+   "still_ne": true
+  }
+ ],
+ "runs": [
+  {
+   "start": [
+    "out",
+    "out"
+   ],
+   "final": [
+    [
+     "1",
+     240.0,
+     0.0
+    ],
+    [
+     "1",
+     240.0,
+     0.0
+    ]
+   ],
+   "final_labels": [
+    "1:240",
+    "1:240"
+   ],
+   "converged": true,
+   "cycle": null,
+   "rounds": 3,
+   "is_exact_ne": true,
+   "max_deviation_gain": 0.0,
+   "final_score": [
+    32609529.600000024,
+    32609529.600000024
+   ],
+   "final_served_mw": [
+    240.0,
+    240.0
+   ],
+   "final_welfare": 65219059.20000005,
+   "final_scope": "joint",
+   "final_dropped": 0,
+   "path": [
+    {
+     "profile": [
+      "out",
+      "out"
+     ],
+     "score": [
+      0.0,
+      0.0
+     ],
+     "served_mw": [
+      0.0,
+      0.0
+     ],
+     "welfare": 0.0,
+     "scope": "empty",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:300",
+      "out"
+     ],
+     "score": [
+      41018412.0,
+      0.0
+     ],
+     "served_mw": [
+      300.0,
+      0.0
+     ],
+     "welfare": 41018412.0,
+     "scope": "joint",
+     "dropped": 0
+    },
+    {
+     "mover": "team-b",
+     "profile": [
+      "1:300",
+      "1:240"
+     ],
+     "score": [
+      -19344640.734375,
+      32609529.600000024
+     ],
+     "served_mw": [
+      244.7021484375,
+      240.0
+     ],
+     "welfare": 13264888.865625024,
+     "scope": "joint_projection",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:240",
+      "1:240"
+     ],
+     "score": [
+      32609529.600000024,
+      32609529.600000024
+     ],
+     "served_mw": [
+      240.0,
+      240.0
+     ],
+     "welfare": 65219059.20000005,
+     "scope": "joint",
+     "dropped": 0
+    }
+   ],
+   "drop_events_in_path": 0,
+   "scan_evaluations": 2040,
+   "scan_evaluations_with_drop": 0
+  },
+  {
+   "start": [
+    "2:110+G27.5",
+    "1:10+G5"
+   ],
+   "final": [
+    [
+     "1",
+     240.0,
+     0.0
+    ],
+    [
+     "1",
+     240.0,
+     0.0
+    ]
+   ],
+   "final_labels": [
+    "1:240",
+    "1:240"
+   ],
+   "converged": true,
+   "cycle": null,
+   "rounds": 3,
+   "is_exact_ne": true,
+   "max_deviation_gain": 0.0,
+   "final_score": [
+    32609529.600000024,
+    32609529.600000024
+   ],
+   "final_served_mw": [
+    240.0,
+    240.0
+   ],
+   "final_welfare": 65219059.20000005,
+   "final_scope": "joint",
+   "final_dropped": 0,
+   "path": [
+    {
+     "profile": [
+      "2:110+G27.5",
+      "1:10+G5"
+     ],
+     "score": [
+      13598500.850000009,
+      1093564.3000000007
+     ],
+     "served_mw": [
+      110.0,
+      10.0
+     ],
+     "welfare": 14692065.15000001,
+     "scope": "joint",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:300",
+      "1:10+G5"
+     ],
+     "score": [
+      40978812.0,
+      1080634.3000000007
+     ],
+     "served_mw": [
+      300.0,
+      10.0
+     ],
+     "welfare": 42059446.3,
+     "scope": "joint",
+     "dropped": 0
+    },
+    {
+     "mover": "team-b",
+     "profile": [
+      "1:300",
+      "1:240"
+     ],
+     "score": [
+      -19344640.734375,
+      32609529.600000024
+     ],
+     "served_mw": [
+      244.7021484375,
+      240.0
+     ],
+     "welfare": 13264888.865625024,
+     "scope": "joint_projection",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:240",
+      "1:240"
+     ],
+     "score": [
+      32609529.600000024,
+      32609529.600000024
+     ],
+     "served_mw": [
+      240.0,
+      240.0
+     ],
+     "welfare": 65219059.20000005,
+     "scope": "joint",
+     "dropped": 0
+    }
+   ],
+   "drop_events_in_path": 0,
+   "scan_evaluations": 2040,
+   "scan_evaluations_with_drop": 0
+  },
+  {
+   "start": [
+    "2:290",
+    "4:290+G145"
+   ],
+   "final": [
+    [
+     "1",
+     240.0,
+     0.0
+    ],
+    [
+     "1",
+     240.0,
+     0.0
+    ]
+   ],
+   "final_labels": [
+    "1:240",
+    "1:240"
+   ],
+   "converged": true,
+   "cycle": null,
+   "rounds": 2,
+   "is_exact_ne": true,
+   "max_deviation_gain": 0.0,
+   "final_score": [
+    32609529.600000024,
+    32609529.600000024
+   ],
+   "final_served_mw": [
+    240.0,
+    240.0
+   ],
+   "final_welfare": 65219059.20000005,
+   "final_scope": "joint",
+   "final_dropped": 0,
+   "path": [
+    {
+     "profile": [
+      "2:290",
+      "4:290+G145"
+     ],
+     "score": [
+      36378866.71409863,
+      25708624.700000048
+     ],
+     "served_mw": [
+      290.0,
+      290.0
+     ],
+     "welfare": 62087491.41409868,
+     "scope": "joint",
+     "dropped": 0
+    },
+    {
+     "mover": "team-b",
+     "profile": [
+      "2:290",
+      "1:240"
+     ],
+     "score": [
+      -9849693.399999976,
+      32609529.600000024
+     ],
+     "served_mw": [
+      244.6875,
+      240.0
+     ],
+     "welfare": 22759836.200000048,
+     "scope": "joint_projection",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:240",
+      "1:240"
+     ],
+     "score": [
+      32609529.600000024,
+      32609529.600000024
+     ],
+     "served_mw": [
+      240.0,
+      240.0
+     ],
+     "welfare": 65219059.20000005,
+     "scope": "joint",
+     "dropped": 0
+    }
+   ],
+   "drop_events_in_path": 0,
+   "scan_evaluations": 1360,
+   "scan_evaluations_with_drop": 0
+  },
+  {
+   "start": [
+    "4:200",
+    "4:150+G75"
+   ],
+   "final": [
+    [
+     "1",
+     240.0,
+     0.0
+    ],
+    [
+     "1",
+     240.0,
+     0.0
+    ]
+   ],
+   "final_labels": [
+    "1:240",
+    "1:240"
+   ],
+   "converged": true,
+   "cycle": null,
+   "rounds": 3,
+   "is_exact_ne": true,
+   "max_deviation_gain": 0.0,
+   "final_score": [
+    32609529.600000024,
+    32609529.600000024
+   ],
+   "final_served_mw": [
+    240.0,
+    240.0
+   ],
+   "final_welfare": 65219059.20000005,
+   "final_scope": "joint",
+   "final_dropped": 0,
+   "path": [
+    {
+     "profile": [
+      "4:200",
+      "4:150+G75"
+     ],
+     "score": [
+      -7965458.40625,
+      11966314.5
+     ],
+     "served_mw": [
+      173.14453125,
+      150.0
+     ],
+     "welfare": 4000856.09375,
+     "scope": "joint_projection",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:300",
+      "4:150+G75"
+     ],
+     "score": [
+      40761912.0,
+      16101064.5
+     ],
+     "served_mw": [
+      300.0,
+      150.0
+     ],
+     "welfare": 56862976.5,
+     "scope": "joint",
+     "dropped": 0
+    },
+    {
+     "mover": "team-b",
+     "profile": [
+      "1:300",
+      "1:240"
+     ],
+     "score": [
+      -19344640.734375,
+      32609529.600000024
+     ],
+     "served_mw": [
+      244.7021484375,
+      240.0
+     ],
+     "welfare": 13264888.865625024,
+     "scope": "joint_projection",
+     "dropped": 0
+    },
+    {
+     "mover": "team-a",
+     "profile": [
+      "1:240",
+      "1:240"
+     ],
+     "score": [
+      32609529.600000024,
+      32609529.600000024
+     ],
+     "served_mw": [
+      240.0,
+      240.0
+     ],
+     "welfare": 65219059.20000005,
+     "scope": "joint",
+     "dropped": 0
+    }
+   ],
+   "drop_events_in_path": 0,
+   "scan_evaluations": 2040,
+   "scan_evaluations_with_drop": 0
+  }
+ ],
+ "seconds": 53.84405851364136
+}

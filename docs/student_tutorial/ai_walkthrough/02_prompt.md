@@ -1,0 +1,1 @@
+We will practice on the small IEEE 14-bus demo package in data/teaching/ieee14_demo_1h before touching the real grid. Summarize it: number of buses, lines, and generators, total load, the number of operating periods, and the five lines with the smallest thermal limits. Show the commands you ran.

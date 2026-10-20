@@ -1,0 +1,1 @@
+Write a plan for team-demo with one site at each of the two buses you shortlisted, each at about half of its hosting capacity, with no generator and no battery. Save it as runs/demo/plan.csv and check it with ercot-game-check-csv against the demo package. Then make a copy with a mistake, a generator larger than its connection, and show me what the checker says.
