@@ -1073,15 +1073,31 @@ def _fair_continuous_projection(
             if not active:
                 break
             probe = min(1.0, level + 2.0 * tolerance)
-            blocked = {
-                index for index in active if evaluate(raised(probe, (index,))) is None
-            }
-            if not blocked:
+            blocked = set()
+            reaches_request = []
+            for index in sorted(active):
+                trial = raised(probe, (index,))
+                if evaluate(trial) is None:
+                    blocked.add(index)
+                elif trial[index] >= 1.0:
+                    reaches_request.append(index)
+            # A team whose request lies within the probe step of the level is
+            # capped at its request, so the probe cannot block it.  Serve it in
+            # full where that stays feasible, one team at a time.
+            filled = set()
+            for index in reaches_request:
+                vector = list(alphas)
+                vector[index] = 1.0
+                vector_result = evaluate(vector)
+                if vector_result is not None:
+                    alphas, result = vector, vector_result
+                    filled.add(index)
+            if not blocked and not filled:
                 # Only a non-convex oracle gets here: no single team is
                 # blocked but the group is.  The minimum allocation below
                 # then drops teams in a fixed order.
                 break
-            active -= blocked
+            active -= blocked | filled
         return alphas, level, result
 
     eligible = set(range(len(team_ids)))

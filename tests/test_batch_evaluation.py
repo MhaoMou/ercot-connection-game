@@ -2118,3 +2118,28 @@ def test_all_rejected_batch_still_emits_period_audit_and_explicit_records(tmp_pa
     } == {"evaluation": True, "manifest": "True"}
     assert evaluation_payload["evaluation_metadata"]["subset_evaluations"]
     assert evaluation_payload["aggregate_diagnostics"]["dispatch_count"] == 0
+
+
+def test_fair_projection_keeps_filling_when_a_request_sits_just_above_the_blocked_level(
+    tmp_path, monkeypatch
+):
+    # Teams b and c share a 52.52 MW limit (each blocked at 26.26 MW); team a
+    # has its own 49.13 MW limit. b and c ask for slightly more than 26.26 MW,
+    # so their single-team probe is capped at their own request and looks
+    # feasible. Team a must still be served its full 49 MW.
+    projection, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path,
+        (
+            _projection_plan("team-a", 49.0),
+            _projection_plan("team-b", 26.27),
+            _projection_plan("team-c", 26.27),
+        ),
+        lambda capacities: capacities["team-b"] + capacities["team-c"] <= 52.52 + 1e-8
+        and capacities["team-a"] <= 49.13 + 1e-8,
+    )
+
+    assert projection is not None
+    assert projection.projected_capacity_mw_by_team["team-a"] == pytest.approx(49.0, abs=0.05)
+    assert projection.projected_capacity_mw_by_team["team-b"] == pytest.approx(26.26, abs=0.06)
+    assert projection.projected_capacity_mw_by_team["team-c"] == pytest.approx(26.26, abs=0.06)
