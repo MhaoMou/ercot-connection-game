@@ -6,7 +6,10 @@ the game's six-hour periods. All numbers in the slides come from the files in
 scenario package (`activsg2000_scenarios_v1`, 2028 July--December unless
 noted), and are turned into plot tables and `numbers.tex` by
 `scripts/make_lecture_data.py` (run from `docs/guest_lecture`); `scripts/make_figures.py` then
-draws every slide figure with matplotlib into `figures/*.pdf`.
+draws the slide figures with matplotlib into `figures/*.pdf`. The one exception
+is the site picture on "Your role in one picture", which is TikZ
+(`figures/site_icons.tex`, icons from `fontawesome5`). The two AI-agent slides
+summarize the session recorded in `docs/student_tutorial/ai_walkthrough/`.
 
 The hourly package is kept locally and is not published in this repository.
 Its manifests report `unverified_dependency`; for these runs the copy on

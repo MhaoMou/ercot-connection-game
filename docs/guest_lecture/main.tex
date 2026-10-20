@@ -6,6 +6,9 @@
 \definecolor{ThemeDark}{HTML}{1F4E79}
 \usecolortheme[named=ThemeBlue]{structure}
 \setbeamercolor{alerted text}{fg=ThemeDark}
+% Alerted text is also underlined; \uline (ulem) lets it break across lines.
+\usepackage[normalem]{ulem}
+\renewcommand<>{\alert}[1]{{\usebeamercolor[fg]{alerted text}\uline{#1}}}
 \setbeamertemplate{navigation symbols}{}
 \setbeamertemplate{itemize items}[circle]
 \setbeamertemplate{enumerate items}[default]
@@ -21,7 +24,11 @@
 \setbeamerfont{footnote}{size=\tiny}
 
 \usepackage{amsmath,amssymb,mathtools,bm}
-\usepackage{booktabs}
+\usepackage{booktabs,array}
+\usepackage{fontawesome5}
+\usepackage[most]{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{positioning,calc,fit,shapes.misc}
 \usepackage{listings}
 \lstset{basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
   backgroundcolor=\color{ThemeBlue!12}, frame=none, breaklines=true}
@@ -41,7 +48,8 @@
 \definecolor{varP}{HTML}{1A7F37}
 \definecolor{varF}{HTML}{8250DF}
 \newcommand{\vL}{{\color{varL}L}}
-\newcommand{\vpg}{{\color{varPg}\mathbf{p}^{\mathrm{g}}}}
+% Optional subscript, \vpg[t], so it stacks under the superscript g.
+\NewDocumentCommand{\vpg}{o}{{\color{varPg}\IfValueTF{#1}{\mathbf{p}^{\mathrm{g}}_{#1}}{\mathbf{p}^{\mathrm{g}}}}}
 \newcommand{\vp}{{\color{varP}\mathbf{p}}}
 \newcommand{\vf}{{\color{varF}\mathbf{f}}}
 \definecolor{varU}{HTML}{D35400}
@@ -52,6 +60,13 @@
 \definecolor{varD}{HTML}{6D4C41}
 \newcommand{\vg}{{\color{varG}g}}
 \newcommand{\vd}{{\color{varD}\delta}}
+% Prompt / reply / check boxes for the AI-agent walkthrough slides.
+\tcbset{agentbox/.style={boxrule=0.5pt, arc=2pt, left=3pt, right=3pt, top=1pt,
+  bottom=1pt, fonttitle=\bfseries\scriptsize, fontupper=\scriptsize, colbacktitle=#1!60!black,
+  colframe=#1!60!black, toptitle=0pt, bottomtitle=0pt, before skip=2pt, after skip=2pt}}
+\newtcolorbox{promptslide}[1]{agentbox=green, colback=green!5, title={#1}}
+\newtcolorbox{replyslide}{agentbox=gray, colback=gray!6, title={Agent reply (shortened)}}
+\newtcolorbox{checkslide}{agentbox=orange, colback=orange!8, title={Check it yourself}}
 % Company logo at text height, aligned with the baseline.
 \newcommand{\companylogo}[2][1em]{\raisebox{-0.15em}{\includegraphics[height=#1]{figures/logos/#2.pdf}}}
 % Compact reference (first author, venue, year) as a footnote on the slide
@@ -213,9 +228,9 @@
       \[
         \mathcal H = \left\{\mathbf x \ge 0 :\
         \begin{aligned}
-          &\forall t\ \exists\, {\vpg}_t, \vp_t:\\
-          &\vp_t = C\,\vpg_t - \mathbf d_t - \mathbf x,\ \ \mathbf 1^{\top}\vp_t = 0,\\
-          &|H\vp_t| \le \mathbf F,\ \ \mathbf p^{\min} \le \vpg_t \le \mathbf p^{\max}
+          &\forall t\ \exists\, \vpg[t], \vp_t:\\
+          &\vp_t = C\,\vpg[t] - \mathbf d_t - \mathbf x,\ \ \mathbf 1^{\top}\vp_t = 0,\\
+          &|H\vp_t| \le \mathbf F,\ \ \mathbf p^{\min} \le \vpg[t] \le \mathbf p^{\max}
         \end{aligned}\right\}
       \]
       The LP's constraints with new loads $\mathbf x$ (one per bus) in place
@@ -337,78 +352,359 @@
 % ===========================================================================
 \section{Part II: The connection game}
 
-\begin{frame}{The game}
-  \small
-  \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.49\textwidth}
+\begin{frame}{From one bus to many applicants}
+  \begin{columns}[c,onlytextwidth]
+    \begin{column}{0.5\textwidth}
       \begin{itemize}
-        \item Teams are data-center operators on ACTIVSg2000
-          (2{,}000 buses, 3{,}206 branches).
-        \item One CSV row per site: bus, connection $C$, generator $G\le C$,
-          battery $P$ with $B=4P$.
+        \item Part I: one bus $\Rightarrow$ one number; many buses
+          $\Rightarrow$ a \alert{region}.
+        \item Two requests can each fit alone and still not fit together.
+        \item Someone has to decide who is served, and by how much.
+      \end{itemize}
+      \vspace{0.8em}
+      \alert{For the next three weeks, you are the applicants.}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \centering
+      \includegraphics[width=\linewidth]{figures/hc_region.pdf}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Your role in one picture}
+  \centering
+  \input{figures/site_icons.tex}\\[0.3em]
+  \small You choose the numbers $C$, $G$, $P$ for each site, and the grid operator
+  runs them.
+\end{frame}
+
+\begin{frame}{What earns money, and when}
+  \small
+  One 50\MW{} site built in Submission 1
+  \begin{itemize}
+    \item earns \alert{\$6{,}500 per MWh} served and
+    costs \alert{\$25M per MW} (paid once).
+    \item Energy is about \$18/MWh.
+    \item It breaks even at about \alert{44\% served} over a week, so what matters is whether the grid
+    can deliver.
+  \end{itemize}
+  \centering
+  \includegraphics[width=\textwidth]{figures/timeline.pdf}\\[0.2em]
+  % {\scriptsize Generator \$1.5M/MW; battery \$0.4M/MW $+$ \$0.25M/MWh; full table
+  % in the tutorial.}
+\end{frame}
+
+\begin{frame}{What the grid operator does}
+  \small
+  Part I's LP, with every team's \alert{submitted plans}:
+  \begin{align*}
+    \min\ & \text{generation cost} + \text{private generator cost}\\
+    \text{s.t.}\ & \vp = C\vpg - \mathbf d_t - \text{(all teams' sites, net of their own generator and battery)},\\
+    & \mathbf 1^{\top}\vp = 0,\quad \vf = H\vp,\quad |\vf| \le \mathbf F,\quad
+      \text{batteries' constraints.}
+  \end{align*}
+  \begin{itemize}
+    \item One DCOPF per six-hour period, coupled through the batteries over each day.
+    \item The price of energy at your bus is the LMP.
+    % \item The full LP is on the backup slide.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{When it doesn't fit: how ERCOT connects large loads since 2026}
+  \footnotesize
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.47\textwidth}
+      \textbf{Before: one request at a time}
+      \begin{itemize}
+        \item Each new project could invalidate the studies of projects ahead of it.
+        \item Repeated restudies; delays of years.
+      \end{itemize}
+      \pause
+      \textbf{Now: a batch (PGRR145, ``Batch Zero'')}\fcite{ercot2026batch}
+      \begin{itemize}
+        \item All eligible loads ($\ge$75\MW) are studied \alert{together}.
+        \item MW are allocated ``based on what the grid can reliably support''.
+        % \item Batch Zero allocations in spring 2027; Batch 1 opens summer 2027.
       \end{itemize}
     \end{column}
-    \begin{column}{0.49\textwidth}
+    \pause
+    \begin{column}{0.5\textwidth}
+      \textbf{Three kinds of applicant}
       \begin{itemize}
-        \item Six-hour periods (mean of 6 hours), 4 per day,
-          724--736 per half-year.
-        \item The instructor solves one joint DCOPF with every team's sites.
+        \item \textbf{Base load:} studied before and its MW are kept.
+        \item \textbf{Studied load:} gets its full request, \alert{part of it}, or waits for the next batch.
+        \item \textbf{Excluded:} waits for a future batch.
       \end{itemize}
+      \pause
+      \textbf{Minimum allocation}\fcite{ercot2026pgrr145}
+      \begin{itemize}
+        \item Below \alert{100\MW}, or below \alert{90\%} of a request of
+          100\MW{} or less, the allocation is \alert{reduced to zero}.
+      \end{itemize}
+      \textbf{Ways to connect sooner}
+      \begin{itemize}
+        \item Bring your own generation, or let ERCOT curtail you under stress (Part I).
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{The game's batch rule: one shared limit}
+  \small
+  Three teams behind one line that can carry \alert{200\MW{}} of new load.
+  \\Requests: A 40, B 100, C 200 (total 340).
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.58\textwidth}
+      \begin{enumerate}
+        \item<2-> \textbf{Common level.} Raise $t$ until the line is full:
+          $\min(40,t)+\min(100,t)+\min(200,t)=200 \Rightarrow t = 80$.\\
+          \alert{A gets 40 (all), B 80, C 80.}
+        \item<3-> \textbf{Minimum allocation.} C gets $80/200 = 40\% < 50\%$
+          $\Rightarrow$ C is dropped (largest short request first).
+        \item<4-> \textbf{Recompute without C.} $40 + 100 = 140 \le 200$:
+          A and B are served in full.
+      \end{enumerate}
+    \end{column}
+    \begin{column}{0.41\textwidth}
+      \centering
+      \begin{tabular}{@{}lrrr@{}}
+        \toprule
+        & request & \only<1-3>{step 1}\only<4->{final} & share\\
+        \midrule
+        A & 40 & 40 & \only<1-3>{100\%}\only<4->{100\%}\\
+        B & 100 & \only<1-3>{80}\only<4->{100} & \only<1-3>{80\%}\only<4->{100\%}\\
+        C & 200 & \only<1-3>{80}\only<4->{\alert{0}} & \only<1-3>{40\%}\only<4->{\alert{0\%}}\\
+        \bottomrule
+      \end{tabular}\\[0.8em]
+      \onslide<5->{\footnotesize C still pays capital on 200\MW{}.
+      \alert{Asking for more than the grid can give is the most expensive mistake in the game.}}
     \end{column}
   \end{columns}
   \vspace{0.6em}
-  \centering
-  \includegraphics[width=0.82\textwidth]{figures/site.pdf}
+  \onslide<5->{\footnotesize ERCOT does not publish a formula for splitting capacity among
+  studied loads. The game uses \alert{equal MW} (the uniform
+  rule\fcite{sprumont1991division}) so that everyone can predict it.}
 \end{frame}
 
-\begin{frame}{Schedule and scoring}
+\begin{frame}{On the network: sharing the region}
   \small
+  \centering
+  \includegraphics[width=0.7\textwidth]{figures/region_sharing.pdf}
+  \begin{enumerate}
+    \item Everyone rises to a \alert{common MW level}. A team that asked for less is served in full.
+    \item Teams that are not blocked keep rising (water-filling).
+    \item A team that would get \alert{less than half} of its request gets nothing.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{The game and ERCOT}
+  \small
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}>{\raggedright\arraybackslash}p{0.34\textwidth}@{}}
+    \toprule
+    & ERCOT batch study & This game\\
+    \midrule
+    Who is studied together & All eligible loads in a batch & All teams' submissions\\
+    Already connected & Base load keeps its MW & \texttt{ACTIVSg2000}'s existing load\\
+    How MW are split & System-wide study & Equal MW level, then water-filling\\
+    Too small a share & below 100\MW{} (90\% for requests $\le$100\MW) $\to$ 0 & below 50\% of the request $\to$ 0\\
+    Commitment & Financial security, site control & Capital charged on the full request\\
+    Own generation & Offsets transmission need & Private generator $G$\\
+    Flexible load & May be curtailed under stress & Not in the game (Part I)\\
+    \bottomrule
+  \end{tabular}\\[0.8em]
+  % The 50\% threshold is scaled to the game's 50--200\MW{} requests; ERCOT's
+  % 100\MW{} floor would drop almost every team.
+\end{frame}
+
+\begin{frame}{A two-team example}
+  \small
+  \begin{itemize}
+    \item Team A at bus 1002.
+    \item Team B at neighbor 1010.
+    \item Each picks 50 or 100\MW{}, built in Submission 1.
+  \end{itemize}
+  Payoffs per week (\$M):
+  \begin{center}
+    \begin{tabular}{@{}lcc@{}}
+      \toprule
+      A \textbackslash{} B & B small (50) & B large (100)\\
+      \midrule
+      A small (50) & \GameSS & \alert{\GameSL}\\
+      A large (100) & \alert{\GameLS} & \GameLL\\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item<2-> If B goes small, A should go large. If B goes large, A should go small.
+    \item<3-> \GameNashText{} A game of \emph{chicken}: if both insist, both lose.
+    \item<4-> Your score depends on where everyone builds, and you see the results
+      between submissions. \alert{What would you do?}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{From the slides to your laptop}
+  \centering
+  \includegraphics[width=\textwidth]{figures/workflow.pdf}\\[0.6em]
+  \small Everything is in one GitHub repository: \hyperlink{https://github.com/MhaoMou/ercot-connection-planning-instructor}{\alert{[Link]}}.\\
+  % The tutorial's Part I is the official assignment; Part II walks through every step.
+\end{frame}
+
+\begin{frame}[fragile]{An AI coding agent on the IEEE 14-bus demo (1/2)}
+  \scriptsize
+  % A real session with a coding agent in a fresh clone, shortened; the full prompts and replies are in the tutorial.
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.46\textwidth}
-      \begin{tabular}{@{}lll@{}}
-        \toprule
-        Week & Submissions & Counts?\\
-        \midrule
-        1 & 2027 Jan--Jun, Jul--Dec & practice\\
-        2 & 2028 Jan--Jun, Jul--Dec & both\\
-        3 & 2029 Jan--Jun, Jul--Dec & both\\
-        \bottomrule
-      \end{tabular}
-      \vspace{0.6em}
-      \begin{itemize}
-        \item Sites built in Submission 1 stay for Submission 2 and are
-          \alert{not charged again}.
-        \item Submission 1 pays no energy cost.
-      \end{itemize}
+    \begin{column}{0.32\textwidth}
+      \begin{promptslide}{1. Read the rules}
+        Read the README and Part I of the tutorial, then explain in under 150
+        words what my team submits, how it is scored, and which commands I
+        will use. Do not change any files.
+      \end{promptslide}
+      \begin{replyslide}
+        One CSV per team per submission [...] six files, and no report. [...]
+        If they don't fit, everyone gets the same MW level, and a team that
+        would get less than half of its request gets nothing.
+      \end{replyslide}
+      \begin{checkslide}
+        Accurate, but about 190 words: \alert{agents do not always respect limits.}
+      \end{checkslide}
     \end{column}
-    \begin{column}{0.52\textwidth}
-      \centering
-      score $=$ IT value $-$ energy $-$ gen.\ operating $-$ capital\\[0.5em]
-      \footnotesize
-      \begin{tabular}{@{}ll@{}}
-        \toprule
-        IT value & \$6{,}500 per MWh served\\
-        energy & LMP $\times$ grid purchase\\
-        generator operation & \$80 / 150 / 250 per MWh\\
-        site & \$25M per MW\\
-        generator capital & \$1.5M per MW\\
-        storage capital & \$0.4M/MW $+$ \$0.25M/MWh\\
-        \bottomrule
-      \end{tabular}\\[0.6em]
-      \begin{block}{Break-even share of load served}
-        about 44\% over a week if built in Submission 1;\\
-        87\% if added in Submission 2.
-      \end{block}
+    \pause
+    \begin{column}{0.32\textwidth}
+      \begin{promptslide}{2. Look at the data}
+        Summarize the demo package: buses, lines, generators, total load,
+        periods, and the five lines with the smallest thermal limits. Show the
+        commands you ran.
+      \end{promptslide}
+      \begin{replyslide}
+        14 buses, 20 lines, 5 generators (772\MW); load 243--288\MW; 168
+        hourly periods, peak in hour 157. Smallest limits: 12-13 (20), 10-11
+        (25), 13-14 (25). README tip: buses 13 and 14 share a bottleneck.
+      \end{replyslide}
+      \begin{checkslide}
+        Count the rows in \texttt{bus.csv} and \texttt{branch\_limits.csv}.
+      \end{checkslide}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \begin{promptslide}{3. Hosting capacity}
+        Compute the hosting capacity of every bus over all 168 hours, sort it,
+        explain it in one sentence, and shortlist two buses.
+      \end{promptslide}
+      \begin{replyslide}
+        2,352 LPs, no failures. Bus 1: 485\MW, bus 2: 441\MW, \dots, bus 14:
+        39\MW. Shortlist 1 and 2, but ``you can't build 485\MW{} at one and
+        441\MW{} at the other'', and every team sees this table.
+      \end{replyslide}
+      \begin{checkslide}
+        Re-run one bus yourself. \alert{AI agents usually make mistakes that are not easy to see.}
+      \end{checkslide}
     \end{column}
   \end{columns}
 \end{frame}
 
-\begin{frame}{The evaluator}
+\begin{frame}[fragile]{An AI coding agent on the IEEE 14-bus demo (2/2)}
+  \scriptsize
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.32\textwidth}
+      \begin{promptslide}{4. Write and check a plan}
+        One site at each shortlisted bus at about half its hosting capacity;
+        check it. Then break it on purpose (generator larger than connection).
+      \end{promptslide}
+      \begin{replyslide}
+        240\MW{} at bus 1, 220\MW{} at bus 2: \texttt{VALID}. The broken copy:
+        \texttt{INVALID - row 3: generator capacity cannot exceed connection
+        capacity}. ``Valid only means the file is well-formed.''
+      \end{replyslide}
+      \begin{checkslide}
+        Open the CSV; breaking a file shows what the checker catches.
+      \end{checkslide}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \begin{promptslide}{5. Preview}
+        Preview it as Submission 2. Report the share served, the score, the
+        dominant term, and whether it beats break-even.
+      \end{promptslide}
+      \begin{replyslide}
+        100\% served. IT value \$502.3M, site cost \$437.5M, energy \$2.3M;
+        score $+$\$62.5M. Break-even at about 88\% served: ``a margin of about
+        12 percentage points.''
+      \end{replyslide}
+      \begin{checkslide}
+        Redo $460 \times 168 \times 6{,}500 = \$502.3$M by hand.
+      \end{checkslide}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \begin{promptslide}{6. A rival copies you}
+        Simulate a rival with the same plan and run the joint evaluation. What
+        service fraction does each team get? List every assumption I should
+        check.
+      \end{promptslide}
+      \begin{replyslide}
+        Both get $\alpha = 0.527$: 242 of 460\MW. Score $-$\$174M instead of
+        $+$\$62.5M, just above the 50\% cutoff. Among 11 assumptions: ``I
+        didn't consider what other teams would do.''
+      \end{replyslide}
+      \begin{checkslide}
+        Open \texttt{evaluation.json}; always ask for the assumptions.
+      \end{checkslide}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{After each round, and your first plan}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.5\textwidth}
+      \textbf{What you get back}
+      \begin{itemize}
+        \item your score breakdown (in private);
+        \item every team's service fraction $\alpha$\%;
+        \item a grid map with the total MW at each bus.
+      \end{itemize}
+      \textbf{A first plan for Week 1}
+      \begin{enumerate}
+        \item Shortlist buses by hosting capacity.
+        \item Ask well below it if w/o a generator or battery.
+        \item Check, preview, change one thing, compare.
+      \end{enumerate}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \centering
+      \includegraphics[width=0.78\linewidth]{figures/grid_map.png}\\[-0.2em]
+      {\scriptsize Eight-team example: bus color = total MW of all teams,
+      line color = peak loading; approximate locations.}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Takeaways}
+  \begin{itemize}
+    \item Hosting capacity is an LP: the DCOPF with a ``maximize the new load''
+      objective.
+    \item Time: a constant load is limited by the \alert{worst} hour.
+      Generation adds $G$ and storage moves the limit toward the
+      \alert{average}. Flexibility toward the $(K{+}1)$-th worst.
+    \item Space: single-bus numbers are intercepts of a region and
+      \alert{do not add up}.
+    \item With many applicants, \alert{who gets served} is a design choice, and it turns planning
+      into a \alert{game}.
+  \end{itemize}
+  \vspace{0.6em}
+  \textbf{Questions for you.} How should a grid operator allocate scarce headroom
+  among data centers? What would you change in the game's rule?
+\end{frame}
+
+\begin{frame}[allowframebreaks]{References}
+  \printbibliography[heading=none]
+\end{frame}
+
+
+\appendix
+\begin{frame}{Backup: the evaluator in full}
   \small
   For each day $d$ and period $t = 1,\dots,4$ ($\Delta t = 6$\,h): a DCOPF with
   all teams' sites, coupled through each battery's daily cycle.
   \begin{align*}
-    \min\ & \textstyle\sum_{d,t} \Delta t \big(\mathbf c^{\top}\vpg_{dt} + \sum_s \sum_m c^m q^m_{s,dt}\big)\\
+    \min\ & \textstyle\sum_{d,t} \Delta t \big(\mathbf c^{\top}\vpg[dt] + \sum_s \sum_m c^m q^m_{s,dt}\big)\\
     \text{s.t.}\ & \text{DCOPF balance and line limits with loads } \alpha_i C_s
       \text{ and private } q_s, \vu_s\\
     & \ve_{s,d,t} = \ve_{s,d,t-1} - \Delta t\, \vu_{s,dt},\ \ 0\le \ve\le B_s,\ \ |\vu|\le P_s,\ \
@@ -420,103 +716,6 @@
     \item An exact LP that separates by day (Benders or one LP per day).
     \item LMP = dual of nodal balance; it prices energy in Submission 2.
   \end{itemize}
-\end{frame}
-
-\begin{frame}{Who gets served when requests exceed the region?}
-  \small
-  The game's evaluator uses the \emph{uniform rule}, never first-come-first-served:
-  \begin{enumerate}
-    \item \textbf{Common level:} the largest $t$ such that serving
-      $\min(r_i, t)$ to every team $i$ is feasible in every period
-      ($r_i$ = requested MW, one fraction $\alpha_i$ for all of $i$'s sites).
-    \item \textbf{Water-filling:} teams that are not blocked keep rising
-      until each is fully served or blocked.
-    \item \textbf{Minimum allocation:} a team served $<50\%$ of its request
-      gets nothing (largest dropped first), as in ERCOT's batch study.
-  \end{enumerate}
-  Uniform rule is strategy-proof for one resource;\fcite{sprumont1991division}
-  on a network an inflated request can lower everyone's level, hence step 3.
-  \begin{itemize}
-    \item Capital is charged on what you \emph{asked} for, not on what is served.
-    \item Real counterparts: interconnection queues (first come, first served),
-      ERCOT's 2026 batch allocation of transmission
-      capacity,\fcite{ercot2026batch} fairness rules for curtailing distributed
-      generation.\fcite{liu2020fairness,gebbran2021fair}
-  \end{itemize}
-\end{frame}
-
-\begin{frame}{A two-team example on the real grid}
-  \small
-  Team A at bus 1002, team B at neighbor 1010; each picks 50 or 100\MW, built in
-  Submission 1. Peak hour, every hour treated alike; payoffs per week (\$M):
-  \vspace{0.3em}
-  \begin{center}
-    \begin{tabular}{@{}lcc@{}}
-      \toprule
-      A \textbackslash{} B & B small (50) & B large (100)\\
-      \midrule
-      A small (50) & \GameSS & \GameSL\\
-      A large (100) & \GameLS & \GameLL\\
-      \bottomrule
-    \end{tabular}
-  \end{center}
-  \begin{itemize}
-    \item One large, one small: the small team is served in full, the large one
-      gets the rest (\GameLSserved{} or \GameSLserved\MW) and pays for 100\MW.
-    \item Both large: both cut to the same level (\GameLLserved); both lose.
-    \item \GameNashText{} A game of \emph{chicken}.
-  \end{itemize}
-\end{frame}
-
-\begin{frame}[fragile]{What students get, and a live demo}
-  \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.46\textwidth}
-      \footnotesize
-      \begin{itemize}
-        \item \texttt{ercot-game-check-csv}: format and bus checks
-        \item \texttt{ercot-game-preview}: approximate score, plan alone
-        \item \texttt{ercot-game-hosting-capacity}: the LP from this lecture
-        \item After each round: score breakdown, every team's $\alpha$,
-          projection on/off, and a grid map
-      \end{itemize}
-      \vspace{0.2em}
-\begin{lstlisting}
-ercot-game-hosting-capacity \
-  --artifact-dir .../2028/jul_dec \
-  --start-period 304 --period-count 4 \
-  --bus-id 1002 --bus-id 1010 --output-dir demo/hc
-\end{lstlisting}
-      {\scriptsize Demo on the students' six-hour package.}
-    \end{column}
-    \begin{column}{0.52\textwidth}
-      \centering
-      \includegraphics[width=0.68\linewidth]{figures/grid_map.png}\\[-0.2em]
-      {\scriptsize Eight-team example, hourly dispatch: bus color = total MW of
-      all teams, line color = peak loading; approximate locations.}
-    \end{column}
-  \end{columns}
-\end{frame}
-
-\begin{frame}{Takeaways}
-  \begin{itemize}
-    \item Hosting capacity is an LP: the DCOPF with a ``maximize the new load''
-      objective.
-    \item Time: a constant load is limited by the \alert{worst} hour.
-      Generation adds $G$; storage moves the limit toward the
-      \alert{average}; flexibility toward the $(K{+}1)$-th worst.
-    \item Space: single-bus numbers are intercepts of a region and
-      \alert{do not add up}.
-    \item With many applicants, \alert{who gets served} is a design choice
-      (queue, batch allocation, proportional fairness, prices), and it turns
-      planning into a game.
-  \end{itemize}
-  \vspace{0.6em}
-  \textbf{Discussion.} How should a grid operator allocate scarce headroom
-  among data centers? What would you change in the game's projection rule?
-\end{frame}
-
-\begin{frame}[allowframebreaks]{References}
-  \printbibliography[heading=none]
 \end{frame}
 
 \end{document}

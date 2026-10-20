@@ -5,6 +5,7 @@ Run from docs/guest_lecture after scripts/make_lecture_data.py:
 Writes PDF figures to figures/.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -26,6 +27,8 @@ STEEL = "#595959"
 BLUE = "#C0392B"   # highlight lines (minimum hosting capacity, no battery)
 RED = "#C0392B"
 BLACK = "#000000"
+# White backing so annotations stay legible over lines and fills.
+LABEL_BOX = dict(facecolor="white", alpha=0.85, edgecolor="none", pad=0.6)
 
 # Sized for a half-width Beamer column (16:9, ~2.8 in) so fonts match the slide.
 plt.rcParams.update({
@@ -172,6 +175,126 @@ def site() -> None:
     save(fig, "site")
 
 
+def timeline() -> None:
+    """Three weeks of two submissions: practice, carry-over, reset, final score."""
+    fig, ax = plt.subplots(figsize=(6.2, 1.75))
+    ax.set_xlim(0, 15.85)
+    ax.set_ylim(-1.15, 1.75)
+    ax.axis("off")
+    weeks = [(2027, "Week 1: practice", False), (2028, "Week 2: graded", True), (2029, "Week 3: graded", True)]
+    width, height, gap, step = 2.15, 1.25, 0.55, 5.35
+    for index, (year, title, graded) in enumerate(weeks):
+        x0 = 0.1 + index * step
+        edge, face = (AGED, "#DDEBF7") if graded else ("#8C8C8C", "#F2F2F2")
+        lines = [("Submission 1", f"{year} Jan–Jun", "build sites", "no energy cost"),
+                 ("Submission 2", f"{year} Jul–Dec", "may add sites", "energy at LMP")]
+        for k, (head, period, a, b) in enumerate(lines):
+            x = x0 + k * (width + gap)
+            ax.add_patch(FancyBboxPatch((x, -0.3), width, height, boxstyle="round,pad=0.02,rounding_size=0.08",
+                                        facecolor=face, edgecolor=edge, linewidth=1))
+            ax.text(x + width / 2, -0.3 + height - 0.2, head, ha="center", va="center", fontsize=7.5,
+                    fontweight="bold", color=BLACK if graded else edge)
+            ax.text(x + width / 2, -0.3 + height / 2 - 0.12, f"{period}\n{a}\n{b}", ha="center", va="center",
+                    fontsize=6.5, linespacing=1.15, color=STEEL if graded else edge)
+        ax.add_patch(FancyArrowPatch((x0 + width, 0.32), (x0 + width + gap, 0.32), arrowstyle="-|>",
+                                     mutation_scale=8, linewidth=1.2, color="#3B7D23"))
+        ax.text(x0 + width + gap / 2, 1.12, title, ha="center", fontsize=8, fontweight="bold",
+                color=AGED if graded else "#7F7F7F")
+        if index < 2:
+            xr = x0 + 2 * width + gap + (step - 2 * width - gap) / 2
+            ax.plot([xr, xr], [-0.45, 1.3], color=RED, linestyle="--", linewidth=1)
+            ax.text(xr, 1.38, "reset", ha="center", fontsize=6.5, color=RED)
+    ax.text(0.1 + width + gap / 2, -0.6, "scored for feedback only", ha="center", fontsize=6.5, color="#7F7F7F")
+    left, right = 0.1 + step, 0.1 + 2 * step + 2 * width + gap
+    ax.plot([left, left, right, right], [-0.42, -0.55, -0.55, -0.42], color=AGED, linewidth=1)
+    ax.text((left + right) / 2, -0.85, "final score = sum of these four submission scores", ha="center",
+            fontsize=7.5, color=AGED)
+    save(fig, "timeline")
+
+
+def region_sharing(n: dict[str, float]) -> None:
+    """The uniform rule drawn on the two-bus hosting-capacity region."""
+    table = pd.read_csv(DATA / "pair_boundary.csv")
+    game = json.loads((DATA / "raw" / "uniform_two_team_p1837.json").read_text())["game"]
+    both = game["100,100"]["served"][0]
+    b_after_a50 = game["50,100"]["served"][1]
+    hc_a, hc_b = n["PairHCa"], n["PairHCb"]
+    fig, axes = plt.subplots(1, 2, figsize=(6.0, 2.45), sharey=True)
+    for ax in axes:
+        ax.fill_between(table.la, 0, table.lb, color=GOLD, alpha=0.6, linewidth=0)
+        ax.plot(table.la, table.lb, color=AGED, linewidth=1)
+        ax.plot([table.la.iloc[-1]] * 2, [0, table.lb.iloc[-1]], color=AGED, linewidth=1)
+        ax.set_xlim(0, hc_a * 1.12)
+        ax.set_ylim(0, hc_b * 1.12)
+        ax.set_xlabel("served at bus 1002 (MW)")
+        ax.set_aspect("equal")
+    axes[0].set_ylabel("served at bus 1010 (MW)")
+
+    # Left: both ask 100 MW (equal ray), and A 50 / B 100 (ray, then water-filling).
+    ax = axes[0]
+    ax.plot([100], [100], marker="x", color=STEEL, markersize=6, mew=1.5)
+    ax.text(101, 103, "both ask 100", fontsize=6.5, color=STEEL, bbox=LABEL_BOX)
+    ax.plot([0, both], [0, both], color=RED, linewidth=1.4)
+    ax.plot([both], [both], "o", color=RED, markersize=4)
+    ax.text(both + 3, both - 12, f"common level\n≈ {both:.0f} MW each", fontsize=6.5, color=RED, bbox=LABEL_BOX)
+    ax.plot([50, 50], [50, b_after_a50], color="#3B7D23", linewidth=1.4, linestyle="--")
+    ax.plot([50], [b_after_a50], "o", color="#3B7D23", markersize=4)
+    ax.text(3, 112, f"A asks 50: served in full;\nB keeps rising to {b_after_a50:.0f}", fontsize=6.5,
+            color="#3B7D23", bbox=LABEL_BOX)
+    ax.set_title("common level, then water-filling", fontsize=7.5, pad=3)
+
+    # Right: B asks 250 MW and would get b_after_a50 (< 50%), so B is dropped.
+    ax = axes[1]
+    ax.plot([0, 50], [0, 50], color=STEEL, linewidth=1)
+    ax.plot([50, 50], [50, b_after_a50], color=STEEL, linewidth=1, linestyle="--")
+    ax.plot([50], [b_after_a50], marker="x", color=RED, markersize=7, mew=1.8)
+    ax.text(55, 62, f"B asks 250, would get {b_after_a50:.0f}\n= {b_after_a50 / 250:.0%} < 50%",
+            fontsize=6.5, color=RED, bbox=LABEL_BOX)
+    ax.annotate("", xy=(50, 4), xytext=(50, b_after_a50 - 6),
+                arrowprops=dict(arrowstyle="-|>", color=RED, linewidth=1.2))
+    ax.plot([50], [0], "o", color=RED, markersize=4, clip_on=False)
+    ax.text(55, 10, "B is dropped and gets 0;\nA keeps its 50", fontsize=6.5, color=RED, bbox=LABEL_BOX)
+    ax.set_title("minimum allocation", fontsize=7.5, pad=3)
+    fig.tight_layout(w_pad=1.0)
+    save(fig, "region_sharing")
+
+
+def workflow() -> None:
+    """The student workflow in the repository, with an AI coding agent in the loop."""
+    steps = [
+        ("1  Set up", "git clone\npip install"),
+        ("2  Explore", "bus.csv\nbranch_limits"),
+        ("3  Hosting\ncapacity", "ercot-game-\nhosting-\ncapacity"),
+        ("4  Write\nthe plan", "plan.csv\n1 row per site"),
+        ("5  Check", "ercot-game-\ncheck-csv"),
+        ("6  Preview", "ercot-game-\npreview"),
+        ("7  Submit,\nread results", "scores, α,\ngrid map"),
+    ]
+    fig, ax = plt.subplots(figsize=(6.4, 1.95))
+    ax.set_xlim(0, 14.0)
+    ax.set_ylim(-1.35, 1.6)
+    ax.axis("off")
+    width, gap = 1.72, 0.3
+    for index, (head, detail) in enumerate(steps):
+        x = 0.1 + index * (width + gap)
+        ax.add_patch(FancyBboxPatch((x, 0.05), width, 1.35, boxstyle="round,pad=0.02,rounding_size=0.1",
+                                    facecolor="#DDEBF7", edgecolor=AGED, linewidth=1))
+        ax.text(x + width / 2, 1.08, head, ha="center", va="center", fontsize=7, fontweight="bold",
+                linespacing=1.0)
+        ax.text(x + width / 2, 0.42, detail, ha="center", va="center", fontsize=4.9, family="monospace",
+                color=STEEL, linespacing=1.1)
+        if index < len(steps) - 1:
+            ax.add_patch(FancyArrowPatch((x + width, 0.72), (x + width + gap, 0.72), arrowstyle="-|>",
+                                         mutation_scale=7, linewidth=1, color=BLACK))
+        ax.add_patch(FancyArrowPatch((x + width / 2, -0.4), (x + width / 2, 0.03), arrowstyle="<|-|>",
+                                     mutation_scale=6, linewidth=0.8, color="#3B7D23"))
+    ax.add_patch(FancyBboxPatch((0.1, -1.2), 13.7, 0.8, boxstyle="round,pad=0.02,rounding_size=0.1",
+                                facecolor="#E2F0D9", edgecolor="#3B7D23", linewidth=1))
+    ax.text(6.95, -0.8, "AI coding agent: you give the goal and context; it writes and runs each step;"
+            " you check every number", ha="center", va="center", fontsize=7, color="#255E16")
+    save(fig, "workflow")
+
+
 def main() -> None:
     n = numbers()
     histogram()
@@ -180,6 +303,9 @@ def main() -> None:
     storage_day(n)
     order_statistic()
     site()
+    timeline()
+    region_sharing(n)
+    workflow()
     print("figures written to", FIG)
 
 
