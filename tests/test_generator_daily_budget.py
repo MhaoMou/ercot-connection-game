@@ -248,6 +248,49 @@ def test_student_preview_respects_the_budget(tmp_path) -> None:
     assert unbudgeted.generator_dispatch_policy == "no_daily_budget"
 
 
+def test_student_preview_accepts_a_site_with_generator_and_battery(tmp_path) -> None:
+    # Regression: the preview cleared plan.storages but not the site rows, so a
+    # CSV site with both a generator and a battery failed under the budget.
+    from ercot_game.csv_submission import read_student_csv
+    from ercot_game.student_preview import preview_plans
+
+    artifact = _dip_artifact(tmp_path)
+    csv_path = tmp_path / "team-a.csv"
+    csv_path.write_text(
+        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,"
+        "storage_power_mw,storage_energy_mwh\n"
+        "team-a,site-1,2,70,30,10,40\n",
+        encoding="utf-8",
+    )
+    plan = read_student_csv(csv_path, horizon=HORIZON, max_generator_to_connection_ratio=0.5).plan
+    rules = BatchScoringRules(
+        rules_version="x",
+        it_value_per_mwh=(1000.0,) * HORIZON,
+        energy_price_per_mwh=(0.0,) * HORIZON,
+        generator_daily_energy_hours=2.0,
+    )
+    result = preview_plans(
+        (plan,), artifact_dir=artifact, horizon=HORIZON, rules=rules,
+        submission_number=1, preview_stride=1,
+    )
+    assert result.generator_dispatch_policy == "daily_budget_2h_exact"
+    assert max(_daily_generation(result.dispatch, generator_id=plan.generators[0].generator_id)) <= 60.0 + 1e-6
+
+
+def test_auto_backend_skips_a_size_limited_gurobi_license(monkeypatch) -> None:
+    # The free pip license starts an environment but cannot solve a full DCOPF;
+    # "auto" must then fall back to HiGHS instead of failing mid-evaluation.
+    gp = pytest.importorskip("gurobipy")
+    from tools.activsg2000 import dcopf
+
+    def size_limited(self):
+        raise gp.GurobiError(10010, "Model too large for size-limited license")
+
+    monkeypatch.setattr(gp.Model, "optimize", size_limited)
+    assert dcopf.gurobi_is_available() is False
+    assert dcopf.resolve_solver_backend("auto") == "highs"
+
+
 def _monolithic(artifact, plans, **kwargs):
     return evaluate_plans_with_prepared_dcopf(
         artifact, plans, period_indices=PERIODS, storage_solver="monolithic", **kwargs

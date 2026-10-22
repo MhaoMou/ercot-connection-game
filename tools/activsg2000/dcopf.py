@@ -1545,9 +1545,10 @@ class GurobiReusableDCOPFModel:
 
 
 def gurobi_is_available() -> bool:
-    """Return whether the optional Gurobi package and license can start.
+    """Return whether the optional Gurobi package and a full license can run.
 
-    The probe uses a quiet, short-lived environment and never creates a model.
+    The probe uses a quiet, short-lived environment and one tiny model just
+    above the size limit of the free restricted license.
     This keeps ``auto`` safe on machines where Gurobi is not installed or its
     license is unavailable, while avoiding a solver fallback after a partial
     evaluation has already started.
@@ -1561,6 +1562,14 @@ def gurobi_is_available() -> bool:
         environment = gp.Env(empty=True)
         environment.setParam("OutputFlag", 0)
         environment.start()
+        # The free pip license starts an environment but is size-limited
+        # (2,000 variables), far below a 2,000-bus DCOPF; probe past that size.
+        model = gp.Model(env=environment)
+        try:
+            model.addVars(2001, ub=1.0)
+            model.optimize()
+        finally:
+            model.dispose()
         return True
     except Exception:
         return False

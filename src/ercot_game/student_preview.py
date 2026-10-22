@@ -108,7 +108,18 @@ def preview_plans(
     # The exact evaluator remains responsible for storage operation.  Removing
     # storage only from this fast dispatch call prevents the horizon LP from
     # being built while retaining the original plans for capital-cost scoring.
-    dispatch_plans = tuple(replace(plan, storages=()) for plan in ordered_plans)
+    # The adapter rebuilds storage from the site rows, so clear them there too.
+    dispatch_plans = tuple(
+        replace(
+            plan,
+            storages=(),
+            sites=tuple(
+                replace(site, storage_power_mw=0.0, storage_energy_mwh=0.0)
+                for site in plan.sites
+            ),
+        )
+        for plan in ordered_plans
+    )
     budget_hours = rules.generator_daily_energy_hours
     day_periods = 24.0 / rules.time_step_hours
     exact_budget = (
