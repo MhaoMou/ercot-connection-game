@@ -2788,6 +2788,11 @@ def write_batch_outputs(
             if evaluation.dispatch is None or getattr(evaluation.dispatch, "solver_diagnostics", None) is None
             else asdict(evaluation.dispatch.solver_diagnostics)
         ),
+        "generator_split_fallbacks": (
+            []
+            if evaluation.dispatch is None
+            else [dict(item) for item in getattr(evaluation.dispatch, "generator_split_fallbacks", ())]
+        ),
         "competition_scope": evaluation.competition_scope,
         "projection_diagnostics": (
             None

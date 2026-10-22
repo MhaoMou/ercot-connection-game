@@ -330,8 +330,12 @@ grade:
     graded submissions:
     \begin{itemize}
       \item \alert{5 absolute points}: $5 \times \min\!\big(1, \max(0, S/(2B))\big)$,
-        where $B$ is the score of a simple reference plan published before Week
-        2. These points do not depend on other teams, so everyone can earn all
+        where $B$ is the score of a simple reference plan: one 300\MW{} site
+        at bus 6147, with no generator or battery, built in Submission 1 of
+        Weeks 2 and 3 and evaluated alone, with nothing added in Submission 2.
+        It scores \$10.96B in Week 2 and \$10.63B in Week 3, so
+        $B = \$21.59$B and full absolute points need $S \ge \$43.2$B.
+        These points do not depend on other teams, so everyone can earn all
         of them, and nobody gains by hurting another team.
       \item \alert{5 rank points}, by your rank among all teams:
     \end{itemize}
@@ -1981,8 +1985,8 @@ evaluator therefore splits each day into a small problem about the devices and
 24 ordinary hourly DCOPFs. This is \alert{Benders
 decomposition}~\cite{benders1962partitioning}.
 
-\alert{A budgeted generator is a battery that can only discharge.} A private
-generator with capacity $G$ may run at most two hours a day at full output.
+One important observation is: \alert{A budgeted generator can be viewed as a battery that can only discharge.} A private
+generator with capacity $G$ may run at most two hours a day at full output by our assumption.
 Seen from the grid, that is exactly a battery that starts the day holding
 $2G$\MWh, can discharge at most $G$\MW{} in any hour, cannot recharge, and may
 end the day with energy left over:
@@ -1992,14 +1996,13 @@ end the day with energy left over:
 \]
 The only differences are that the generator pays its fuel curve
 ($c^m$ per MWh in each segment) and has no ``charging'' variable. So the same
-machinery the evaluator already uses for batteries handles the two-hour budget,
-with no new kind of model.
+machinery the evaluator already uses for batteries (as discussed above) can handle the two-hour budget.
 
 \alert{Split the day.} Collect the device decisions of the day, the battery
 outputs $u_{s,h}$ and the generator segments $q^m_{s,h}$, in a vector $x$, and
 write $X$ for the set allowed by the daily constraints above (state of charge,
 energy budgets, power limits, and ``serve only your own load''). Once $x$ is
-fixed, each hour is an ordinary DCOPF in which the devices are fixed injections
+fixed, each hour is a DCOPF in which the devices are fixed injections
 at their buses:
 \[
   \phi_h(x) = \min_{\mathbf p^{\mathrm g}_h}\ \mathbf c^{\top}\mathbf p^{\mathrm g}_h

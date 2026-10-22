@@ -154,6 +154,15 @@ per representative day; the evaluator enforces this in a coupled daily LP
 (one per representative day, solved together with any storage), the fair
 projection uses the same budgeted feasibility, and each team diagnostic lists
 `generator_energy.generators.<id>.energy_mwh_by_day` next to the daily budget.
+Co-located private generators of different teams share the bus's private
+generation in proportion to their capacity. The LP fixes only each bus's
+total private generation, so after every solve (hourly, Benders daily,
+monolithic daily) the evaluator re-splits that total by capacity G,
+water-filling around each generator's caps (capacity and segment structure,
+its team's own load at the bus, and its daily h x G budget). Bus totals, flows,
+LMPs and the objective are unchanged. If the proportional split would break a
+daily budget, the solver split of that bus-day is kept and listed under
+`generator_split_fallbacks` in the evaluation metadata.
 
 Run the student-facing checker:
 

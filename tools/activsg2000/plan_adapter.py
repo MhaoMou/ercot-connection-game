@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from numbers import Real
 from pathlib import Path
@@ -65,6 +65,10 @@ class BatchDispatchResult:
     service_fraction_by_team: dict[str, float] | None = None
     final_storage_soc_mwh_by_team: dict[str, dict[str, float]] | None = None
     solver_diagnostics: DCOPFBendersDiagnostics | None = None
+    # Bus-periods/bus-days where the co-located generator tie-break could not
+    # be applied and the solver's own split was kept (see
+    # ``_colocated_generator_tie_break``).
+    generator_split_fallbacks: tuple[dict[str, object], ...] = ()
 
     @property
     def final_soc_mwh_by_team(self) -> dict[str, dict[str, float]]:
@@ -524,6 +528,9 @@ def evaluate_plans_with_prepared_dcopf(
         for plan in ordered_plans
     }
 
+    colocated_groups = _colocated_generator_groups(ordered_plans, connection_by_team)
+    split_fallbacks: list[dict[str, object]] = []
+
     def solve_period(
         period_index: int,
         schedules: dict[str, dict[str, dict[str, object]]],
@@ -559,6 +566,10 @@ def evaluate_plans_with_prepared_dcopf(
             additional_demand_mw_by_bus=aggregate_demand,
             additional_generators=candidates,
         )
+        (dispatch,), fallbacks = _colocated_generator_tie_break(
+            (dispatch,), (candidates,), colocated_groups, period_indices=(period_index,)
+        )
+        split_fallbacks.extend(fallbacks)
         generator_dispatch_by_team = {}
         for plan in ordered_plans:
             team_dispatch = {}
@@ -629,6 +640,7 @@ def evaluate_plans_with_prepared_dcopf(
     try:
         periods = solve_all(storage_schedules)
     except DCOPFInfeasible:
+        split_fallbacks.clear()
         if not any(_storage_schedule_has_activity(schedule) for schedule in storage_schedules.values()):
             raise
         idle_schedules = {
@@ -640,7 +652,13 @@ def evaluate_plans_with_prepared_dcopf(
             for plan in ordered_plans
         }
         periods = solve_all(idle_schedules)
-    return BatchDispatchResult(team_ids=team_ids, periods=tuple(periods))
+    return BatchDispatchResult(
+        team_ids=team_ids,
+        periods=tuple(periods),
+        generator_split_fallbacks=tuple(
+            sorted(split_fallbacks, key=lambda item: (item["first_period_index"], item["bus_id"]))
+        ),
+    )
 
 
 def _evaluate_batch_with_central_storage(
@@ -857,12 +875,21 @@ def _evaluate_batch_with_central_storage(
     if len(horizon_result.periods) != len(period_indices):
         raise ValueError("horizon DCOPF returned a different number of periods")
 
+    tie_broken_periods, split_fallbacks = _colocated_generator_tie_break(
+        horizon_result.periods,
+        candidates_by_period,
+        _colocated_generator_groups(ordered_plans, connection_by_team),
+        period_indices=period_indices,
+        daily_energy_hours=generator_daily_energy_hours,
+        block_periods=daily_block_periods if generator_daily_energy_hours is not None else None,
+        time_step_hours=time_step_hours,
+    )
     storage_by_solver_id = {
         solver_storage_id: (team_id, storage_id, bus_id)
         for team_id, storage_id, solver_storage_id, bus_id, _power_mw, _energy_mwh, _initial_soc in storage_records
     }
     periods: list[BatchPeriodResult] = []
-    for period_offset, (period_index, dcopf) in enumerate(zip(period_indices, horizon_result.periods)):
+    for period_offset, (period_index, dcopf) in enumerate(zip(period_indices, tie_broken_periods)):
         generator_dispatch_by_team: dict[str, dict[str, float]] = {}
         grid_purchase_by_team_by_bus: dict[str, dict[str, float]] = {}
         storage_charge_by_team: dict[str, dict[str, float]] = {team_id: {} for team_id in team_ids}
@@ -939,6 +966,157 @@ def _evaluate_batch_with_central_storage(
         periods=tuple(periods),
         final_storage_soc_mwh_by_team=final_storage_soc_mwh_by_team,
         solver_diagnostics=horizon_result.diagnostics,
+        generator_split_fallbacks=split_fallbacks,
+    )
+
+
+_SPLIT_TOLERANCE_MW = 1e-6
+
+
+def _colocated_generator_groups(
+    ordered_plans: Sequence[TeamPlan],
+    connection_by_team: dict[str, dict[str, ConnectionPlan]],
+) -> dict[str, tuple[tuple[float, tuple[str, ...]], ...]]:
+    """Group every team generator by bus: ``{bus: ((G, segment_ids), ...)}``.
+
+    Only buses hosting two or more generators are returned.
+    """
+    groups: dict[str, list[tuple[float, tuple[str, ...]]]] = {}
+    for plan in ordered_plans:
+        for generator in sorted(plan.generators, key=lambda item: item.generator_id):
+            bus_id = connection_by_team[plan.team_id][generator.connection_id].bus_id
+            segment_ids = tuple(
+                _student_generator_segment_id(plan.team_id, generator.generator_id, segment=segment)
+                for segment in range(1, len(TEAM_GENERATOR_COST_CURVE) + 1)
+            )
+            groups.setdefault(bus_id, []).append((float(generator.capacity_mw), segment_ids))
+    return {bus_id: tuple(members) for bus_id, members in groups.items() if len(members) > 1}
+
+
+def _proportional_bus_split(
+    generation_mw: dict[str, float],
+    members: tuple[tuple[float, tuple[str, ...]], ...],
+    candidate_by_id: dict[str, Generator],
+) -> dict[str, float] | None:
+    """Re-split one bus's private generation in proportion to capacity G.
+
+    Each generator's cap is the sum of its LP segment limits (capacity G,
+    already truncated by its team's own load at the bus).  Water-filling:
+    every uncapped generator produces the same fraction alpha of its G and
+    capped generators sit at their cap, so the bus total is preserved.  The
+    segments of each generator are filled in cost order.  Because all team
+    generators share one convex cost shape, this split is cost-optimal, so
+    the LP objective (and hence dispatch and LMPs) is unchanged.  Returns
+    the new segment dispatch, or ``None`` if the cost or total check fails.
+    """
+    total = sum(generation_mw.get(segment_id, 0.0) for _g, ids in members for segment_id in ids)
+    caps = [
+        sum(candidate_by_id[segment_id].p_max_mw for segment_id in ids if segment_id in candidate_by_id)
+        for _g, ids in members
+    ]
+    if total > sum(caps) + _SPLIT_TOLERANCE_MW:
+        return None
+    amounts = [0.0] * len(members)
+    open_members = [index for index, (capacity, _ids) in enumerate(members) if capacity > 0.0 and caps[index] > 0.0]
+    remaining = max(total, 0.0)
+    # Fix members whose cap binds at the current common fraction, smallest first.
+    open_members.sort(key=lambda index: caps[index] / members[index][0])
+    while open_members:
+        weight = sum(members[index][0] for index in open_members)
+        alpha = remaining / weight
+        first = open_members[0]
+        if caps[first] <= alpha * members[first][0]:
+            amounts[first] = caps[first]
+            remaining -= caps[first]
+            open_members.pop(0)
+            continue
+        for index in open_members:
+            amounts[index] = alpha * members[index][0]
+        break
+    split: dict[str, float] = {}
+    for amount, (_capacity, ids) in zip(amounts, members):
+        left = amount
+        for segment_id in ids:
+            limit = candidate_by_id[segment_id].p_max_mw if segment_id in candidate_by_id else 0.0
+            take = min(left, limit)
+            split[segment_id] = take
+            left -= take
+        if left > _SPLIT_TOLERANCE_MW:
+            return None
+    old_cost = sum(
+        generation_mw.get(segment_id, 0.0) * candidate_by_id[segment_id].marginal_cost_per_mwh
+        for _g, ids in members for segment_id in ids if segment_id in candidate_by_id
+    )
+    new_cost = sum(
+        amount * candidate_by_id[segment_id].marginal_cost_per_mwh
+        for segment_id, amount in split.items() if segment_id in candidate_by_id
+    )
+    if abs(sum(split.values()) - total) > _SPLIT_TOLERANCE_MW or abs(new_cost - old_cost) > 1e-6 * max(1.0, abs(old_cost)):
+        return None
+    return split
+
+
+def _colocated_generator_tie_break(
+    dcopfs: Sequence[DCOPFResult],
+    candidates_by_period: Sequence[Sequence[Generator]],
+    groups: dict[str, tuple[tuple[float, tuple[str, ...]], ...]],
+    *,
+    period_indices: Sequence[int],
+    daily_energy_hours: float | None = None,
+    block_periods: int | None = None,
+    time_step_hours: float = 1.0,
+) -> tuple[tuple[DCOPFResult, ...], tuple[dict[str, object], ...]]:
+    """Deterministic tie-break for co-located team generators.
+
+    The LP fixes only each bus's total private generation; its split among
+    generators at the same bus is degenerate.  For every bus and period the
+    total is re-split in proportion to generator capacity (see
+    :func:`_proportional_bus_split`).  With a daily energy budget h the new
+    split must also keep each generator within h x G per day
+    (``block_periods`` periods); otherwise the solver split of that bus-day
+    is kept and a fallback record is returned.  Only ``generation_mw``
+    entries of team generator segments change; bus totals, the objective,
+    flows and LMPs are untouched.
+    """
+    if not groups:
+        return tuple(dcopfs), ()
+    count = len(dcopfs)
+    block = block_periods if (daily_energy_hours is not None and block_periods) else 1
+    new_generation = [dict(dcopf.generation_mw) for dcopf in dcopfs]
+    fallbacks: list[dict[str, object]] = []
+    for bus_id, members in sorted(groups.items()):
+        for start in range(0, count, block):
+            offsets = range(start, min(start + block, count))
+            splits: dict[int, dict[str, float]] = {}
+            reason = None
+            for offset in offsets:
+                candidate_by_id = {candidate.generator_id: candidate for candidate in candidates_by_period[offset]}
+                split = _proportional_bus_split(dcopfs[offset].generation_mw, members, candidate_by_id)
+                if split is None:
+                    reason = "cost_or_total_mismatch"
+                    break
+                splits[offset] = split
+            if reason is None and daily_energy_hours is not None:
+                for capacity, ids in members:
+                    energy = sum(splits[offset][segment_id] for offset in offsets for segment_id in ids) * time_step_hours
+                    if energy > daily_energy_hours * capacity + _SPLIT_TOLERANCE_MW:
+                        reason = "daily_energy_budget"
+                        break
+            if reason is not None:
+                fallbacks.append(
+                    {
+                        "bus_id": bus_id,
+                        "first_period_index": period_indices[start],
+                        "periods": len(offsets),
+                        "reason": reason,
+                    }
+                )
+                continue
+            for offset in offsets:
+                new_generation[offset].update(splits[offset])
+    return (
+        tuple(replace(dcopf, generation_mw=generation) for dcopf, generation in zip(dcopfs, new_generation)),
+        tuple(fallbacks),
     )
 
 
