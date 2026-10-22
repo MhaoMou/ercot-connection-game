@@ -1,42 +1,36 @@
-Here is the summary of `data/teaching/ieee14_demo_1h`. I took the numbers straight from the package's CSV files and checked them against its `README.md` and `manifest.json`. They all agree, and I didn't change any files.
+I only read files and changed nothing. `.venv/` doesn't have pandas, so I used Python's built-in `csv` module.
 
-Commands I ran (from the project folder):
-```
-ls -la data/teaching/ieee14_demo_1h
-cat data/teaching/ieee14_demo_1h/README.md data/teaching/ieee14_demo_1h/*.csv   # plus head/wc on demand_bus.csv
-.venv/bin/python -I - data/teaching/ieee14_demo_1h <<'EOF' ... EOF   # short csv/json script to count, sum and sort
-```
-Key output:
-```
-buses 14 branches 20 in service 20 generators 5 gen Pmax 772.4
-base load MW 259.0
-periods 168 load min/mean/max 242.9 264.6 287.7 peak period 157
-br19 12-13 20.0 | br18 10-11 25.0 | br20 13-14 25.0 | br11 6-11 30.0 | br12 6-12 30.0 | br16 9-10 30.0 | br17 9-14 30.0
-manifest: horizon 168, time_step_hours 1, validation_status passed
+```bash
+cd data/teaching/ieee14_demo_representative
+ls; for f in *.csv; do echo "$f $(($(wc -l <$f)-1)) rows"; head -3 $f; done; head -60 manifest.json
+.venv/bin/python -c "import csv ..."   # sorts branch_limits.csv by thermal_limit_mva; sums bus_load_base.csv, demand_bus.csv and generator_limits.csv
 ```
 
-- **Buses:** 14, with IDs "1" to "14". Bus 1 is the reference bus.
-- **Lines:** 20, all in service. There are no DC lines.
-- **Generators:** 5, totalling 772.4 MW.
-  - g1 at bus 1: 332.4 MW, $14/MWh
-  - g2 at bus 2: 140 MW, $18/MWh
-  - g3 at bus 3: 100 MW, $24/MWh
-  - g6 at bus 6: 100 MW, $27/MWh
-  - g8 at bus 8: 100 MW, $30/MWh
-- **Total load:** 259.0 MW base. Over the week it ranges from 242.9 to 287.7 MW, with a mean of 264.6 MW. The peak is period 157 (day 7, 13:00–14:00).
-- **Operating periods:** 168 one-hour periods, which is one week, 1–7 July 2028. This is not the six-hour format of the real game.
+**Summary of `data/teaching/ieee14_demo_representative`:**
+- **Buses:** 14.
+- **Lines:** 20, all in service. There are no DC lines (`dcline.csv` is empty).
+- **Generators:** 5, with 772.4 MW total capacity:
+
+  | Generator | Bus | Capacity (MW) | Cost ($/MWh) |
+  |---|---|---|---|
+  | g1 | 1 | 332.4 | 14 |
+  | g2 | 2 | 140 | 18 |
+  | g3 | 3 | 100 | 24 |
+  | g6 | 6 | 100 | 27 |
+  | g8 | 8 | 100 | 30 |
+
+- **Load:** the base load is 259.0 MW. Across the periods it ranges from 224.5 to 301.7 MW, with an average of 264.5 MW.
+- **Operating periods:** 120. That is 5 representative days of 24 one-hour periods. The day weights add up to 365, and the peak day has a weight of 1.
 - **Five smallest thermal limits:**
 
-| Line | Limit (MVA) |
-|---|---|
-| 12-13 | 20 |
-| 10-11 | 25 |
-| 13-14 | 25 |
-| 6-11 | 30 |
-| 6-12 | 30 |
+  | Line | Buses | Limit (MVA) |
+  |---|---|---|
+  | br19 | 12–13 | 20 |
+  | br18 | 10–11 | 25 |
+  | br20 | 13–14 | 25 |
+  | br11 | 6–11 | 30 |
+  | br12 | 6–12 | 30 |
 
-  Two more lines, 9-10 and 9-14, are also at 30 MVA, so "the five smallest" is really a four-way tie at 30.
+  br16 (9–10) is also at 30 MVA, so the 4th and 5th places are a three-way tie at that limit.
 
-The package's README says lines 6-13, 9-14 and 13-14 together limit buses 13 and 14. It reports that 30 MW at both buses doesn't fit in the peak hour, while 20 MW at both does. If you run this package, use `--horizon 168` and `--preview-stride 1`. The README warns that the default stride skips the peak hour.
-
-This also answers your earlier question about what you submit, how it's scored and which commands you'll use. That answer stands as I gave it.
+These weak lines are all in the low-voltage area around buses 9–14, so a large site there will hit congestion first. The manifest says this demo is not the game network, so use it for practice only.

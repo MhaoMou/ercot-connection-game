@@ -85,8 +85,8 @@ missing dependency, or any block not reporting `passed` is insufficient.
 
 Before any full-horizon run, all three pilots below must pass and the operator
 must record explicit operator approval. Do not start a full-horizon run before
-that approval. These commands use the prepared
-2028 January--June `bus.csv`: `1001` is the one-bus pilot, `1001` through
+that approval. These commands use the representative package's
+`bus.csv`: `1001` is the one-bus pilot, `1001` through
 `1010` are the ten-bus pilot, and omitting `--bus-id` selects all 2,000 buses.
 All generated files, checkpoints, summaries, and raw resource logs stay below
 `/private/tmp/hosting-capacity-pilot`.
@@ -100,8 +100,7 @@ Run the one-bus pilot once from a clean output directory:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-fresh.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --bus-id 1001 \
   --solver-backend highs \
@@ -117,8 +116,7 @@ checkpoint directory:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-resumed.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --bus-id 1001 \
   --solver-backend highs \
@@ -133,8 +131,7 @@ Run the ten-bus pilot with the ten concrete IDs from that same `bus.csv`:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/ten-bus-24h/resource-usage.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --bus-id 1001 \
   --bus-id 1002 \
@@ -158,8 +155,7 @@ Run the one-period all-bus pilot without any `--bus-id` option:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/all-bus-1h/resource-usage.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 1 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 1 \
   --solver-backend highs \
   --solver-threads 1 \

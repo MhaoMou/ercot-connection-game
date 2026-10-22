@@ -16,17 +16,18 @@ from ercot_game.scenario_package import (
     IEEE14_DEMO_PACKAGE_VERSION,
     ScenarioPackageError,
     load_scenario_manifest,
+    representative_day_weights,
     require_validated_block,
 )
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEMO = REPO_ROOT / "data" / "teaching" / "ieee14_demo_1h"
-DEMO_RULES = REPO_ROOT / "data" / "teaching" / "dispatch_scoring_rules_ieee14_demo_1h_v1.json"
-RELEASED_RULES = REPO_ROOT / "data" / "teaching" / "dispatch_scoring_rules_jul_dec_6h_v1.json"
-HORIZON = 168
-PEAK_PERIOD = 157
-HALF_YEAR_HOURS = 4416
+DEMO = REPO_ROOT / "data" / "teaching" / "ieee14_demo_representative"
+DEMO_RULES = REPO_ROOT / "data" / "teaching" / "dispatch_scoring_rules_ieee14_demo_representative_v1.json"
+MAIN_PACKAGE = REPO_ROOT / "data" / "processed" / "activsg2000_representative_v1"
+RELEASED_RULES = REPO_ROOT / "data" / "teaching" / "dispatch_scoring_rules_representative_v1.json"
+HORIZON = 120
+PEAK_PERIOD = 109  # 2028-09-15 (peak day), 13:00-14:00
 
 
 def _write_plan(path: Path, team_id: str, sites: list[tuple[str, str, float, float, float]]) -> Path:
@@ -45,53 +46,59 @@ def _two_team_dir(root: Path, *, bus13_mw: float, bus14_mw: float) -> Path:
     return root
 
 
-def test_demo_package_validates_with_its_own_horizon():
+def test_demo_package_uses_the_main_representative_days_and_weights():
     manifest = load_scenario_manifest(DEMO)
     assert manifest["package_version"] == IEEE14_DEMO_PACKAGE_VERSION
-    assert manifest["blocks"] == {"ieee14_demo_week": manifest["blocks"]["ieee14_demo_week"]}
+    assert set(manifest["blocks"]) == {"representative"}
     assert require_validated_block(DEMO)["horizon"] == HORIZON
+    main = json.loads((MAIN_PACKAGE / "manifest.json").read_text(encoding="utf-8"))
+    assert representative_day_weights(DEMO) == pytest.approx(main["day_weights"])
+    assert manifest["period_day_weights"] == pytest.approx(main["period_day_weights"])
+    assert [day["date"] for day in manifest["representative_days"]] == [
+        "2028-01-03", "2028-05-10", "2028-07-12", "2028-09-10", "2028-09-15",
+    ]
     with (DEMO / "demand_bus.csv").open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert len(rows) == HORIZON
     assert set(rows[0]) - {"period"} == {str(bus) for bus in range(1, 15)}
     totals = [sum(float(value) for key, value in row.items() if key != "period") for row in rows]
     assert max(range(HORIZON), key=totals.__getitem__) == PEAK_PERIOD
+    assert manifest["validation"]["passed_period_count"] == HORIZON
 
 
-def test_demo_manifest_rejects_a_wrong_horizon(tmp_path):
+def test_demo_builder_regenerates_the_same_demand(tmp_path):
+    from tools.build_ieee14_demo_package import MAIN_PACKAGE as builder_main, demand_rows, main_package_days
+
+    rows = demand_rows(main_package_days(builder_main))
+    with (DEMO / "demand_bus.csv").open(newline="", encoding="utf-8") as handle:
+        stored = list(csv.DictReader(handle))
+    for row, built in zip(stored, rows):
+        assert {key: float(value) for key, value in row.items() if key != "period"} == pytest.approx(built)
+
+
+def test_demo_manifest_rejects_a_wrong_horizon_or_block(tmp_path):
     payload = json.loads((DEMO / "manifest.json").read_text(encoding="utf-8"))
-    payload["horizon"] = 736
+    payload["horizon"] = 168
     (tmp_path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ScenarioPackageError, match="IEEE-14 demo"):
+    with pytest.raises(ScenarioPackageError, match="representative block"):
         require_validated_block(tmp_path)
     payload["horizon"] = HORIZON
-    payload["blocks"] = {"2028-jul_dec": payload["blocks"]["ieee14_demo_week"]}
+    payload["blocks"] = {"ieee14_demo_week": payload["blocks"]["representative"]}
     (tmp_path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(ScenarioPackageError, match="demo block"):
+    with pytest.raises(ScenarioPackageError, match="representative block"):
         load_scenario_manifest(tmp_path)
 
 
-def test_demo_rules_keep_operating_costs_and_prorate_capital_to_one_week():
+def test_demo_rules_are_the_main_release_economics():
     demo = json.loads(DEMO_RULES.read_text(encoding="utf-8"))
     released = json.loads(RELEASED_RULES.read_text(encoding="utf-8"))
-    assert demo["time_step_hours"] == 1.0
-    for key in (
-        "infeasible_score",
-        "default_generator_cost_per_mwh",
-        "team_generator_cost_curve",
-        "storage_boundary_mode",
-    ):
-        assert demo[key] == released[key], key
-    scale = HORIZON / HALF_YEAR_HOURS
-    assert demo["capital_cost_scale"] == pytest.approx(scale)
-    for key in (
-        "generator_capital_cost_per_mw",
-        "site_cost_per_mw",
-        "storage_capital_cost_per_mw",
-        "storage_capital_cost_per_mwh",
-    ):
-        assert demo[key] == pytest.approx(released[key] * scale, abs=0.01), key
-    assert demo["it_value_per_mwh"] == [6500.0] * HORIZON
+    differing = {key for key in set(demo) | set(released) if demo.get(key) != released.get(key)}
+    assert differing <= {"rules_version", "status", "description", "scenario_package"}
+    assert demo["scenario_package"] == IEEE14_DEMO_PACKAGE_VERSION
+    assert demo["it_value_per_mwh"] == [1000.0] * HORIZON
+    assert demo["site_cost_per_mw"] == 25_000_000.0
+    assert demo["max_generator_to_connection_ratio"] == 0.5
+    assert demo["it_value_provenance"]["break_even_served_fraction"] == pytest.approx(0.406, abs=0.001)
     rules = load_scoring_rules(DEMO_RULES, artifact_dir=DEMO, horizon=HORIZON)
     assert rules.storage_boundary_mode == "daily_exact_cycle"
 
@@ -129,6 +136,8 @@ def test_hosting_capacity_differs_by_bus_in_the_peak_period(tmp_path, capsys):
         by_bus = {row["bus_id"]: float(row["hosting_capacity_mw"]) for row in csv.DictReader(handle)}
     assert len(by_bus) == 14
     assert by_bus["2"] > 300.0
+    assert by_bus["13"] == pytest.approx(50.8, abs=0.5)
+    assert by_bus["14"] == pytest.approx(37.6, abs=0.5)
     assert 20.0 < by_bus["14"] < 60.0
     assert 20.0 < by_bus["13"] < 60.0
     # Buses 13 and 14 share the 9-14 / 6-13 bottleneck.
@@ -146,10 +155,8 @@ def test_preview_and_batch_run_end_to_end_on_a_fitting_plan(tmp_path, capsys):
             "--submissions-dir", str(submissions),
             "--artifact-dir", str(DEMO),
             "--rules", str(DEMO_RULES),
-            "--horizon", str(HORIZON),
-            "--preview-stride", "1",
+            "--week", "3",
             "--workers", "1",
-            "--submission-number", "1",
             "--output", str(preview_path),
         ]
     ) == 0
@@ -168,16 +175,15 @@ def test_preview_and_batch_run_end_to_end_on_a_fitting_plan(tmp_path, capsys):
             "--artifact-dir", str(DEMO),
             "--rules", str(DEMO_RULES),
             "--output-dir", str(output_dir),
-            "--horizon", str(HORIZON),
-            "--time-step-hours", "1",
-            "--submission-number", "2",
+            "--week", "1",
         ]
     ) == 0
     capsys.readouterr()
     evaluation = json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))
     assert evaluation["competition_scope"] == "joint"
     served = {score["team_id"]: score["served_load_mwh"] for score in evaluation["team_scores"]}
-    assert served == pytest.approx({"team-a": 20 * HORIZON, "team-b": 20 * HORIZON})
+    # Served load is reported per represented year.
+    assert served == pytest.approx({"team-a": 20 * 8760, "team-b": 20 * 8760})
     storage_cost = {score["team_id"]: score["storage_capital_cost"] for score in evaluation["team_scores"]}
     assert storage_cost["team-a"] == 0.0 and storage_cost["team-b"] > 0.0
 
@@ -193,8 +199,7 @@ def test_batch_projects_joint_requests_at_the_shared_bottleneck(tmp_path, capsys
             "--artifact-dir", str(DEMO),
             "--rules", str(DEMO_RULES),
             "--output-dir", str(output_dir),
-            "--horizon", str(HORIZON),
-            "--time-step-hours", "1",
+            "--week", "1",
         ]
     ) == 0
     assert "scope=joint_projection" in capsys.readouterr().out

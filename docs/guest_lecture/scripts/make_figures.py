@@ -181,13 +181,14 @@ def timeline() -> None:
     ax.set_xlim(0, 15.85)
     ax.set_ylim(-1.15, 1.75)
     ax.axis("off")
-    weeks = [(2027, "Week 1: practice", False), (2028, "Week 2: graded", True), (2029, "Week 3: graded", True)]
+    weeks = [("no energy cost", "Week 1: practice", False), ("no energy cost", "Week 2: graded", True),
+             ("energy at LMP", "Week 3: graded", True)]
     width, height, gap, step = 2.15, 1.25, 0.55, 5.35
-    for index, (year, title, graded) in enumerate(weeks):
+    for index, (energy, title, graded) in enumerate(weeks):
         x0 = 0.1 + index * step
         edge, face = (AGED, "#DDEBF7") if graded else ("#8C8C8C", "#F2F2F2")
-        lines = [("Submission 1", f"{year} Jan–Jun", "build sites", "no energy cost"),
-                 ("Submission 2", f"{year} Jul–Dec", "may add sites", "energy at LMP")]
+        lines = [("Submission 1", "Thursday", "connect sites", energy),
+                 ("Submission 2", "Sunday", "add new sites", energy)]
         for k, (head, period, a, b) in enumerate(lines):
             x = x0 + k * (width + gap)
             ax.add_patch(FancyBboxPatch((x, -0.3), width, height, boxstyle="round,pad=0.02,rounding_size=0.08",

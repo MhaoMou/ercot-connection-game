@@ -111,6 +111,29 @@ def load_generator_costs(artifact_dir: str | Path) -> dict[str, float]:
     return result
 
 
+def _validate_generator_ratio(ratio: float) -> None:
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or ratio <= 0:
+        raise ValueError("max_generator_to_connection_ratio must be finite and positive")
+
+
+def generator_cap_violation(
+    generator_capacity_mw: float,
+    connection_capacity_mw: float,
+    max_generator_to_connection_ratio: float = 1.0,
+) -> str | None:
+    """Return the validation message when G exceeds ratio x C, else ``None``."""
+    limit = max_generator_to_connection_ratio * connection_capacity_mw
+    if generator_capacity_mw <= limit + 1e-9 * max(1.0, abs(limit)):
+        return None
+    if max_generator_to_connection_ratio == 1.0:
+        return "generator capacity cannot exceed connection capacity"
+    return (
+        "generator capacity cannot exceed "
+        f"{max_generator_to_connection_ratio:g} x connection capacity "
+        f"({generator_capacity_mw:g} MW > {limit:g} MW)"
+    )
+
+
 @dataclass(frozen=True)
 class CSVSubmission:
     team_id: str
@@ -208,8 +231,13 @@ def read_student_csv(
     default_generator_cost_per_mwh: float | None = None,
     require_complete_horizon: bool = False,
     allow_legacy: bool = False,
+    max_generator_to_connection_ratio: float = 1.0,
 ) -> CSVSubmission:
     """Read the canonical one-row-per-site student CSV.
+
+    ``max_generator_to_connection_ratio`` caps each site's private generator
+    at that fraction of its connection capacity (1.0 for the half-year
+    rules, 0.5 for the ten-year release).
 
     The canonical contract has exactly seven columns and does not contain a
     submission ID or hourly rows. ``horizon`` is optional and only controls
@@ -223,6 +251,7 @@ def read_student_csv(
         raise ValueError("require_complete_horizon must be a boolean")
     if not isinstance(allow_legacy, bool):
         raise ValueError("allow_legacy must be a boolean")
+    _validate_generator_ratio(max_generator_to_connection_ratio)
     if bus_ids is None and region_to_source_bus is not None:
         bus_ids = frozenset(region_to_source_bus.values())
     if generator_cost_by_id is None and default_generator_cost_per_mwh is not None:
@@ -290,10 +319,11 @@ def read_student_csv(
         generator_capacity = _canonical_number(row, "generator_capacity_mw", row_number)
         storage_power = _canonical_number(row, "storage_power_mw", row_number)
         storage_energy = _canonical_number(row, "storage_energy_mwh", row_number)
-        if generator_capacity > connection_capacity:
-            raise ValueError(
-                f"row {row_number}: generator capacity cannot exceed connection capacity"
-            )
+        message = generator_cap_violation(
+            generator_capacity, connection_capacity, max_generator_to_connection_ratio
+        )
+        if message:
+            raise ValueError(f"row {row_number}: {message}")
         if (storage_power == 0) != (storage_energy == 0):
             raise ValueError(
                 f"row {row_number}: storage power and energy must both be zero or positive"

@@ -9,8 +9,8 @@ AI agent" shows shortened versions of these; the files here are complete.
   seen this repository before the first prompt. The copy left out this folder
   and the tutorial section that quotes it, so the agent could not reuse
   earlier answers.
-- **Data:** `data/teaching/ieee14_demo_1h` (one week of hourly periods) with
-  `data/teaching/dispatch_scoring_rules_ieee14_demo_1h_v1.json`.
+- **Data:** `data/teaching/ieee14_demo_representative` (five representative days, 120 hourly periods) with
+  `data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json`.
 - **Prompts** (`NN_prompt.md`) are exactly what the agent received.
 - **Replies** (`NN_reply.md`) are verbatim. The agent was asked to call its
   virtual environment `.venv/`.

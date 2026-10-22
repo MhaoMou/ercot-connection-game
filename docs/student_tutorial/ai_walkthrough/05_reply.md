@@ -1,29 +1,33 @@
-The plan is above break-even. The preview serves all of its load and gives a score of about +$62.5M, but its margin over break-even is thin.
+In the Week 3 preview, all of your load is served and the plan scores about **+$15.6 billion**. The term that dominates is IT value ($27.6B), and the biggest cost is site cost ($11.2B). So yes, the plan is well above break-even.
 
-```
-.venv/bin/ercot-game-preview --submissions-dir runs/demo \
-  --artifact-dir data/teaching/ieee14_demo_1h \
-  --rules data/teaching/dispatch_scoring_rules_ieee14_demo_1h_v1.json \
-  --horizon 168 --preview-stride 1 --submission-number 2 \
-  --output work/demo_preview.json
-# wrote preview: .../work/demo_preview.json
+The preview needs a folder of submissions, and `runs/demo/` also holds `plan_bad.csv`. So I copied the valid plan into its own folder. I also used the demo's scoring rules, as the package README does.
+
+```bash
+mkdir -p runs/demo/submissions && cp runs/demo/plan.csv runs/demo/submissions/
+ercot-game-preview --submissions-dir runs/demo/submissions \
+  --artifact-dir data/teaching/ieee14_demo_representative \
+  --rules data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json \
+  --week 3 --output runs/demo/preview_week3.json
+# wrote preview: runs/demo/preview_week3.json
 # WARNING: this is a conservative preview, not the official score.
-.venv/bin/python -I -c "...print the fields of work/demo_preview.json..."
 ```
-The preview checked all 168 periods and found the plan feasible. The only file written was `work/demo_preview.json`.
 
-**Load served: 100%.** Served energy was 77,280 MWh, which is exactly the full request (460 MW × 168 h). So the plan fit the grid in every hour, even though buses 1 and 2 share network capacity.
+Key output for team-demo (valid and feasible, all 120 periods checked, energy cost on):
 
 | Term | $ |
 |---|---|
-| IT value | +502,320,000 |
-| Site cost (460 MW × ~$0.95M/MW) | −437,500,002 |
-| Energy cost (Submission 2) | −2,318,400 |
+| IT value | +27.63 B |
+| Energy cost (LMP) | −0.83 B |
 | Generator and storage costs | 0 |
-| **Score** | **+62,501,598** |
+| Site cost (449 MW × $25M) | −11.23 B |
+| **Score** | **+15.57 B** |
 
-**Dominant term:** the score is mostly IT value minus site cost. Site cost is by far the largest cost and takes 87% of the IT value. Energy cost is under 0.5% of IT value. It works out to $30/MWh on average, above the $14 uncongested price, so some lines bind.
+- **Share of load served: 100%.** The preview reports 3,933,240 MWh served. That equals 449 MW × 8,760 h, the full request for a year. The IT value matches 449 MW × 61,527 MWh-equivalents × $1,000.
+- **Break-even:** each fully served MW earns about $61.5M of IT value over ten years. It costs $25M of site cost plus roughly $1.8M of energy (the $0.83B spread over 449 MW). That puts break-even at about 44% service, and the plan is far above it.
 
-**Break-even:** this plan needs about 87.6% of its load served to reach zero, which is (437.5M + 2.3M) / 502.3M. It got 100%, a margin of about 12 percentage points. If other teams also crowd buses 1 and 2 and the fair-share rule cuts this team below about 88%, the score turns negative. Below 50% it gets nothing but still pays the full site cost.
+**Caveats:**
+- This is only your team on the demo grid. In the real evaluation, other teams building at the same buses could push your service down, and a team served less than half of its request gets nothing.
+- The preview does not run batteries (it says so in its warning). That doesn't matter for this plan, which has none.
+- The demo's numbers say nothing about the real ACTIVSg2000 game.
 
-This is a preview of this one team alone, and batteries are not dispatched. Only the instructor's joint evaluation produces an official score.
+The run created `runs/demo/submissions/plan.csv` and `runs/demo/preview_week3.json`.

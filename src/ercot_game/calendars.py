@@ -1,4 +1,10 @@
-"""Released calendar metadata for multi-year half-year submissions."""
+"""Released classroom schedules and the retired half-year calendar.
+
+The released game (``REPRESENTATIVE_SCHEDULE``) has three weeks of two
+submissions on one representative-day package; the week decides whether
+grid purchases are charged.  The retired six-hour game
+(``HALF_YEAR_SCHEDULE``) played one calendar half-year per submission.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +36,9 @@ class WeeklyMatch:
     week_id: str
     round_keys: tuple[str, str]
     feedback_only: bool = False
+    # None = half-year rule (energy charged from Submission 2 on); a bool
+    # sets the charge for both submissions of the week.
+    energy_cost_enabled: bool | None = None
 
     def __post_init__(self) -> None:
         round_keys = tuple(self.round_keys)
@@ -44,18 +53,65 @@ SUPPORTED_YEARS = (2027, 2028, 2029)
 _ROUND_MONTHS = {"jan_jun": (1, 6), "jul_dec": (7, 12)}
 
 
-CLASSROOM_SCHEDULE = (
+REPRESENTATIVE_SCHEDULE_ID = "representative"
+HALF_YEAR_SCHEDULE_ID = "half-year-6h"
+
+REPRESENTATIVE_SCHEDULE = (
+    WeeklyMatch(
+        "week-1",
+        ("week-1-submission-1", "week-1-submission-2"),
+        feedback_only=True,
+        energy_cost_enabled=False,
+    ),
+    WeeklyMatch(
+        "week-2",
+        ("week-2-submission-1", "week-2-submission-2"),
+        energy_cost_enabled=False,
+    ),
+    WeeklyMatch(
+        "week-3",
+        ("week-3-submission-1", "week-3-submission-2"),
+        energy_cost_enabled=True,
+    ),
+)
+
+HALF_YEAR_SCHEDULE = (
     WeeklyMatch("week-1", ("2027_jan_jun", "2027_jul_dec"), feedback_only=True),
     WeeklyMatch("week-2", ("2028_jan_jun", "2028_jul_dec")),
     WeeklyMatch("week-3", ("2029_jan_jun", "2029_jul_dec")),
 )
 
+SCHEDULES = {
+    REPRESENTATIVE_SCHEDULE_ID: REPRESENTATIVE_SCHEDULE,
+    HALF_YEAR_SCHEDULE_ID: HALF_YEAR_SCHEDULE,
+}
+# The released classroom schedule.
+CLASSROOM_SCHEDULE = REPRESENTATIVE_SCHEDULE
+
+
+def round_sequence(schedule_id: str) -> tuple[str, ...]:
+    """Return the six round keys of a schedule in play order."""
+    try:
+        schedule = SCHEDULES[schedule_id]
+    except KeyError:
+        raise ValueError(f"unknown classroom schedule: {schedule_id}") from None
+    return tuple(round_key for match in schedule for round_key in match.round_keys)
+
+
+def schedule_id_for(round_key: str) -> str:
+    """Return the schedule that contains ``round_key``."""
+    for schedule_id in SCHEDULES:
+        if round_key in round_sequence(schedule_id):
+            return schedule_id
+    raise ValueError(f"unknown classroom round key: {round_key}")
+
 
 def weekly_match_for(round_key: str) -> WeeklyMatch:
     """Return the classroom match containing ``round_key``."""
-    for match in CLASSROOM_SCHEDULE:
-        if round_key in match.round_keys:
-            return match
+    for schedule in SCHEDULES.values():
+        for match in schedule:
+            if round_key in match.round_keys:
+                return match
     raise ValueError(f"unknown classroom round key: {round_key}")
 
 

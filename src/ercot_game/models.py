@@ -13,7 +13,7 @@ class SitePlan:
     """One persistent site decision expressed as constant capacities.
 
     Site plans are the frozen submission schema for the game.  The evaluator
-    expands the capacities over its selected half-year horizon; a site plan
+    expands the capacities over its evaluation horizon; a site plan
     therefore does not contain an hourly connection profile.
     """
 

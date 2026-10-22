@@ -27,7 +27,7 @@ The active pipeline is:
 
 ```text
 ACTIVSg2000 network and catalogs
-    -> controlled half-year scenario block (six-hour periods)
+    -> representative-day package (5 days x 24 hourly periods)
     -> canonical seven-column site CSV
     -> joint DCOPF and grid-operated storage
     -> fair projection when required
@@ -35,7 +35,7 @@ ACTIVSg2000 network and catalogs
 ```
 
 The canonical CSV is one row per site. The evaluator expands each constant site
-capacity over the selected half-year horizon of six-hour periods. Students do
+capacity over the 120 hourly periods of the representative package. Students do
 not submit time-series profiles, generator IDs, storage IDs, prices, dispatch schedules, or storage
 state of charge.
 
@@ -47,46 +47,47 @@ state of charge.
 | Buses | 2,000 | buses | DATASET-SPECIFIED | Student `bus_id` values must come from the selected block. |
 | Branches | 3,206 | branches | DATASET-SPECIFIED | Fixed topology used by the dispatch adapter. |
 | Generator records | 544 | records | DATASET-SPECIFIED | Active status, PMIN, PMAX, and marginal-cost fields come from the catalog. |
-| Time step | 6 | hours | INSTRUCTOR-CHOSEN | Each game period is the mean of six consecutive hourly source records; four periods per day. IT value, energy purchases, and generator operating cost multiply MW by 6 h. |
-| January-June, 2027 or 2029 | 724 | six-hour periods | INSTRUCTOR-CHOSEN | Non-leap half-year calendar (4,344 source hours). |
-| January-June, 2028 | 728 | six-hour periods | INSTRUCTOR-CHOSEN | Leap-year half-year calendar (4,368 source hours). |
-| July-December, 2027-2029 | 736 | six-hour periods | INSTRUCTOR-CHOSEN | Second half of each released year (4,416 source hours). |
-| Scenario package | `data/processed/activsg2000_scenarios_v2_6h/` | path | INSTRUCTOR-CHOSEN | Canonical six-hour package; scoring rules are `data/teaching/dispatch_scoring_rules_{jan_jun,jul_dec}_6h_v1.json`. |
+| Time step | 1 | hour | INSTRUCTOR-CHOSEN | One hourly period of a representative day; 24 periods per day. |
+| Representative days | 5 | days | INSTRUCTOR-CHOSEN | 2028-01-03 (weight 83.77), 2028-05-10 (99.73), 2028-07-12 (82.77), 2028-09-10 (97.73), and the peak day 2028-09-15 (weight exactly 1); weights sum to 365. The year label is only the ACTIVSg2000 source year. |
+| Horizon | 120 | hourly periods | INSTRUCTOR-CHOSEN | 5 days x 24 hours; the system peak is period 109 (zero-based). |
+| Planning horizon | 10 | years | INSTRUCTOR-CHOSEN | The weighted representative days stand for each of the next ten years. |
+| Scenario package | `data/processed/activsg2000_representative_v1/` | path | INSTRUCTOR-CHOSEN | Built by `tools/activsg2000/build_representative_package.py`; scoring rules `data/teaching/dispatch_scoring_rules_representative_v1.json` (from `scripts/create_representative_scoring_rules.py`); release config `data/teaching/game_release_representative_v1.json`. |
+| Practice demo | `data/teaching/ieee14_demo_representative/` | path | INSTRUCTOR-CHOSEN | IEEE 14-bus practice package with rules `data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json`. |
 | Existing-generator availability | Static status, PMIN, PMAX | MW and status | DATASET-SPECIFIED | ACTIVSg2000 has no technology labels or hourly availability fields; no synthetic renewable derating is applied. |
 | Dispatch solver | HiGHS through the DCOPF adapter | solver | INSTRUCTOR-CHOSEN | Transparent, repeatable linear dispatch; storage-bearing horizons use the prepared storage-aware path. |
 
-The three years are instructional scenario labels, not historical ERCOT years.
-The selected block must have a passed validation manifest before production
-use. The six block manifests of the six-hour package record
-`validation_status: passed`.
+There are no calendar years in the game. The package must have a passed
+validation manifest before production use; all 120 representative periods pass
+single-period DCOPF validation.
 
 ## Classroom schedule and state boundaries
 
-The game has three weekly matches and six half-year submissions:
+The game has three weekly matches and six submissions, all on the same
+representative package:
 
-| Week | Submission 1 | Submission 2 | Treatment |
+| Week | Submissions | Energy cost | Treatment |
 |---|---|---|---|
-| Week 1 | `2027_jan_jun` | `2027_jul_dec` | Practice week: feedback only; neither submission counts. |
-| Week 2 | `2028_jan_jun` | `2028_jul_dec` | Scored weekly match; Submission 1 and Submission 2 both count. |
-| Week 3 | `2029_jan_jun` | `2029_jul_dec` | Scored weekly match; Submission 1 and Submission 2 both count. |
+| Week 1 | `week-1-submission-1`, `week-1-submission-2` | none | Practice week: feedback only; neither submission counts. |
+| Week 2 | `week-2-submission-1`, `week-2-submission-2` | none | Scored; both submissions count. |
+| Week 3 | `week-3-submission-1`, `week-3-submission-2` | LMP, both submissions | Scored; both submissions count. |
 
-Within a week, Submission 1 is the first-stage plan. Its sites and evaluator-
-assigned assets are carried into Submission 2. Stored energy is not carried:
-under the daily storage cycle every device starts and ends each day at 50%
-state of charge, so each submission starts from the same SOC. Capital
-cost (connection-site cost, generator capital, storage capital) is charged
-once, in the submission where the asset is first built: Submission 1 pays for
-everything it builds, and Submission 2 pays only for newly added sites and
-assets. Assets carried over from Submission 1 are not charged again. At the
-beginning of the next week, the asset ledger resets; the previous
-week's assets do not receive credit or carry-over treatment.
+Within a week, Submission 1 is the first-stage plan. For Submission 2 the base
+load is the representative base plus the hourly net grid withdrawal of every
+Submission 1 site of every team (site load served minus its private generation
+and battery net discharge). Submission 1 sites are fixed base load: they are
+not re-evaluated, re-scored, re-projected, or re-dispatched, and keep their
+Submission 1 ten-year value. The Submission 2 CSV lists only new sites; a
+`site_id` may not repeat one of the same team's Submission 1 `site_id`s, so
+capital is charged once, in the submission where a site is built. The
+instructor releases Submission 2 data as per-bus load totals only, never
+teams' plans. The instructor runs Submission 2 with
+`ercot-game-batch run --submission-number 2 --base-load-from <Submission 1 output dir>`
+(required on the representative package). Each week resets to the
+representative base; the previous week's sites do not carry over.
 
-Submission 1 has no energy-purchase cost. Submission 2 uses the LMP from its
-selected joint dispatch for each team's grid purchases. Week 1 is practice: it
-still produces feedback artifacts, but neither of its submissions contributes
-to the final ranking. In Weeks 2 and 3 both submissions are scored, and the
-final ranking is the sum of four scores: Week 2 Submission 1 + Week 2
-Submission 2 + Week 3 Submission 1 + Week 3 Submission 2.
+The final ranking is the sum of four scores: Week 2 Submission 1 + Week 2
+Submission 2 + Week 3 Submission 1 + Week 3 Submission 2. Week 1 still produces
+feedback artifacts but does not count.
 
 ## Canonical student CSV
 
@@ -108,13 +109,15 @@ The checker is [`scripts/check_submission.py`](../scripts/check_submission.py):
 
 ```bash
 PYTHONPATH=src python scripts/check_submission.py \
-  --file team-blue.csv
+  --file team-blue.csv \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
+  --release representative
 ```
 
-Use `--artifact-dir` when the checker should validate `bus_id` against a
-released scenario catalog. `--year`, `--round`, and `--horizon` are optional
-report context; they never create a per-period row requirement. The evaluator
-remains authoritative.
+Use `--artifact-dir` when the checker should validate `bus_id` against the
+released package catalog; `--release representative` applies the 0.5 x
+connection generator cap. `--year`, `--round`, and `--horizon` belong only to
+the retired half-year release. The evaluator remains authoritative.
 
 | CSV field | Units | Origin | Rule |
 |---|---|---|---|
@@ -122,7 +125,7 @@ remains authoritative.
 | `site_id` | identifier | INSTRUCTOR-CHOSEN | Unique within the file; defines the site identity used for asset IDs. |
 | `bus_id` | catalog identifier | DATASET-SPECIFIED | Must exist in the selected block's `bus.csv`. |
 | `connection_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite and nonnegative constant site capacity. |
-| `generator_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite, nonnegative, and no greater than connection capacity. |
+| `generator_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite, nonnegative, and no greater than 0.5 x `connection_capacity_mw`. |
 | `storage_power_mw` | MW | INSTRUCTOR-CHOSEN | Charge/discharge power capacity; zero only with zero energy capacity. |
 | `storage_energy_mwh` | MWh | INSTRUCTOR-CHOSEN | Must equal `4 * storage_power_mw` when storage is present. |
 
@@ -136,23 +139,28 @@ only and must not be copied into an active submission.
 
 | Parameter | Value | Units | Origin | Rationale / reference |
 |---|---:|---|---|---|
-| IT-service value | 6,500 | USD/MWh served load | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | AI-intensive instructional opportunity value, rounded from a recent compute-value estimate with a blended value near $6,350/MWh. Cloud prices remain contextual, not a direct tariff conversion. See [Compute Heat Rate](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6322318) and the [IEA Energy and AI executive summary](https://www.iea.org/reports/energy-and-ai/executive-summary). |
-| Energy purchase cost, Submission 1 | 0 | USD | INSTRUCTOR-CHOSEN | Submission 1 settlement excludes grid-energy cost (it is still scored in Weeks 2 and 3). |
-| Energy purchase cost, Submission 2 | Joint-dispatch LMP times grid purchase (MW) times 6 h | USD/MWh | DERIVED | The LMP is selected from the joint dispatch at the team's bus; it is not a student-chosen independent price. |
+| IT-service value | 1,000 | USD/MWh served load | INSTRUCTOR-CHOSEN | Round instructional net margin of served computational load, between colocation rent (about $270/MWh of IT load) and GPU-cloud revenue (about $1,700/MWh). |
+| Discount rate | 7 | percent per year | INSTRUCTOR-CHOSEN | Ten-year annuity factor A = sum over y = 1..10 of 1.07^-y = 7.0236 (`present_value_annuity_factor`). |
+| Period weight | `period_weight_hours[t]` = 1 h x day weight x A | hours | DERIVED | Sums to 61,526.57 h over the 120 periods, so a fully served MW earns about $61.5M of IT value. Applies to IT value, energy purchases, and generator operating cost. |
+| Energy purchase cost, Weeks 1-2 | 0 | USD | INSTRUCTOR-CHOSEN | No grid-energy charge in either submission (`--week 1|2` or `--energy-cost off`). |
+| Energy purchase cost, Week 3 | Joint-dispatch LMP times grid purchase (MW) times `period_weight_hours` | USD | DERIVED | Both Week 3 submissions (`--week 3` or `--energy-cost on`). The LMP is selected from the joint dispatch at the team's bus; it is not a student-chosen independent price. |
 | Team-generator marginal curve | 25% at 80, 50% at 150, 25% at 250 | USD/MWh and capacity share | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Convex curve for generic colocated natural-gas reciprocating/simple-cycle generation with diesel-standby/scarcity premium; exact curve remains instructional. See [EIA 2026 LCOE page](https://www.eia.gov/outlooks/aeo/electricity_generation/), [EIA AEO2025 technology-cost report](https://www.eia.gov/analysis/studies/powerplants/capitalcost/pdf/capital_cost_AEO2025.pdf), and [California Energy Commission data-center overview](https://www.energy.ca.gov/programs-and-topics/topics/data-centers). |
-| Team-generator capital | 1,500,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded near EIA's 2024 internal-combustion-engine installed cost of $1,522/kW; charged once, in the submission where the generator MW is first built. See [EIA generator costs](https://www.eia.gov/electricity/generatorcosts/). |
+| Team-generator capital | 2,000,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Installed on-site gas engines and aeroderivative turbines cost about $1,700–2,000/kW ([Rabobank 2026](https://www.rabobank.com/knowledge/d011524694-the-sprint-data-centers-are-building-a-parallel-energy-system-in-the-us)); EIA-based figures in a Texas PUC filing give about $1,430/kW (aeroderivative) and $2,240/kW (internal-combustion engines). Charged once, undiscounted, in the submission where the site is built. |
 | Connection-site cost | 25,000,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | AI-data-center facility-capital proxy, not a universal interconnection tariff. JLL reports $10.7M/MW shell/core and up to $25M/MW AI fit-out; Morgan Stanley reports approximately $21–31M/MW including GPUs/servers. See [JLL outlook](https://www.jll.com/en-us/insights/market-outlook/global-data-centers) and [Morgan Stanley data-center research](https://www.morganstanley.com/content/dam/msdotcom/en/assets/pdfs/Research_Bridging-Data-Center-Gap.pdf). |
-| Storage power capital | 400,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded component of the 2028 moderate four-hour storage projection. See [NREL 2023 storage projections](https://www.nrel.gov/docs/fy23osti/85332.pdf) and [NREL 2024 utility-scale storage ATB](https://atb.nrel.gov/electricity/2024/2023/utility-scale_battery_storage). |
+| Storage power capital | 400,000 | USD/MW | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded component of the 2028 moderate four-hour storage projection; charged once, undiscounted. See [NREL 2023 storage projections](https://www.nrel.gov/docs/fy23osti/85332.pdf) and [NREL 2024 utility-scale storage ATB](https://atb.nrel.gov/electricity/2024/2023/utility-scale_battery_storage). |
 | Storage energy capital | 250,000 | USD/MWh | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded component of the same 2028 moderate four-hour projection. |
 | Four-hour storage equivalent | 1,400,000 | USD/MW | DERIVED | `400,000 * P + 250,000 * (4P)` for power `P`; storage operating cost is zero. |
 | Storage operating cost | 0 | USD/MWh | INSTRUCTOR-CHOSEN | The grid operator schedules storage without a variable storage-cost term. |
+| Generator cap | 0.5 | fraction of connection capacity | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | `max_generator_to_connection_ratio`; a site cannot be mostly self-supplied. Texas SB 6 (2025) treats on-site backup that can serve at least 50% of a large load's demand as backup ERCOT may call on in emergencies ([Utility Dive](https://www.utilitydive.com/news/texas-law-gives-grid-operator-power-to-disconnect-data-centers-during-crisis/751587)). |
+| Generator daily run-hour budget | 2 | hours of full output per representative day | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | `generator_daily_energy_hours` = h: each team generator of capacity G produces at most h x G MWh per day (sum over the day's 24 periods of g_t x 1 h <= 2G). Air permits cap run hours of on-site engines: federal emergency-engine rules allow 100 h/yr of maintenance and testing (at most 50 h non-emergency), and state permits often cap total operation (e.g. under 500 h/yr in a Georgia EPD draft permit). 2 h/day (about 730 h/yr) is a teaching choice in that range that makes the generator a peak-shaving device, not baseload. The evaluator dispatches budgeted generators in one coupled LP per day, and the fair projection uses the same budgeted feasibility. Absent or null = no budget. |
+| Break-even served share | about 41% | fraction of connection capacity | DERIVED | `25e6 / (1000 x 8760 x A)` = 0.406: average served share at which IT value recovers the site cost, without energy cost. |
 | Invalid/infeasible fallback score | 0 | USD | INSTRUCTOR-CHOSEN | Deterministic grading value when no usable projected/fallback dispatch exists. |
 
 The score is:
 
 ```text
 IT-service value
-- energy purchase cost (Submission 2 only)
+- energy purchase cost (Week 3 only)
 - team-generator operating cost
 - generator capital cost
 - connection-site cost
@@ -161,7 +169,8 @@ IT-service value
 
 IT-service value, energy purchase cost, and team-generator operating cost are
 energy terms: each sums a per-period MW quantity times its USD/MWh rate times
-the 6-hour period length. Capital terms are charged once per newly built asset.
+`period_weight_hours[t]`, giving a ten-year present value. Capital terms are
+charged once per newly built asset and are not discounted.
 
 Existing public generators retain their dataset marginal costs. Team-owned
 generators and storage are separate private assets and cannot serve another
@@ -173,7 +182,7 @@ Students submit storage capacities only. The grid operator, not the student,
 chooses charging and discharging in the centralized dispatch. For each asset:
 
 ```text
-dt = 6 hours (one game period)
+dt = 1 hour (one game period)
 -storage_power_mw <= p[t] <= storage_power_mw     (p > 0 discharges, p < 0 charges)
 SOC[t] = SOC[t-1] - dt * p[t]
 0 <= SOC[t] <= storage_energy_mwh
@@ -182,8 +191,8 @@ SOC at the start of every day = 0.5 * storage_energy_mwh
 SOC at the end of every day   = 0.5 * storage_energy_mwh   (exact)
 ```
 
-The storage boundary mode is `daily_exact_cycle`: a day is four consecutive
-six-hour periods, every day starts half full and must end exactly half full,
+The storage boundary mode is `daily_exact_cycle`: a day is 24 consecutive
+hourly periods, every representative day starts half full and must end exactly half full,
 and no stored energy carries between days or between submissions. The
 transition uses 100% efficiency. The prepared HiGHS model represents each
 storage asset with this one signed net-power variable per period, so the
@@ -207,7 +216,7 @@ recomputed. There are no per-site or per-team request caps.
 | Parameter | Value | Units | Origin | Rationale / reference |
 |---|---:|---|---|---|
 | Allocation rule | uniform rule (max-min fair in requested MW) with water-filling | policy | INSTRUCTOR-CHOSEN | Strategy-proof for one divisible resource (Sprumont, "The Division Problem with Single-Peaked Preferences," *Econometrica* 59(2), 1991): inflating a request earns nothing beyond the common level. |
-| Minimum allocation | 0.5 | fraction of request | INSTRUCTOR-CHOSEN | Near the ~44% served share at which a Submission 1 site breaks even. On a network an inflated request can lower everyone's level; this drops it. Patterned on the minimum allocation in [ERCOT's batch study for large loads](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf). |
+| Minimum allocation | 0.5 | fraction of request | INSTRUCTOR-CHOSEN | Near the ~41% served share at which a site breaks even. On a network an inflated request can lower everyone's level; this drops it. Patterned on the minimum allocation in [ERCOT's batch study for large loads](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf). |
 | Feasibility tolerance | min(0.1, 1e-3 times the largest request) | MW | INSTRUCTOR-CHOSEN | Bisection stopping tolerance for each level; finer values only add dispatch calls. |
 | Projection objective label | `uniform_rule_max_min_capacity` | objective | INSTRUCTOR-CHOSEN | Recorded in the audit with the common level `common_level_mw`. |
 | CLI `--projection-iterations` | 10 default; lower bound on bisection steps | iterations | INSTRUCTOR-CHOSEN | Runtime lower bound with deterministic refinement. |
@@ -220,12 +229,11 @@ team-out and individual fallback attempts are recorded where possible.
 
 ## Persistent assets and privacy-safe outputs
 
-The round coordinator carries accepted team-owned assets (and records the final
-SOC, which the daily cycle fixes at 50%) from Submission 1 to Submission 2
-within a week, charges capital only in the
-submission where an asset is first built (Submission 2 is charged only for
-newly added sites/assets), and resets the ledger at each new week. The state file is written only
-after a usable dispatch and valid final SOC have been obtained.
+The round coordinator carries the Submission 1 sites' hourly net grid
+withdrawal into the Submission 2 base load within a week (Submission 2 is
+charged only for its new sites) and resets to the representative base at each
+new week. The state file is written only after a usable dispatch and valid
+final SOC have been obtained.
 
 The raw instructor output contains the full audit record, submitted plans,
 dispatch details, and diagnostics. The classroom writer separately produces a
@@ -237,15 +245,17 @@ cross-team dispatch JSON.
 
 ## Validation and benchmark limitations
 
-- The canonical six-hour package (`activsg2000_scenarios_v2_6h`) records
-  `validation_status: passed` for all six blocks, covering 4,384 six-hour
-  states. The retired hourly package (`activsg2000_scenarios_v1`) and its
-  hourly rule files are historical, are not used by the current game, and are
-  not published in this repository.
-- The student preview (`ercot-game-preview`, default `--preview-stride 6`)
-  samples every sixth six-hour period (every 36 hours) and leaves storage idle.
-  It can help students iterate, but instructor evaluation uses the selected
-  full half-year block and release manifest.
+- The representative package (`activsg2000_representative_v1`) records
+  `validation_status: passed` for all 120 periods. The retired six-hour
+  half-year package (`activsg2000_scenarios_v2_6h`) and hourly package
+  (`activsg2000_scenarios_v1`) and their rule files are historical and are not
+  used by the current game.
+- The student preview (`ercot-game-preview`, default `--preview-stride 1` on
+  the representative release) leaves storage idle. It can help students
+  iterate, but instructor evaluation uses the full package and release config.
+- Hosting capacity on the full package (`ercot-game-hosting-capacity`) is
+  2,000 buses x 120 periods = 240,000 LPs, about 19 minutes with Gurobi
+  (32 workers) on a server.
 
 ## References
 

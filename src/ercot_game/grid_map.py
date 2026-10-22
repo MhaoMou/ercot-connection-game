@@ -399,7 +399,11 @@ def build_map(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render the privacy-safe interactive classroom grid map (SVG)")
-    parser.add_argument("--artifact-dir", required=True, type=Path, help="scenario block directory")
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        help="scenario block directory (default: the released representative-day package)",
+    )
     parser.add_argument(
         "--submissions-dir", required=True, type=Path, action="append",
         help="directory of team CSVs; repeat to include Submission 1 sites carried into Submission 2",
@@ -409,15 +413,37 @@ def _parser() -> argparse.ArgumentParser:
         "--layout", type=Path, default=Path("data/teaching/activsg2000_layout_v1.json"),
         help="stored bus layout (created if missing)",
     )
-    parser.add_argument("--time-step-hours", type=float, default=6.0, help="length of one dispatch period (game default: 6)")
+    parser.add_argument(
+        "--time-step-hours",
+        type=float,
+        help="length of one dispatch period (default: the artifact's time_step_hours, else 6)",
+    )
     parser.add_argument("--title", default="Grid map")
     parser.add_argument("--subtitle", default="")
     parser.add_argument("--output", required=True, type=Path)
     return parser
 
 
+def _artifact_time_step_hours(artifact_dir: Path) -> float:
+    for name in ("manifest.json", "scenario_profile.json"):
+        try:
+            payload = json.loads((artifact_dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        value = payload.get("time_step_hours") if isinstance(payload, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return 6.0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.artifact_dir is None:
+        from .release_config import canonical_release_artifact_dir
+
+        args.artifact_dir = canonical_release_artifact_dir()
+    if args.time_step_hours is None:
+        args.time_step_hours = _artifact_time_step_hours(args.artifact_dir)
     svg = build_map(
         artifact_dir=args.artifact_dir,
         submission_dirs=args.submissions_dir,

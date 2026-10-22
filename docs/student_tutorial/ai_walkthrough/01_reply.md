@@ -1,14 +1,14 @@
-I read `README.md` and Part I of `docs/student_tutorial/main.tex`, then ran the checker once on an example file. I didn't change anything.
+I ran `cat README.md` and `sed -n 111,366p docs/student_tutorial/main.tex` (Part I). I didn't change any files.
 
-**What you submit:** one CSV per team per submission. There are two submissions a week for three weeks, so six files, and no report. Each file has exactly this header, with one row per site:
-`team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh`
-Generator capacity can't exceed connection capacity, and storage energy must be either 0 or 4× storage power. In Submission 2, keep every Submission 1 row unchanged and only add new sites.
+**What you submit:** one CSV per submission, two a week for three weeks (six files in all). It has exactly the header `team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh` and one row per site. The rules are G ≤ 0.5C and storage either zero or B = 4P. Submission 2 lists only new sites. You also give a final presentation and a report.
 
-**How it's scored:** score = IT value ($6,500/MWh served) − energy cost (at the local price, Submission 2 only) − generator running cost − one-time capital: $25M/MW per site, $1.5M/MW per generator, $400k/MW + $250k/MWh per battery. All teams' plans run on the grid together. If they don't fit, everyone gets the same MW level, and a team that would get less than half of its request gets nothing. Week 1 is practice. Your final score is the sum of the four Week 2–3 submissions. An invalid file scores 0.
+**Scoring:** score = IT value ($1,000/MWh served, over 10 years) − energy cost (charged at the LMP, Week 3 only) − generator operating cost − capital costs (site $25M/MW, generator $1.5M/MW, storage $400k/MW + $250k/MWh). All plans are dispatched together. An invalid file scores 0. Your final score is the sum of the four Week 2 and 3 submissions. It is worth 10 of the assignment's 40 points; the other 30 come from the presentation, report and your work.
 
-**Commands** (in `.venv/`):
+**Commands:**
+```bash
+python -m pip install -e .
+ercot-game-check-csv --file team.csv --artifact-dir <package>
+ercot-game-preview   # approximate score for your plan alone
 ```
-ercot-game-check-csv --file plan.csv --artifact-dir data/processed/activsg2000_scenarios_v2_6h/<year>/<jan_jun|jul_dec>
-ercot-game-preview --submissions-dir runs/a --artifact-dir ... --rules data/teaching/dispatch_scoring_rules_<half>_6h_v1.json --horizon <724|728|736> --output runs/a.json
-```
-Test run: `ercot-game-check-csv --file examples/eight_team_round/submissions/team-01.csv` printed `VALID ... sites=2` (exit 0).
+
+Note: the README describes an older six-hour setup ($6,500/MWh). Follow Part I.

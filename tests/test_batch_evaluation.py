@@ -1652,6 +1652,7 @@ def test_write_batch_outputs_matches_auditable_output_contract(tmp_path, monkeyp
     } == {
         "leaderboard.csv",
         "submission_manifest.csv",
+        "site_net_withdrawal.csv",
         "evaluation.json",
         "evaluation_sha256.txt",
         "diagnostics/team-a.json",
@@ -1681,6 +1682,7 @@ def test_write_batch_outputs_matches_auditable_output_contract(tmp_path, monkeyp
     assert set(payload["output_sha256"]) == {
         "leaderboard.csv",
         "submission_manifest.csv",
+        "site_net_withdrawal.csv",
         "diagnostics/team-a.json",
         "diagnostics/team-b.json",
         "dispatch/period_0.json",
@@ -2143,3 +2145,42 @@ def test_fair_projection_keeps_filling_when_a_request_sits_just_above_the_blocke
     assert projection.projected_capacity_mw_by_team["team-a"] == pytest.approx(49.0, abs=0.05)
     assert projection.projected_capacity_mw_by_team["team-b"] == pytest.approx(26.26, abs=0.06)
     assert projection.projected_capacity_mw_by_team["team-c"] == pytest.approx(26.26, abs=0.06)
+
+
+def test_fair_projection_reproduces_the_appendix_c_worked_example(tmp_path, monkeypatch):
+    # Appendix C: B and C share a 50 MW line, A has its own 45 MW limit.
+    def feasible(capacities):
+        return (
+            capacities["team-b"] + capacities["team-c"] <= 50.0 + 1e-8
+            and capacities["team-a"] <= 45.0 + 1e-8
+        )
+
+    (tmp_path / "base").mkdir()
+    (tmp_path / "variant").mkdir()
+    base, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path / "base",
+        (
+            _projection_plan("team-a", 60.0),
+            _projection_plan("team-b", 40.0),
+            _projection_plan("team-c", 40.0),
+        ),
+        feasible,
+    )
+    variant, _calls = _run_projection_with_capacity_oracle(
+        monkeypatch,
+        tmp_path / "variant",
+        (
+            _projection_plan("team-a", 60.0),
+            _projection_plan("team-b", 40.0),
+            _projection_plan("team-c", 60.0),
+        ),
+        feasible,
+    )
+
+    assert base.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 45.0, "team-b": 25.0, "team-c": 25.0}, abs=0.1
+    )
+    assert variant.projected_capacity_mw_by_team == pytest.approx(
+        {"team-a": 45.0, "team-b": 40.0, "team-c": 0.0}, abs=0.1
+    )

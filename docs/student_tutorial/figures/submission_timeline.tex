@@ -1,14 +1,15 @@
-% Submission timeline: three weeks, two submissions per week, Week 1 practice,
-% Submission 1 builds carried into Submission 2, reset between weeks.
+% Submission timeline: three weeks of the same ten-year game, two submissions
+% per week; Submission 1 load becomes Submission 2 base load; reset between
+% weeks; energy cost only in Week 3.
 \begin{tikzpicture}[font=\scriptsize, >=latex,
-  sub/.style={draw, rounded corners=2pt, align=center, minimum height=13mm, text width=19mm, inner sep=2pt},
+  sub/.style={draw, rounded corners=2pt, align=center, minimum height=11mm, text width=21mm, inner sep=1.5pt},
   practice/.style={sub, draw=gray!70, fill=gray!8, text=gray!70!black},
   graded/.style={sub, draw=blue!65!black, fill=blue!7},
   carry/.style={->, thick, draw=green!50!black},
   reset/.style={dashed, thick, draw=red!65!black}]
-  \foreach \w/\yr/\x/\style in {1/2027/0/practice, 2/2028/5.6/graded, 3/2029/11.2/graded} {
-    \node[\style] (s1w\w) at (\x,0) {{\bfseries Submission 1}\\\yr{} Jan--Jun\\build sites\\no energy cost};
-    \node[\style, right=8mm of s1w\w] (s2w\w) {{\bfseries Submission 2}\\\yr{} Jul--Dec\\may add sites\\energy at LMP};
+  \foreach \w/\energy/\x/\style in {1/no energy cost/0/practice, 2/no energy cost/5.5/graded, 3/energy at LMP/11.0/graded} {
+    \node[\style] (s1w\w) at (\x,0) {{\bfseries Submission 1}\\connect sites\\\energy};
+    \node[\style, right=5mm of s1w\w] (s2w\w) {{\bfseries Submission 2}\\add new sites\\\energy};
     \draw[carry] (s1w\w.east) -- (s2w\w.west);
   }
   \node[above=2mm of $(s1w1.north)!0.5!(s2w1.north)$, font=\footnotesize\bfseries, text=gray!70!black] {Week 1: practice};

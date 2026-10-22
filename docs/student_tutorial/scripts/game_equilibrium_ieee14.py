@@ -3,12 +3,12 @@ IEEE 14-bus teaching demo.
 
 Every payoff reported here comes from the real evaluator
 (``ercot_game.batch_evaluation.evaluate_csv_batch``, the function behind
-``ercot-game-batch run``) on the full 168-hour horizon, Submission 2 (energy
-paid at the joint-dispatch LMP).  Each team submits one site: a bus and a
+``ercot-game-batch run``) on the full 120-hour representative horizon (5 days x 24 h standing for
+ten years), Week 3 scoring (energy paid at the joint-dispatch LMP).  Each team submits one site: a bus and a
 requested connection capacity (no generator, no storage; experiment 4 adds an
 optional generator).  A request of 0 MW means "do not enter".
 
-A small LP (DC power flow with PTDFs, all 168 hours, constant team loads) is
+A small LP (DC power flow with PTDFs, all 120 hours, constant team loads) is
 used only to locate points of the feasible region H exactly: the max-min-fair
 point w, the planner optimum and the region boundary for the figures.  Every
 point that is reported is re-evaluated with the evaluator.
@@ -57,9 +57,9 @@ for _path in (REPO, REPO / "src"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-ARTIFACT = REPO / "data" / "teaching" / "ieee14_demo_1h"
-RULES = REPO / "data" / "teaching" / "dispatch_scoring_rules_ieee14_demo_1h_v1.json"
-HORIZON = 168
+ARTIFACT = REPO / "data" / "teaching" / "ieee14_demo_representative"
+RULES = REPO / "data" / "teaching" / "dispatch_scoring_rules_ieee14_demo_representative_v1.json"
+HORIZON = 120
 OUT = REPO / "docs" / "student_tutorial" / "data" / "game_equilibrium"
 FIG = REPO / "docs" / "student_tutorial" / "figures"
 CACHE_DIR = REPO / "work" / "game_equilibrium_cache"
@@ -73,7 +73,9 @@ EPS = 1.0  # $ tolerance when comparing payoffs (scores are ~1e6-1e8 $)
 _RULE_PAYLOAD = json.loads(RULES.read_text(encoding="utf-8"))
 IT_VALUE = float(_RULE_PAYLOAD["it_value_per_mwh"][0])
 SITE_COST = float(_RULE_PAYLOAD["site_cost_per_mw"])
-MARGIN_PER_MW = IT_VALUE * HORIZON - SITE_COST  # value minus site cost per served MW, before energy
+WEIGHT_HOURS = float(sum(_RULE_PAYLOAD["period_weight_hours"]))  # ten-year present-value hours
+ANNUAL_HOURS = float(sum(_RULE_PAYLOAD["period_day_weights"]))  # served_load_mwh is per represented year
+MARGIN_PER_MW = IT_VALUE * WEIGHT_HOURS - SITE_COST  # value minus site cost per served MW, before energy
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +146,8 @@ def evaluate_profile(profile, *, min_fraction: float | None = None) -> dict:
             artifact_dir=ARTIFACT,
             horizon=HORIZON,
             rules=_rules(),
-            submission_number=2,
+            submission_number=1,
+            energy_cost_enabled=True,
         )
     finally:
         be._FAIR_PROJECTION_MIN_ALLOCATION_FRACTION = saved
@@ -155,7 +158,7 @@ def evaluate_profile(profile, *, min_fraction: float | None = None) -> dict:
         if score is None:
             continue
         result["score"][index] = float(score.score)
-        result["served_mw"][index] = float(score.served_load_mwh) / HORIZON
+        result["served_mw"][index] = float(score.served_load_mwh) / ANNUAL_HOURS
         result["energy_cost"][index] = float(score.energy_cost)
         result["site_cost"][index] = float(score.site_cost)
         result["generator_cost"][index] = float(
@@ -222,7 +225,7 @@ class Oracle:
 
 
 # ---------------------------------------------------------------------------
-# Exact feasible region H (LP over all 168 hours, constant team loads)
+# Exact feasible region H (LP over all 120 hours, constant team loads)
 # ---------------------------------------------------------------------------
 
 
@@ -469,7 +472,7 @@ def exp1(oracle, region, quick=False):
             "evaluator_all_request_1000mw_no_minimum": {k: proj_nomin[k] for k in ("served_mw", "score", "scope", "dropped", "fraction", "common_level_mw")},
             "evaluator_all_request_1p5w_real_rule": {k: proj_moderate[k] for k in ("profile", "served_mw", "score", "scope", "dropped", "fraction")},
             "at_w": {k: at_w[k] for k in ("served_mw", "score", "energy_cost", "site_cost", "scope")},
-            "at_w_avg_lmp_paid": [e / (s * HORIZON) if s else None for e, s in zip(at_w["energy_cost"], at_w["served_mw"])],
+            "at_w_avg_lmp_paid": [e / (s * WEIGHT_HOURS) if s else None for e, s in zip(at_w["energy_cost"], at_w["served_mw"])],
             "best_response_check": br_check,
             "modes": modes,
             "planner_lp_mw": list(opt_lp),
@@ -664,7 +667,7 @@ def exp1_epsilon(oracle, region, case="c_9_13_14", tail=6):
                     "gains": [c["max_deviation_gain"] for c in checks],
                     "best_moves": [c["best_grid_mw"] for c in checks],
                     "score": res["score"], "energy_cost": res["energy_cost"], "served_mw": res["served_mw"],
-                    "avg_lmp_paid": [e / (m * HORIZON) if m else None for e, m in zip(res["energy_cost"], res["served_mw"])],
+                    "avg_lmp_paid": [e / (m * WEIGHT_HOURS) if m else None for e, m in zip(res["energy_cost"], res["served_mw"])],
                     "scope": res["scope"]})
         print(f"[exp1eps] {key} max gain {out[-1]['max_gain']:.0f} moves {out[-1]['best_moves']}", flush=True)
     out.sort(key=lambda item: item["max_gain"])
@@ -735,7 +738,7 @@ def exp1_global(oracle, region, case="c_9_13_14", n_starts=4, max_rounds=40):
                "moves": len(path) - 1, "path": path, "final_gains": gains,
                "final_max_relative_gain": max(g / abs(sc) for g, sc in zip(gains, res["score"]) if sc),
                "final_score": res["score"], "final_served_mw": res["served_mw"], "final_scope": res["scope"],
-               "final_avg_lmp_paid": [e / (m * HORIZON) if m else None for e, m in zip(res["energy_cost"], res["served_mw"])],
+               "final_avg_lmp_paid": [e / (m * WEIGHT_HOURS) if m else None for e, m in zip(res["energy_cost"], res["served_mw"])],
                "final_uniform_rule_mw": exact, "final_evaluator_vs_uniform_rule_gap_mw": gap}
         runs.append(run)
         print(f"[exp6] start {start} -> {r} converged={converged} cycle={cycle} rounds={round_index} "
@@ -1096,6 +1099,10 @@ def _profile_stats(res):
 
 def exp4(oracle, region, exp2_summary, strategies, quick=False):
     t0 = time.time()
+    # A generator of G = 0.5 r lifts the limit to HC + G, so a site can reach
+    # 2 HC: widen the size grid (exp 2 stops at 300 MW and 1.3 HC).
+    wide, _hc = strategy_grid(region, step=30.0 if quick else 10.0, top=1000.0, factor=2.6)
+    strategies = sorted(set(strategies) | set(wide), key=lambda s: (s[0], s[1]))
     extended = [(s[0], s[1], 0.0) for s in strategies]
     for s in strategies:
         if s[1] > 0:
@@ -1151,7 +1158,7 @@ def validate_cli(oracle, profile):
     code = batch_cli.main([
         "run", "--submissions-dir", str(plans), "--artifact-dir", str(ARTIFACT),
         "--rules", str(RULES), "--output-dir", str(directory / "out"),
-        "--horizon", str(HORIZON), "--time-step-hours", "1", "--submission-number", "2",
+        "--week", "3", "--submission-number", "1",
     ])
     evaluation = json.loads((directory / "out" / "evaluation.json").read_text(encoding="utf-8"))
     cli = {s["team_id"]: s["score"] for s in evaluation["team_scores"]}

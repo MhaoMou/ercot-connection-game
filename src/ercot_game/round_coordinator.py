@@ -22,7 +22,12 @@ from .asset_state import (
     canonical_asset_key,
     canonical_asset_keys_for_plan,
 )
-from .calendars import weekly_match_for
+from .base_load import (
+    materialize_base_load_artifact,
+    net_withdrawal_by_bus,
+    site_net_withdrawal_rows,
+)
+from .calendars import round_sequence, schedule_id_for, weekly_match_for
 from .csv_submission import load_bus_ids
 from .game_state import RELEASED_ROUND_SEQUENCE, GameState
 from .game_state_store import GameStateStore
@@ -60,6 +65,7 @@ def _default_plan_loader(
             horizon=horizon,
             default_generator_cost_per_mwh=rules.default_generator_cost_per_mwh,
             require_complete_horizon=True,
+            max_generator_to_connection_ratio=getattr(rules, "max_generator_to_connection_ratio", 1.0),
         )
     except (OSError, ValueError) as exc:
         raise RoundCoordinatorError(f"could not validate round submissions: {exc}") from exc
@@ -78,7 +84,23 @@ def _state_for_round(state: GameState, round_key: str) -> GameState:
     match = weekly_match_for(round_key)
     if state.current_week_id == match.week_id:
         return state
-    return replace(state, asset_ledger=state.asset_ledger.reset())
+    return replace(
+        state,
+        asset_ledger=state.asset_ledger.reset(),
+        carried_base_load_mw_by_bus={},
+    )
+
+
+def _load_state(state_path: str | Path, round_key: str) -> GameState:
+    store = GameStateStore(state_path)
+    try:
+        state = store.load() if Path(state_path).exists() else GameState.new()
+    except FileNotFoundError:
+        state = GameState.new()
+    if not state.completed_rounds and state.schedule_id is None:
+        # A fresh state follows the schedule of its first round.
+        state = replace(state, schedule_id=schedule_id_for(round_key))
+    return state
 
 
 def evaluate_round(
@@ -92,25 +114,26 @@ def evaluate_round(
     plan_loader: PlanLoader | None = None,
     evaluator: Evaluator = evaluate_csv_batch,
     evaluator_kwargs: Mapping[str, Any] | None = None,
+    base_load_artifact_dir: str | Path | None = None,
 ) -> "RoundEvaluationResult":
     """Evaluate one round and commit its state only after success.
 
-    The existing half-year evaluator remains responsible for dispatch and
-    scoring. This wrapper owns only the transactional sequence: load prior
-    state, validate/register current plans, evaluate, then save the advanced
-    state. Any exception before the final save leaves the previous file
-    untouched.
+    The existing evaluator remains responsible for dispatch and scoring.
+    This wrapper owns only the transactional sequence: load prior state,
+    validate/register current plans, evaluate, then save the advanced state.
+    Any exception before the final save leaves the previous file untouched.
+
+    In the representative-day schedule the week sets the energy charge, and
+    Submission 2 is evaluated on a derived artifact (written to
+    ``base_load_artifact_dir``, by default next to the state file) whose base
+    load includes the hourly net withdrawal of every Submission 1 site.
     """
     store = GameStateStore(state_path)
-    try:
-        loaded_state = store.load() if Path(state_path).exists() else GameState.new()
-    except FileNotFoundError:
-        loaded_state = GameState.new()
-
     try:
         match = weekly_match_for(round_key)
     except ValueError as exc:
         raise RoundCoordinatorError(str(exc)) from exc
+    loaded_state = _load_state(state_path, round_key)
     expected_round = loaded_state.next_round_key
     if expected_round != round_key:
         if (
@@ -134,6 +157,24 @@ def evaluate_round(
         and match.round_keys[1] == round_key
     )
     prior_state = _state_for_round(loaded_state, round_key)
+    if match.energy_cost_enabled is not None:
+        return _evaluate_representative_round(
+            store=store,
+            state_path=state_path,
+            round_key=round_key,
+            match=match,
+            prior_state=prior_state,
+            submissions=submissions,
+            artifact_dir=artifact_dir,
+            horizon=horizon,
+            rules=rules,
+            plan_loader=plan_loader,
+            evaluator=evaluator,
+            evaluator_kwargs=evaluator_kwargs,
+            base_load_artifact_dir=base_load_artifact_dir,
+            ledger_reset=ledger_reset,
+            preserves_prior_submission=preserves_prior_submission,
+        )
 
     loader = plan_loader or _default_plan_loader
     plans = tuple(
@@ -266,6 +307,114 @@ def evaluate_round(
     )
 
 
+_REPRESENTATIVE_EVALUATOR_KWARGS = (
+    "submission_number",
+    "energy_cost_enabled",
+    "reserved_site_ids_by_team",
+)
+
+
+def _evaluate_representative_round(
+    *,
+    store: GameStateStore,
+    state_path: str | Path,
+    round_key: str,
+    match: Any,
+    prior_state: GameState,
+    submissions: Sequence[str | Path] | str | Path,
+    artifact_dir: str | Path,
+    horizon: int,
+    rules: BatchScoringRules,
+    plan_loader: PlanLoader | None,
+    evaluator: Evaluator,
+    evaluator_kwargs: Mapping[str, Any] | None,
+    base_load_artifact_dir: str | Path | None,
+    ledger_reset: bool,
+    preserves_prior_submission: bool,
+) -> "RoundEvaluationResult":
+    """Evaluate one submission of the representative-day schedule.
+
+    Submission 1 sites are fixed base load in Submission 2: they are not
+    re-dispatched or re-scored, and a Submission 2 file may list only new
+    site IDs (a file reusing one of its team's Submission 1 IDs is rejected).
+    """
+    submission_number = match.round_keys.index(round_key) + 1
+    loader = plan_loader or _default_plan_loader
+    plans = tuple(
+        loader(
+            submissions,
+            artifact_dir=artifact_dir,
+            horizon=horizon,
+            rules=rules,
+        )
+    )
+    reserved: dict[str, frozenset[str]] = {}
+    evaluation_artifact = Path(artifact_dir)
+    if submission_number == 2:
+        reserved = {
+            team_id: frozenset(team_state.sites)
+            for team_id, team_state in prior_state.asset_ledger.teams.items()
+        }
+        plans = tuple(
+            plan
+            for plan in plans
+            if not {site.site_id for site in plan.sites} & reserved.get(plan.team_id, frozenset())
+        )
+        carried = prior_state.carried_base_load_mw_by_bus
+        if carried:
+            evaluation_artifact = (
+                Path(base_load_artifact_dir)
+                if base_load_artifact_dir is not None
+                else Path(state_path).parent / "base_load" / round_key
+            )
+            try:
+                materialize_base_load_artifact(
+                    artifact_dir,
+                    carried,
+                    evaluation_artifact,
+                    provenance={"round_key": round_key},
+                )
+            except (OSError, ValueError) as exc:
+                raise RoundCoordinatorError(
+                    f"could not build the Submission 2 base load: {exc}"
+                ) from exc
+
+    kwargs = dict(evaluator_kwargs or {})
+    if any(name in kwargs for name in _REPRESENTATIVE_EVALUATOR_KWARGS):
+        raise RoundCoordinatorError("evaluate_round owns the submission and energy kwargs")
+    kwargs.update(
+        submission_number=submission_number,
+        energy_cost_enabled=match.energy_cost_enabled,
+        reserved_site_ids_by_team=reserved,
+    )
+    advanced_state = prior_state.advance(round_key, plans)
+    evaluation = evaluator(
+        submissions,
+        artifact_dir=evaluation_artifact,
+        horizon=horizon,
+        rules=rules,
+        **kwargs,
+    )
+    if not _has_period_collection(evaluation):
+        raise RoundCoordinatorError(
+            "evaluation did not return a usable dispatch result; state was not committed"
+        )
+    _validate_projection_team_isolation(evaluation, {plan.team_id: plan for plan in plans})
+    if submission_number == 1:
+        withdrawal = net_withdrawal_by_bus(site_net_withdrawal_rows(evaluation), horizon)
+        advanced_state = replace(advanced_state, carried_base_load_mw_by_bus=withdrawal)
+    store.save(advanced_state)
+    return RoundEvaluationResult(
+        round_key=round_key,
+        evaluation=evaluation,
+        prior_state=prior_state,
+        state=advanced_state,
+        ledger_reset=ledger_reset,
+        preserves_prior_submission=preserves_prior_submission,
+        artifact_dir=evaluation_artifact,
+    )
+
+
 @dataclass(frozen=True)
 class ClassroomRoundInput:
     """Inputs for one half-year in the released classroom schedule."""
@@ -345,18 +494,18 @@ def evaluate_classroom(
     round_inputs = tuple(rounds)
     if not round_inputs or len(round_inputs) > len(RELEASED_ROUND_SEQUENCE):
         raise RoundCoordinatorError("classroom rounds must contain a non-empty released schedule prefix")
-    expected_rounds = RELEASED_ROUND_SEQUENCE[: len(round_inputs)]
+    try:
+        sequence = round_sequence(schedule_id_for(round_inputs[0].round_key))
+    except ValueError:
+        sequence = RELEASED_ROUND_SEQUENCE
+    expected_rounds = sequence[: len(round_inputs)]
     actual_rounds = tuple(item.round_key for item in round_inputs)
     if actual_rounds != expected_rounds:
         raise RoundCoordinatorError(
             "classroom rounds must be a contiguous prefix of the released six-round schedule"
         )
 
-    store = GameStateStore(state_path)
-    try:
-        loaded_state = store.load() if Path(state_path).exists() else GameState.new()
-    except FileNotFoundError:
-        loaded_state = GameState.new()
+    loaded_state = _load_state(state_path, round_inputs[0].round_key)
 
     pending_inputs = round_inputs[len(loaded_state.completed_rounds):]
     if not pending_inputs:
@@ -663,7 +812,9 @@ class RoundEvaluationResult:
         state: GameState,
         ledger_reset: bool = False,
         preserves_prior_submission: bool = False,
+        artifact_dir: str | Path | None = None,
     ) -> None:
+        self.artifact_dir = artifact_dir
         self.round_key = round_key
         self.evaluation = evaluation
         self.prior_state = prior_state

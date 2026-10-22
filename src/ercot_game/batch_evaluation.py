@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from tools.activsg2000.dcopf import DCOPFInfeasible, DCOPFUnresolved
     from tools.activsg2000.plan_adapter import (
         BatchDispatchResult,
+        check_generator_cap,
         evaluate_plans_with_prepared_dcopf,
     )
 else:  # pragma: no cover - runtime branch is exercised by import behavior
@@ -52,6 +53,7 @@ else:  # pragma: no cover - runtime branch is exercised by import behavior
         )
         from tools.activsg2000.plan_adapter import (
             BatchDispatchResult as _runtime_batch_dispatch_result,
+            check_generator_cap as _runtime_check_generator_cap,
             evaluate_plans_with_prepared_dcopf as _runtime_evaluate_plans,
         )
     except ModuleNotFoundError:
@@ -61,6 +63,9 @@ else:  # pragma: no cover - runtime branch is exercised by import behavior
         _runtime_dcopf_infeasible: Any = _FallbackDCOPFInfeasible
         _runtime_dcopf_unresolved: Any = _FallbackDCOPFInfeasible
         _runtime_batch_dispatch_result: Any = object
+
+        def _runtime_check_generator_cap(plan: TeamPlan, ratio: float) -> None:
+            return None
 
         def _runtime_evaluate_plans(
             artifact_dir: str | Path,
@@ -76,6 +81,7 @@ else:  # pragma: no cover - runtime branch is exercised by import behavior
             "DCOPFUnresolved": _runtime_dcopf_unresolved,
             "BatchDispatchResult": _runtime_batch_dispatch_result,
             "evaluate_plans_with_prepared_dcopf": _runtime_evaluate_plans,
+            "check_generator_cap": _runtime_check_generator_cap,
         }
     )
 
@@ -133,9 +139,19 @@ class BatchScoringRules:
     storage_capital_cost_per_mwh: float = 0.0
     storage_boundary_mode: str = "half_year_terminal_floor"
     economic_profiles: HourlyEconomicProfiles | None = None
+    # Optional per-period weight (hours) of every energy-based term.  Empty
+    # means every period weighs ``time_step_hours`` (the half-year rules).
+    # The ten-year rules use time_step_hours x day weight x annuity factor.
+    period_weight_hours: tuple[float, ...] = ()
+    # Divides weighted MWh back to MWh per represented year for reporting.
+    present_value_factor: float = 1.0
+    max_generator_to_connection_ratio: float = 1.0
+    # Daily run-hour budget h: each team generator of capacity G may produce
+    # at most h x G MWh per 24-hour day.  None means no budget.
+    generator_daily_energy_hours: float | None = None
 
     def __post_init__(self) -> None:
-        for field_name in ("it_value_per_mwh", "energy_price_per_mwh"):
+        for field_name in ("it_value_per_mwh", "energy_price_per_mwh", "period_weight_hours"):
             try:
                 values = tuple(getattr(self, field_name))
             except TypeError:
@@ -144,11 +160,27 @@ class BatchScoringRules:
             for index, value in enumerate(values):
                 _validate_rule_number(f"{field_name}[{index}]", value, nonnegative=True)
         _validate_rule_number("time_step_hours", self.time_step_hours, positive=True)
+        _validate_rule_number("present_value_factor", self.present_value_factor, positive=True)
+        _validate_rule_number(
+            "max_generator_to_connection_ratio",
+            self.max_generator_to_connection_ratio,
+            positive=True,
+        )
         _validate_rule_number(
             "generator_capital_cost_per_mw",
             self.generator_capital_cost_per_mw,
             nonnegative=True,
         )
+        if self.generator_daily_energy_hours is not None:
+            if isinstance(self.generator_daily_energy_hours, bool):
+                raise ValueError("generator_daily_energy_hours must be a number or None")
+            _validate_rule_number(
+                "generator_daily_energy_hours",
+                self.generator_daily_energy_hours,
+                nonnegative=True,
+            )
+            if self.generator_daily_energy_hours > 24.0:
+                raise ValueError("generator_daily_energy_hours must not exceed 24")
         _validate_rule_number("site_cost_per_site", self.site_cost_per_site, nonnegative=True)
         _validate_rule_number("site_cost_per_mw", self.site_cost_per_mw, nonnegative=True)
         _validate_rule_number("infeasible_score", self.infeasible_score)
@@ -165,6 +197,12 @@ class BatchScoringRules:
             )
         if self.economic_profiles is not None and not isinstance(self.economic_profiles, HourlyEconomicProfiles):
             raise ValueError("economic_profiles must be an HourlyEconomicProfiles instance")
+
+    def weight_for(self, period_index: int) -> float:
+        """Hours that one MW in ``period_index`` counts for in the score."""
+        if not self.period_weight_hours:
+            return self.time_step_hours
+        return self.period_weight_hours[period_index]
 
 
 @dataclass(frozen=True)
@@ -292,6 +330,8 @@ class BatchEvaluation:
     dispatch_records: tuple[DispatchRecord, ...] = ()
     source_period_indices: tuple[int, ...] = ()
     projection_diagnostics: ProjectionDiagnostics | None = None
+    # Evaluator-facing plans (after overrides and horizon expansion).
+    evaluated_plans: tuple[TeamPlan, ...] = ()
 
 
 def load_scoring_rules(
@@ -343,6 +383,16 @@ def load_scoring_rules(
         storage_capital_cost_per_mwh=float(payload.get("storage_capital_cost_per_mwh", 0.0)),
         storage_boundary_mode=str(payload.get("storage_boundary_mode", "half_year_terminal_floor")),
         economic_profiles=economic_profiles,
+        period_weight_hours=tuple(float(value) for value in payload.get("period_weight_hours", ())),
+        present_value_factor=float(payload.get("present_value_annuity_factor", 1.0)),
+        max_generator_to_connection_ratio=float(
+            payload.get("max_generator_to_connection_ratio", 1.0)
+        ),
+        generator_daily_energy_hours=(
+            None
+            if payload.get("generator_daily_energy_hours") is None
+            else float(payload["generator_daily_energy_hours"])
+        ),
     )
 
 
@@ -363,7 +413,13 @@ def _collect_paths(
     horizon: int,
     default_generator_cost_per_mwh: float,
     require_complete_horizon: bool = False,
+    max_generator_to_connection_ratio: float = 1.0,
+    reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
 ) -> BatchCollection:
+    reserved = {
+        team_id: frozenset(site_ids)
+        for team_id, site_ids in (reserved_site_ids_by_team or {}).items()
+    }
     records: list[SubmissionRecord] = []
     for raw_path in sorted((Path(path) for path in paths), key=_full_path_sort_key):
         declared_team_id: str | None = None
@@ -381,7 +437,18 @@ def _collect_paths(
                 default_generator_cost_per_mwh=default_generator_cost_per_mwh,
                 require_complete_horizon=require_complete_horizon,
                 allow_legacy=True,
+                max_generator_to_connection_ratio=max_generator_to_connection_ratio,
             )
+            reused = sorted(
+                site.site_id
+                for site in submission.plan.sites
+                if site.site_id in reserved.get(submission.team_id, frozenset())
+            )
+            if reused:
+                raise ValueError(
+                    "Submission 2 lists only new sites; site_id already used in "
+                    f"Submission 1: {', '.join(reused)}"
+                )
         except (OSError, UnicodeDecodeError, csv.Error, ValueError) as exc:
             records.append(
                 SubmissionRecord(
@@ -446,8 +513,14 @@ def collect_csv_submissions(
     horizon: int,
     default_generator_cost_per_mwh: float,
     require_complete_horizon: bool = False,
+    max_generator_to_connection_ratio: float = 1.0,
+    reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
 ) -> BatchCollection:
-    """Discover, validate, and deterministically partition CSV submissions."""
+    """Discover, validate, and deterministically partition CSV submissions.
+
+    ``reserved_site_ids_by_team`` lists each team's Submission 1 site IDs; a
+    Submission 2 file reusing one of them is rejected.
+    """
     root = Path(directory)
     if not root.is_dir():
         raise ValueError(f"submission directory does not exist or is not a directory: {root}")
@@ -464,6 +537,8 @@ def collect_csv_submissions(
         horizon=horizon,
         default_generator_cost_per_mwh=default_generator_cost_per_mwh,
         require_complete_horizon=require_complete_horizon,
+        max_generator_to_connection_ratio=max_generator_to_connection_ratio,
+        reserved_site_ids_by_team=reserved_site_ids_by_team,
     )
 
 
@@ -476,6 +551,8 @@ def _collect_evaluation_inputs(
     horizon: int,
     default_generator_cost_per_mwh: float,
     require_complete_horizon: bool = False,
+    max_generator_to_connection_ratio: float = 1.0,
+    reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
 ) -> BatchCollection:
     if isinstance(csv_paths, (str, Path)):
         root = Path(csv_paths)
@@ -488,6 +565,8 @@ def _collect_evaluation_inputs(
                 horizon=horizon,
                 default_generator_cost_per_mwh=default_generator_cost_per_mwh,
                 require_complete_horizon=require_complete_horizon,
+                max_generator_to_connection_ratio=max_generator_to_connection_ratio,
+                reserved_site_ids_by_team=reserved_site_ids_by_team,
             )
         paths: Sequence[str | Path] = (root,)
     else:
@@ -500,6 +579,8 @@ def _collect_evaluation_inputs(
         horizon=horizon,
         default_generator_cost_per_mwh=default_generator_cost_per_mwh,
         require_complete_horizon=require_complete_horizon,
+        max_generator_to_connection_ratio=max_generator_to_connection_ratio,
+        reserved_site_ids_by_team=reserved_site_ids_by_team,
     )
 
 
@@ -513,9 +594,17 @@ def _score_team(
     site_cost_connection_count_by_team: Mapping[str, int] | None = None,
     site_cost_connection_capacity_mw_by_team: Mapping[str, float] | None = None,
     submission_number: int | None = None,
+    energy_cost_enabled: bool | None = None,
 ) -> TeamScore:
+    """Score one team; ``energy_cost_enabled=None`` keeps the half-year rule.
+
+    The half-year release charged grid purchases from Submission 2 on; the
+    ten-year release sets the switch per week independently of the
+    submission number.
+    """
     if submission_number not in (None, 1, 2):
         raise ValueError("submission_number must be 1, 2, or None")
+    charge_energy = _energy_cost_enabled(submission_number, energy_cost_enabled)
     period_indices = tuple(period.period_index for period in dispatch.periods)
     if len(set(period_indices)) != len(period_indices):
         raise ValueError("dispatch contains duplicate period index entries")
@@ -528,9 +617,10 @@ def _score_team(
         generation = sum(period.generator_dispatch_mw_by_team[team_id].values())
         profiles = rules.economic_profiles
         value = profiles.it_value_for(period_index) if profiles is not None else rules.it_value_per_mwh[period_index]
-        served += load * rules.time_step_hours
-        it_value += load * value * rules.time_step_hours
-        if submission_number != 1:
+        weight = rules.weight_for(period_index)
+        served += load * weight / rules.present_value_factor
+        it_value += load * value * weight
+        if charge_energy:
             grid_purchase_by_team = getattr(period, "grid_purchase_mw_by_team", None)
             purchases_by_bus = getattr(period, "grid_purchase_mw_by_team_by_bus", None)
             lmp_by_bus = getattr(getattr(period, "dcopf", None), "balance_dual_by_bus", {}) or {}
@@ -551,7 +641,7 @@ def _score_team(
                 energy_cost += sum(
                     amount * settlement_price(bus_id)
                     for bus_id, amount in purchases_by_bus[team_id].items()
-                ) * rules.time_step_hours
+                ) * weight
             else:
                 if grid_purchase_by_team is not None:
                     grid_purchase = grid_purchase_by_team.get(team_id, max(0.0, load - generation))
@@ -564,7 +654,7 @@ def _score_team(
                     price = profiles.price_for_bus(sorted(profiles.bus_ids)[0], period_index)
                 else:
                     price = rules.energy_price_per_mwh[period_index]
-                energy_cost += grid_purchase * price * rules.time_step_hours
+                energy_cost += grid_purchase * price * weight
         period_generator_cost = 0.0
         for generator_id, amount in period.generator_dispatch_mw_by_team[team_id].items():
             generator = generator_by_id.get(generator_id)
@@ -582,7 +672,7 @@ def _score_team(
                 remaining -= segment_amount
                 if remaining <= 0:
                     break
-        generator_cost += period_generator_cost * rules.time_step_hours
+        generator_cost += period_generator_cost * weight
     generator_ids_for_capital = (
         None
         if capital_cost_scope is None
@@ -645,6 +735,14 @@ def _score_team(
     )
 
 
+def _energy_cost_enabled(submission_number: int | None, energy_cost_enabled: bool | None) -> bool:
+    if energy_cost_enabled is None:
+        return submission_number != 1
+    if not isinstance(energy_cost_enabled, bool):
+        raise ValueError("energy_cost_enabled must be a boolean or None")
+    return energy_cost_enabled
+
+
 def _infeasible_score(
     team_id: str,
     rules: BatchScoringRules,
@@ -679,6 +777,7 @@ def _validate_rules(
     period_indices: tuple[int, ...],
     *,
     submission_number: int | None = None,
+    energy_cost_enabled: bool | None = None,
 ) -> None:
     if horizon <= 0:
         raise ValueError("horizon must be positive")
@@ -697,10 +796,23 @@ def _validate_rules(
             raise ValueError("economic profile must cover the selected period indices")
     elif max(period_indices) >= len(rules.it_value_per_mwh):
         raise ValueError("scoring value vector must cover the selected period indices")
-    elif submission_number != 2 and max(period_indices) >= len(rules.energy_price_per_mwh):
+    elif (
+        energy_cost_enabled is None
+        and submission_number != 2
+        and max(period_indices) >= len(rules.energy_price_per_mwh)
+    ):
         raise ValueError("scoring energy price vector must cover the selected period indices")
+    if rules.period_weight_hours and max(period_indices) >= len(rules.period_weight_hours):
+        raise ValueError("scoring period weights must cover the selected period indices")
     if not math.isfinite(rules.time_step_hours) or rules.time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
+    if rules.generator_daily_energy_hours is not None:
+        day_periods = 24.0 / rules.time_step_hours
+        if not day_periods.is_integer() or len(period_indices) % int(day_periods):
+            raise ValueError(
+                "generator_daily_energy_hours requires the evaluated periods to "
+                "form whole 24-hour days"
+            )
 
 
 def _default_source_period_offset(horizon: int) -> int:
@@ -952,6 +1064,7 @@ def _fair_continuous_projection(
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
+    generator_daily_energy_hours: float | None = None,
 ) -> FairProjectionResult | None:
     """Project valid plans with the uniform (max-min) rule on requested MW.
 
@@ -1016,6 +1129,7 @@ def _fair_continuous_projection(
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
+                generator_daily_energy_hours=generator_daily_energy_hours,
             )
         except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
             result = None
@@ -1188,6 +1302,7 @@ def _dispatch_plans(
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
+    generator_daily_energy_hours: float | None = None,
 ) -> BatchDispatchResult:
     """Call the adapter with optional performance controls.
 
@@ -1229,6 +1344,8 @@ def _dispatch_plans(
         optional["tighten_feasible_bounds"] = True
     if time_step_hours != 1.0:
         optional["time_step_hours"] = time_step_hours
+    if generator_daily_energy_hours is not None:
+        optional["generator_daily_energy_hours"] = generator_daily_energy_hours
     if not optional:
         dispatch = evaluate_plans_with_prepared_dcopf(
             artifact_dir, adapter_plans, period_indices=source_periods
@@ -1240,6 +1357,10 @@ def _dispatch_plans(
             )
         except TypeError as exc:
             if "unexpected keyword argument" not in str(exc):
+                raise
+            if generator_daily_energy_hours is not None:
+                # Never drop the budget silently: an adapter that cannot
+                # enforce it must not score budgeted plans.
                 raise
             dispatch = evaluate_plans_with_prepared_dcopf(
                 artifact_dir, adapter_plans, period_indices=source_periods
@@ -1378,6 +1499,8 @@ def evaluate_csv_batch(
     site_cost_connection_count_by_team: Mapping[str, int] | None = None,
     site_cost_connection_capacity_mw_by_team: Mapping[str, float] | None = None,
     submission_number: int | None = None,
+    energy_cost_enabled: bool | None = None,
+    reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
 ) -> BatchEvaluation:
     """Collect and score valid submissions with deterministic failure isolation.
 
@@ -1388,6 +1511,12 @@ def evaluate_csv_batch(
     is omitted, all assets in each evaluator-facing plan are charged. The
     optional site-capacity scope lets a multi-round coordinator charge only
     newly built connection MW; direct callers default to all plan connections.
+
+    ``energy_cost_enabled`` charges grid purchases at the dispatch LMP when
+    true and never when false; ``None`` keeps the half-year rule (charged
+    except in Submission 1).  ``reserved_site_ids_by_team`` rejects files
+    that reuse a team's Submission 1 site IDs (Submission 2 lists new sites
+    only; Submission 1 sites are already in the artifact's base load).
     """
     generator_cost = (
         rules.default_generator_cost_per_mwh
@@ -1445,11 +1574,13 @@ def evaluate_csv_batch(
         )
     if submission_number not in (None, 1, 2):
         raise ValueError("submission_number must be 1, 2, or None")
+    _energy_cost_enabled(submission_number, energy_cost_enabled)
     _validate_rules(
         rules,
         horizon,
         selected_periods,
         submission_number=submission_number,
+        energy_cost_enabled=energy_cost_enabled,
     )
     if source_period_indices is None:
         offset = (
@@ -1487,12 +1618,17 @@ def evaluate_csv_batch(
         horizon=horizon,
         default_generator_cost_per_mwh=generator_cost,
         require_complete_horizon=True,
+        max_generator_to_connection_ratio=rules.max_generator_to_connection_ratio,
+        reserved_site_ids_by_team=reserved_site_ids_by_team,
     )
     accepted = tuple(collection.accepted)
-    plans = _expand_plans_for_horizon(
-        _evaluation_plans(accepted, plan_overrides),
-        horizon,
-    )
+    evaluation_plans = _evaluation_plans(accepted, plan_overrides)
+    # CSV parsing already enforced the cap; recheck plan overrides when the
+    # rules declare the ten-year cap (legacy half-year overrides never did).
+    if rules.max_generator_to_connection_ratio < 1.0:
+        for plan in evaluation_plans:
+            check_generator_cap(plan, rules.max_generator_to_connection_ratio)
+    plans = _expand_plans_for_horizon(evaluation_plans, horizon)
     _validate_capital_cost_scope(capital_cost_scope, plans)
     _validate_site_cost_scope(site_cost_connection_count_by_team, plans)
     _validate_site_cost_capacity_scope(site_cost_connection_capacity_mw_by_team, plans)
@@ -1536,6 +1672,7 @@ def evaluate_csv_batch(
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
                 storage_boundary_mode=effective_storage_boundary_mode,
+                generator_daily_energy_hours=rules.generator_daily_energy_hours,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1571,6 +1708,7 @@ def evaluate_csv_batch(
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
                 storage_boundary_mode=effective_storage_boundary_mode,
+                generator_daily_energy_hours=rules.generator_daily_energy_hours,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1623,6 +1761,7 @@ def evaluate_csv_batch(
                             site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                             site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
                             submission_number=submission_number,
+                            energy_cost_enabled=energy_cost_enabled,
                         ),
                         competition_scope="joint_projection",
                     )
@@ -1676,6 +1815,7 @@ def evaluate_csv_batch(
                         storage_solver_threads=storage_solver_threads,
                         storage_solver_backend=storage_solver_backend,
                         storage_boundary_mode=effective_storage_boundary_mode,
+                        generator_daily_energy_hours=rules.generator_daily_energy_hours,
                         storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                         storage_max_iterations=storage_max_iterations,
                         storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1741,6 +1881,7 @@ def evaluate_csv_batch(
                             site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                             site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
                             submission_number=submission_number,
+                            energy_cost_enabled=energy_cost_enabled,
                         ),
                         competition_scope="joint",
                     )
@@ -1786,6 +1927,7 @@ def evaluate_csv_batch(
                             storage_solver_threads=storage_solver_threads,
                             storage_solver_backend=storage_solver_backend,
                             storage_boundary_mode=effective_storage_boundary_mode,
+                            generator_daily_energy_hours=rules.generator_daily_energy_hours,
                             storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                             storage_max_iterations=storage_max_iterations,
                             storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1831,6 +1973,7 @@ def evaluate_csv_batch(
                                     site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                                     site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
                                     submission_number=submission_number,
+                                    energy_cost_enabled=energy_cost_enabled,
                                 ),
                                 competition_scope="individual_fallback",
                             )
@@ -1865,6 +2008,7 @@ def evaluate_csv_batch(
                         site_cost_connection_count_by_team=site_cost_connection_count_by_team,
                         site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
                         submission_number=submission_number,
+                        energy_cost_enabled=energy_cost_enabled,
                     ),
                     competition_scope="joint",
                 )
@@ -1926,6 +2070,21 @@ def evaluate_csv_batch(
             "storage_capital_cost_per_mwh": rules.storage_capital_cost_per_mwh,
             "storage_boundary_mode": rules.storage_boundary_mode,
             "submission_number": submission_number,
+            "energy_cost_enabled": _energy_cost_enabled(submission_number, energy_cost_enabled),
+            **(
+                {
+                    "period_weight_hours": list(rules.period_weight_hours),
+                    "present_value_annuity_factor": rules.present_value_factor,
+                }
+                if rules.period_weight_hours
+                else {}
+            ),
+            "max_generator_to_connection_ratio": rules.max_generator_to_connection_ratio,
+            **(
+                {"generator_daily_energy_hours": rules.generator_daily_energy_hours}
+                if rules.generator_daily_energy_hours is not None
+                else {}
+            ),
             **(
                 {
                     "economic_profile": {
@@ -1945,6 +2104,7 @@ def evaluate_csv_batch(
         dispatch_records=tuple(dispatch_records),
         source_period_indices=selected_source_periods,
         projection_diagnostics=projection_diagnostics,
+        evaluated_plans=plans,
     )
 
 
@@ -2259,6 +2419,70 @@ def _diagnostic_filenames(records: Sequence[SubmissionRecord]) -> dict[str, str]
     return names
 
 
+def generator_energy_mwh_by_day(
+    dispatch: BatchDispatchResult | None,
+    team_id: str,
+    *,
+    time_step_hours: float = 1.0,
+) -> dict[str, list[float]]:
+    """Energy (MWh) each team generator produced per 24-hour day.
+
+    Days are consecutive blocks of ``24 / time_step_hours`` dispatch periods
+    in period order, matching the daily run-hour budget.
+    """
+    if dispatch is None:
+        return {}
+    block = max(1, int(round(24.0 / time_step_hours)))
+    periods = sorted(dispatch.periods, key=lambda period: period.period_index)
+    energy: dict[str, list[float]] = {}
+    for offset, period in enumerate(periods):
+        day = offset // block
+        for generator_id, amount in sorted(
+            (period.generator_dispatch_mw_by_team.get(team_id) or {}).items()
+        ):
+            values = energy.setdefault(generator_id, [])
+            while len(values) <= day:
+                values.append(0.0)
+            values[day] += float(amount) * time_step_hours
+    return {
+        generator_id: [round(value, 6) for value in values]
+        for generator_id, values in energy.items()
+    }
+
+
+def _generator_energy_payload(evaluation: "BatchEvaluation", team_id: str) -> dict[str, Any] | None:
+    payload = evaluation.rules_payload or {}
+    by_day = generator_energy_mwh_by_day(
+        evaluation.dispatch,
+        team_id,
+        time_step_hours=float(payload.get("time_step_hours", 1.0)),
+    )
+    if not by_day:
+        return None
+    capacity_by_id = {
+        generator.generator_id: generator.capacity_mw
+        for plan in evaluation.evaluated_plans
+        if plan.team_id == team_id
+        for generator in plan.generators
+    }
+    hours = payload.get("generator_daily_energy_hours")
+    return {
+        "generator_daily_energy_hours": hours,
+        "generators": {
+            generator_id: {
+                "capacity_mw": capacity_by_id.get(generator_id),
+                "daily_budget_mwh": (
+                    None
+                    if hours is None or capacity_by_id.get(generator_id) is None
+                    else float(hours) * capacity_by_id[generator_id]
+                ),
+                "energy_mwh_by_day": values,
+            }
+            for generator_id, values in by_day.items()
+        },
+    }
+
+
 def _serialized_team_diagnostic(
     evaluation: BatchEvaluation,
     score: TeamScore,
@@ -2294,6 +2518,11 @@ def _serialized_team_diagnostic(
             else None
         ),
         "periods": periods_by_team.get(score.team_id, []),
+        **(
+            {"generator_energy": energy}
+            if (energy := _generator_energy_payload(evaluation, score.team_id)) is not None
+            else {}
+        ),
         "rejected": next(
             (
                 _serialized_submission_record(record, input_sha256_by_submission)
@@ -2475,6 +2704,19 @@ def write_batch_outputs(
         )
         writer.writeheader()
         writer.writerows(manifest_rows)
+
+    if getattr(evaluation, "evaluated_plans", ()):
+        # Per-site hourly net grid withdrawal: the Submission 2 base load of
+        # the ten-year release is built from this file.
+        from .base_load import (
+            SITE_NET_WITHDRAWAL_FILE,
+            site_net_withdrawal_rows,
+            write_site_net_withdrawal,
+        )
+
+        withdrawal_path = root / SITE_NET_WITHDRAWAL_FILE
+        write_site_net_withdrawal(site_net_withdrawal_rows(evaluation), withdrawal_path)
+        generated_paths.append(withdrawal_path)
 
     selected_periods = _period_audit_payloads(
         evaluation,
@@ -2797,6 +3039,11 @@ def _classroom_team_summary(
         "scored": scored,
         "score": score_payload,
         "projection": projection,
+        **(
+            {"generator_energy": energy}
+            if (energy := _generator_energy_payload(evaluation, score.team_id)) is not None
+            else {}
+        ),
     }
 
 

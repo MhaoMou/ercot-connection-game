@@ -60,13 +60,14 @@
 \definecolor{varD}{HTML}{6D4C41}
 \newcommand{\vg}{{\color{varG}g}}
 \newcommand{\vd}{{\color{varD}\delta}}
-% Prompt / reply / check boxes for the AI-agent walkthrough slides.
-\tcbset{agentbox/.style={boxrule=0.5pt, arc=2pt, left=3pt, right=3pt, top=1pt,
-  bottom=1pt, fonttitle=\bfseries\scriptsize, fontupper=\scriptsize, colbacktitle=#1!60!black,
-  colframe=#1!60!black, toptitle=0pt, bottomtitle=0pt, before skip=2pt, after skip=2pt}}
-\newtcolorbox{promptslide}[1]{agentbox=green, colback=green!5, title={#1}}
-\newtcolorbox{replyslide}{agentbox=gray, colback=gray!6, title={Agent reply (shortened)}}
-\newtcolorbox{checkslide}{agentbox=orange, colback=orange!8, title={Check it yourself}}
+% Shaded box for key formulas: \keyeq{...} inside math, e.g. \[ \keyeq{x = y} \].
+\newtcbox{\keyeqbox}{on line, colback=ThemeBlue!12, colframe=ThemeBlue!70,
+  boxrule=0.5pt, arc=2pt, left=5pt, right=5pt, top=3pt, bottom=3pt}
+\newcommand{\keyeq}[1]{\text{\keyeqbox{$\displaystyle #1$}}}
+% Compact variant for formulas inside running text or bullets: $\keyeqin{...}$.
+\newtcbox{\keyeqinbox}{on line, colback=ThemeBlue!12, colframe=ThemeBlue!70,
+  boxrule=0.4pt, arc=1.5pt, left=2pt, right=2pt, top=0.5pt, bottom=0.5pt, boxsep=0pt}
+\newcommand{\keyeqin}[1]{\text{\keyeqinbox{$\textstyle #1$}}}
 % Company logo at text height, aligned with the baseline.
 \newcommand{\companylogo}[2][1em]{\raisebox{-0.15em}{\includegraphics[height=#1]{figures/logos/#2.pdf}}}
 % Compact reference (first author, venue, year) as a footnote on the slide
@@ -159,9 +160,9 @@
   \begin{align*}
     \HC_{k,t} = \max_{\vL,\,\vpg,\,\vp,\,\vf}\ \ & \vL\\[-0.2em]
     \text{s.t.}\ \ &
-      \underbrace{\vp = C\,\vpg - \mathbf d_t - \vL\,\mathbf e_k}_{\text{net injections (new load at } k)},\qquad
+      \underbrace{\vp = M\,\vpg - \mathbf d_t - \vL\,\mathbf e_k}_{\text{net injections (new load at } k)},\qquad
       \underbrace{\mathbf 1^{\top}\vp = 0}_{\text{system balance}},\qquad
-      \underbrace{\vf = H\,\vp}_{\text{DC power flow}}\\[0.2em]
+      \underbrace{\vf = \Phi\,\vp}_{\text{DC power flow}}\\[0.2em]
     & \underbrace{|\vf| \le \mathbf F}_{\text{line thermal limits}},\qquad
       \underbrace{\mathbf p^{\min} \le \vpg \le \mathbf p^{\max}}_{\text{generator limits}},\qquad
       \\
@@ -170,8 +171,11 @@
   \vspace{-0.4em}
   {\footnotesize \textbf{Decision variables:} $\vL$ new load, $\vpg$ generator outputs,
   $\vp$ net bus injections, $\vf$ line flows.
-  Data: $C$ maps generators to buses, $\mathbf d_t$ bus loads, $H$ the PTDF (shift-factor) matrix, $\mathbf F$
-  line limits.}\\[0.3em]
+  Data: $M$ maps generators to buses, $\mathbf d_t$ bus loads, $\Phi$ the PTDF (shift-factor) matrix, $\mathbf F$
+  line limits.}\\[0.2em]
+  {\footnotesize \textbf{Assumptions:} lossless DC power flow (no voltage or
+  reactive-power limits), and the set of committed generators is fixed
+  ($\mathbf p^{\min}$ is given).}
 \end{frame}
 
 \begin{frame}{Hosting capacity varies a lot across buses}
@@ -204,7 +208,7 @@
       \small
       A constant load must be served in \emph{every} hour:
       \[
-        \HC_k = \min_t \HC_{k,t}\quad\text{(dashed)}
+        \keyeq{\HC_k = \min_t \HC_{k,t}}\quad\text{(dashed)}
       \]
       \begin{itemize}
         \item Bus \SerTwoBus: \SerTwoMin\MW{} to \SerTwoMax\MW, median
@@ -224,17 +228,10 @@
       \includegraphics[width=\linewidth]{figures/hc_region.pdf}
     \end{column}
     \begin{column}{0.51\textwidth}
-      \footnotesize
-      \[
-        \mathcal H = \left\{\mathbf x \ge 0 :\
-        \begin{aligned}
-          &\forall t\ \exists\, \vpg[t], \vp_t:\\
-          &\vp_t = C\,\vpg[t] - \mathbf d_t - \mathbf x,\ \ \mathbf 1^{\top}\vp_t = 0,\\
-          &|H\vp_t| \le \mathbf F,\ \ \mathbf p^{\min} \le \vpg[t] \le \mathbf p^{\max}
-        \end{aligned}\right\}
-      \]
-      The LP's constraints with new loads $\mathbf x$ (one per bus) in place
-      of $\vL\,\mathbf e_k$.
+      \small
+      The \alert{hosting-capacity region} $\mathcal H$: every combination of new
+      loads $\mathbf x$ (one per bus) that the grid can serve in every hour.
+      (Formal definition in the backup.)
       \begin{itemize}
         \item A convex polytope: the projection of the DCOPF feasible
           set.\fcite{gong2024adaptive}
@@ -252,7 +249,7 @@
   sees the \emph{net} withdrawal $\vL-\vg_t$:
   \[
     \text{feasible} \iff \exists\, \vg_t\in[0,G]:\ \underbrace{\vL - \vg_t}_{\text{net withdrawal}} \le \HC_{k,t}\ \ \forall t
-    \quad\Longrightarrow\quad \alert{\HC_k^{G} = \min_t \HC_{k,t} + G}.
+    \quad\Longrightarrow\quad \keyeq{\HC_k^{G} = \min_t \HC_{k,t} + G}
   \]
   \begin{itemize}
     \item Exact when the generator is always available; with outages, ramping,
@@ -262,6 +259,26 @@
     % \item Buying headroom: in the game \$1.5M per MW of generator, versus
     %   \$25M per MW of site that would otherwise go unserved.
   \end{itemize}
+\end{frame}
+
+\begin{frame}{Storage: move energy from slack hours to tight hours}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.56\textwidth}
+      \includegraphics[width=\linewidth]{figures/storage_day.pdf}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+      \small
+      Bus \StoBus, peak day, hourly steps, daily cycle
+      ($\ve_0 = \ve_{24} = B/2$), $B = 4P$:
+      \begin{itemize}
+        \item no battery: \alert{\StoMin\MW}
+        \item average headroom (dotted): \StoMean\MW{}, the most any battery could reach (next slide)
+        \item $P = \StoP\MW$, $B = \StoB\MWh$: \alert{\StoWith\MW}
+      \end{itemize}
+      $B$ limits how long a shortfall the battery can cover. Half-year:
+      \StoHalfNo{} $\to$ \StoHalfWith\MW.\\[0.2em]
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \begin{frame}{With storage: the hours become coupled}
@@ -276,37 +293,19 @@
         \qquad \underbrace{\ve_0 = \ve_T}_{\text{daily cycle}} .
   \end{align*}
   {\footnotesize Decision variables: $\vL$ new load, $\vu_t$ battery output,
-  $\ve_t$ stored energy.}
+  $\ve_t$ stored energy. A lossless battery (no round-trip losses), which makes
+  the bound below optimistic.}
   \small
   \begin{itemize}
     \item A multi-period LP: discharge in tight hours, recharge in slack
       ones.\fcite{macedo2017increasing}
     \item Summing over the cycle ($\sum_t \vu_t = 0$):
-      $\HC^S_k \le \frac1T \sum_t \HC_{k,t}$, so storage lifts the limit at
-      most from the \alert{minimum} to the \alert{average} headroom.
-    \item Power ($\vL \le \HC_{k,t} + P$) and energy ($B$) keep it below that.
+      $\keyeqin{\HC^S_k \le \frac1T \sum_t \HC_{k,t}}$: storage lifts the limit at
+      most from the \alert{minimum} to the \alert{average} headroom; power
+      ($\vL \le \HC_{k,t} + P$) and energy ($B$) keep it below that.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Storage over one day}
-  \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.56\textwidth}
-      \includegraphics[width=\linewidth]{figures/storage_day.pdf}
-    \end{column}
-    \begin{column}{0.42\textwidth}
-      \small
-      Bus \StoBus, peak day, hourly steps, daily cycle
-      ($\ve_0 = \ve_{24} = B/2$), $B = 4P$:
-      \begin{itemize}
-        \item no battery: \textcolor{varL}{\StoMin\MW}
-        \item average headroom (dotted): \StoMean\MW{}, the upper limit
-        \item $P = \StoP\MW$, $B = \StoB\MWh$: \textbf{\StoWith\MW}
-      \end{itemize}
-      $B$ limits how long a shortfall the battery can cover. Half-year:
-      \StoHalfNo{} $\to$ \StoHalfWith\MW.\\[0.2em]
-    \end{column}
-  \end{columns}
-\end{frame}
 
 \begin{frame}{Flexibility: curtail in a few hours}
   \begin{columns}[T,onlytextwidth]
@@ -324,7 +323,7 @@
       \]
       \begin{itemize}
         \item $\vd_t$ is the load curtailed in hour $t$; nonconvex ($\|\vd\|_0$ counts curtailed hours).
-        \item $\HC_k^{(K)} = \HC_{k,[K+1]}$, the $(K{+}1)$-th \emph{smallest} hourly value.
+        \item $\keyeqin{\HC_k^{(K)} = \HC_{k,[K+1]}}$, the $(K{+}1)$-th \emph{smallest} hourly value.
         \item Bus \OrdBus:
         \OrdZero\MW{} at $K=0$, \OrdTwentyFour\MW{} at $K=24$
         ($+$\OrdTwentyFourGain\%), \OrdHundred\MW{} at $K=100$
@@ -380,13 +379,13 @@
 
 \begin{frame}{What earns money, and when}
   \small
-  One 50\MW{} site built in Submission 1
+  One 50\MW{} site, planned on 5 representative days (120 hours) for 10 years:
   \begin{itemize}
-    \item earns \alert{\$6{,}500 per MWh} served and
-    costs \alert{\$25M per MW} (paid once).
-    \item Energy is about \$18/MWh.
-    \item It breaks even at about \alert{44\% served} over a week, so what matters is whether the grid
-    can deliver.
+    \item earns \alert{\$1{,}000 per MWh} served over ten years (7\% discount),
+    \$61.5M per MW; costs \alert{\$25M per MW} (paid once).
+    \item Energy is about \$18/MWh, charged only in Week 3.
+    \item It breaks even at about \alert{41\% served}, so what matters is whether
+    the grid can deliver.
   \end{itemize}
   \centering
   \includegraphics[width=\textwidth]{figures/timeline.pdf}\\[0.2em]
@@ -399,12 +398,12 @@
   Part I's LP, with every team's \alert{submitted plans}:
   \begin{align*}
     \min\ & \text{generation cost} + \text{private generator cost}\\
-    \text{s.t.}\ & \vp = C\vpg - \mathbf d_t - \text{(all teams' sites, net of their own generator and battery)},\\
-    & \mathbf 1^{\top}\vp = 0,\quad \vf = H\vp,\quad |\vf| \le \mathbf F,\quad
+    \text{s.t.}\ & \vp = M\vpg - \mathbf d_t - \text{(all teams' sites, net of their own generator and battery)},\\
+    & \mathbf 1^{\top}\vp = 0,\quad \vf = \Phi\vp,\quad |\vf| \le \mathbf F,\quad
       \text{batteries' constraints.}
   \end{align*}
   \begin{itemize}
-    \item One DCOPF per six-hour period, coupled through the batteries over each day.
+    \item One DCOPF per representative hour (120 in all), coupled through the batteries over each day.
     \item The price of energy at your bus is the LMP.
     % \item The full LP is on the backup slide.
   \end{itemize}
@@ -438,8 +437,10 @@
       \pause
       \textbf{Minimum allocation}\fcite{ercot2026pgrr145}
       \begin{itemize}
-        \item Below \alert{100\MW}, or below \alert{90\%} of a request of
-          100\MW{} or less, the allocation is \alert{reduced to zero}.
+        \item Request above 100\MW: an allocation below \alert{100\MW} is
+          \alert{reduced to zero}.
+        \item Request of 100\MW{} or less: an allocation below \alert{90\%}
+          of the request is \alert{reduced to zero}.
       \end{itemize}
       \textbf{Ways to connect sooner}
       \begin{itemize}
@@ -518,25 +519,25 @@
 
 \begin{frame}{A two-team example}
   \small
-  \begin{itemize}
-    \item Team A at bus 1002.
-    \item Team B at neighbor 1010.
-    \item Each picks 50 or 100\MW{}, built in Submission 1.
-  \end{itemize}
-  Payoffs per week (\$M):
+  Team A at bus 1002, team B at neighbor 1010; each picks 50 or 100\MW{} in Submission 1.\\[0.3em]
+  Ten-year payoffs, Weeks 1--2 (\$M), A's payoff / B's payoff:
   \begin{center}
     \begin{tabular}{@{}lcc@{}}
       \toprule
       A \textbackslash{} B & B small (50) & B large (100)\\
       \midrule
-      A small (50) & \GameSS & \alert{\GameSL}\\
-      A large (100) & \alert{\GameLS} & \GameLL\\
+      A small (50) & 1,826 / 1,826 & \only<2->{\fbox{\textbf{1,826}} / \fbox{\textbf{2,980}}}\only<1>{1,826 / 2,980}\\
+      A large (100) & \only<2->{\fbox{\textbf{3,172}} / \fbox{\textbf{1,826}}}\only<1>{3,172 / 1,826} & 1,820 / 1,820\\
       \bottomrule
-    \end{tabular}
+    \end{tabular}\\[0.3em]
+    \onslide<2->{\scriptsize Boxed: each team's best response to the other's choice.
+    A cell with both boxed is a Nash equilibrium.}
   \end{center}
   \begin{itemize}
     \item<2-> If B goes small, A should go large. If B goes large, A should go small.
-    \item<3-> \GameNashText{} A game of \emph{chicken}: if both insist, both lose.
+    \item<3-> Nash equilibria: (A small, B large); (A large, B small). A game of
+      \emph{chicken}: if both insist, both lose. In Week 3, congestion adds
+      \$400--770M of energy cost per team.
     \item<4-> Your score depends on where everyone builds, and you see the results
       between submissions. \alert{What would you do?}
   \end{itemize}
@@ -545,110 +546,12 @@
 \begin{frame}{From the slides to your laptop}
   \centering
   \includegraphics[width=\textwidth]{figures/workflow.pdf}\\[0.6em]
-  \small Everything is in one GitHub repository: \hyperlink{https://github.com/MhaoMou/ercot-connection-planning-instructor}{\alert{[Link]}}.\\
+  \small Everything is in one GitHub repository: \hyperlink{https://github.com/MhaoMou/ercot-connection-planning-instructor}{\alert{[Link]}}.\\[0.3em]
+  The tutorial walks through a full session with an AI coding agent on a 14-bus demo.\\
   % The tutorial's Part I is the official assignment; Part II walks through every step.
 \end{frame}
 
-\begin{frame}[fragile]{An AI coding agent on the IEEE 14-bus demo (1/2)}
-  \scriptsize
-  % A real session with a coding agent in a fresh clone, shortened; the full prompts and replies are in the tutorial.
-  \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.32\textwidth}
-      \begin{promptslide}{1. Read the rules}
-        Read the README and Part I of the tutorial, then explain in under 150
-        words what my team submits, how it is scored, and which commands I
-        will use. Do not change any files.
-      \end{promptslide}
-      \begin{replyslide}
-        One CSV per team per submission [...] six files, and no report. [...]
-        If they don't fit, everyone gets the same MW level, and a team that
-        would get less than half of its request gets nothing.
-      \end{replyslide}
-      \begin{checkslide}
-        Accurate, but about 190 words: \alert{agents do not always respect limits.}
-      \end{checkslide}
-    \end{column}
-    \pause
-    \begin{column}{0.32\textwidth}
-      \begin{promptslide}{2. Look at the data}
-        Summarize the demo package: buses, lines, generators, total load,
-        periods, and the five lines with the smallest thermal limits. Show the
-        commands you ran.
-      \end{promptslide}
-      \begin{replyslide}
-        14 buses, 20 lines, 5 generators (772\MW); load 243--288\MW; 168
-        hourly periods, peak in hour 157. Smallest limits: 12-13 (20), 10-11
-        (25), 13-14 (25). README tip: buses 13 and 14 share a bottleneck.
-      \end{replyslide}
-      \begin{checkslide}
-        Count the rows in \texttt{bus.csv} and \texttt{branch\_limits.csv}.
-      \end{checkslide}
-    \end{column}
-    \begin{column}{0.32\textwidth}
-      \begin{promptslide}{3. Hosting capacity}
-        Compute the hosting capacity of every bus over all 168 hours, sort it,
-        explain it in one sentence, and shortlist two buses.
-      \end{promptslide}
-      \begin{replyslide}
-        2,352 LPs, no failures. Bus 1: 485\MW, bus 2: 441\MW, \dots, bus 14:
-        39\MW. Shortlist 1 and 2, but ``you can't build 485\MW{} at one and
-        441\MW{} at the other'', and every team sees this table.
-      \end{replyslide}
-      \begin{checkslide}
-        Re-run one bus yourself. \alert{AI agents usually make mistakes that are not easy to see.}
-      \end{checkslide}
-    \end{column}
-  \end{columns}
-\end{frame}
 
-\begin{frame}[fragile]{An AI coding agent on the IEEE 14-bus demo (2/2)}
-  \scriptsize
-  \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.32\textwidth}
-      \begin{promptslide}{4. Write and check a plan}
-        One site at each shortlisted bus at about half its hosting capacity;
-        check it. Then break it on purpose (generator larger than connection).
-      \end{promptslide}
-      \begin{replyslide}
-        240\MW{} at bus 1, 220\MW{} at bus 2: \texttt{VALID}. The broken copy:
-        \texttt{INVALID - row 3: generator capacity cannot exceed connection
-        capacity}. ``Valid only means the file is well-formed.''
-      \end{replyslide}
-      \begin{checkslide}
-        Open the CSV; breaking a file shows what the checker catches.
-      \end{checkslide}
-    \end{column}
-    \begin{column}{0.32\textwidth}
-      \begin{promptslide}{5. Preview}
-        Preview it as Submission 2. Report the share served, the score, the
-        dominant term, and whether it beats break-even.
-      \end{promptslide}
-      \begin{replyslide}
-        100\% served. IT value \$502.3M, site cost \$437.5M, energy \$2.3M;
-        score $+$\$62.5M. Break-even at about 88\% served: ``a margin of about
-        12 percentage points.''
-      \end{replyslide}
-      \begin{checkslide}
-        Redo $460 \times 168 \times 6{,}500 = \$502.3$M by hand.
-      \end{checkslide}
-    \end{column}
-    \begin{column}{0.32\textwidth}
-      \begin{promptslide}{6. A rival copies you}
-        Simulate a rival with the same plan and run the joint evaluation. What
-        service fraction does each team get? List every assumption I should
-        check.
-      \end{promptslide}
-      \begin{replyslide}
-        Both get $\alpha = 0.527$: 242 of 460\MW. Score $-$\$174M instead of
-        $+$\$62.5M, just above the 50\% cutoff. Among 11 assumptions: ``I
-        didn't consider what other teams would do.''
-      \end{replyslide}
-      \begin{checkslide}
-        Open \texttt{evaluation.json}; always ask for the assumptions.
-      \end{checkslide}
-    \end{column}
-  \end{columns}
-\end{frame}
 
 \begin{frame}{After each round, and your first plan}
   \small
@@ -701,21 +604,39 @@
 \appendix
 \begin{frame}{Backup: the evaluator in full}
   \small
-  For each day $d$ and period $t = 1,\dots,4$ ($\Delta t = 6$\,h): a DCOPF with
-  all teams' sites, coupled through each battery's daily cycle.
+  For each representative day $d = 1,\dots,5$ and hour $t = 1,\dots,24$
+  ($\Delta t = 1$\,h, 120 hours in all): a DCOPF with all teams' sites, coupled
+  within each day through batteries and generator run-hour budgets.
   \begin{align*}
     \min\ & \textstyle\sum_{d,t} \Delta t \big(\mathbf c^{\top}\vpg[dt] + \sum_s \sum_m c^m q^m_{s,dt}\big)\\
     \text{s.t.}\ & \text{DCOPF balance and line limits with loads } \alpha_i C_s
       \text{ and private } q_s, \vu_s\\
     & \ve_{s,d,t} = \ve_{s,d,t-1} - \Delta t\, \vu_{s,dt},\ \ 0\le \ve\le B_s,\ \ |\vu|\le P_s,\ \
-      \ve_{s,d,0} = \ve_{s,d,4} = B_s/2\\
+      \ve_{s,d,0} = \ve_{s,d,24} = B_s/2\\
+    & \textstyle\sum_{t,m} \Delta t\, q^m_{s,dt} \le h\, G_s \quad\text{(generator run-hour budget, } h = 2\text{ h per day)}\\
     & \textstyle\sum_{s\in i,\,k(s)=n} \vu_{s,dt} \le \sum_{s\in i,\,k(s)=n} \alpha_i C_s
       \quad\text{(a team's assets serve only its own load)}
   \end{align*}
   \begin{itemize}
     \item An exact LP that separates by day (Benders or one LP per day).
-    \item LMP = dual of nodal balance; it prices energy in Submission 2.
+    \item LMP = dual of nodal balance; it prices energy in Week 3.
+    \item Scores weight each hour by the days it stands for, over ten years in present value.
   \end{itemize}
+\end{frame}
+
+\begin{frame}{Backup: the hosting-capacity region}
+  The single-bus LP's constraints with new loads $\mathbf x$ (one per bus) in
+  place of $\vL\,\mathbf e_k$:
+  \[
+    \mathcal H = \left\{\mathbf x \ge 0 :\
+    \begin{aligned}
+      &\forall t\ \exists\, \vpg[t], \vp_t:\\
+      &\vp_t = M\,\vpg[t] - \mathbf d_t - \mathbf x,\ \ \mathbf 1^{\top}\vp_t = 0,\\
+      &|\Phi\vp_t| \le \mathbf F,\ \ \mathbf p^{\min} \le \vpg[t] \le \mathbf p^{\max}
+    \end{aligned}\right\}
+  \]
+  A convex polytope: the projection of the DCOPF feasible set onto the new
+  loads. The single-bus hosting capacity $\HC_k$ is its intercept on axis $k$.
 \end{frame}
 
 \end{document}

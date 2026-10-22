@@ -1,40 +1,33 @@
-The plan is saved as `runs/demo/plan.csv` and the checker accepts it. The broken copy, with a generator larger than its connection, is rejected.
+The plan is saved as `runs/demo/plan.csv` and passes the checker. The copy with a generator larger than its connection fails, and the checker names the row and the limit.
 
-```
-mkdir -p runs/demo runs/demo_bad
-cat > runs/demo/plan.csv <<'EOF' ... EOF
-sed 's/^team-demo,site-bus2,2,220,0,/team-demo,site-bus2,2,220,250,/' runs/demo/plan.csv > runs/demo_bad/plan_bad.csv
-.venv/bin/ercot-game-check-csv --file runs/demo/plan.csv --artifact-dir data/teaching/ieee14_demo_1h
-.venv/bin/ercot-game-check-csv --file runs/demo_bad/plan_bad.csv --artifact-dir data/teaching/ieee14_demo_1h
-```
+I sized each site at about half of its bus's minimum hosting capacity: 235 MW at bus 1 (half of 470.7) and 214 MW at bus 2 (half of 428.8), with no generator or battery.
 
-**`runs/demo/plan.csv`** has about half of each bus's minimum hosting capacity (bus 1: 484.7 → 240 MW, bus 2: 440.6 → 220 MW). There are no generators or batteries.
-```
+```bash
+mkdir -p runs/demo
+cat > runs/demo/plan.csv <<'EOF'
 team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
-team-demo,site-bus1,1,240,0,0,0
-team-demo,site-bus2,2,220,0,0,0
+team-demo,site-bus1,1,235,0,0,0
+team-demo,site-bus2,2,214,0,0,0
+EOF
+ercot-game-check-csv --file runs/demo/plan.csv --artifact-dir data/teaching/ieee14_demo_representative
 ```
-Checker output:
 ```
 VALID: runs/demo/plan.csv
 team=team-demo sites=2 rows=2 buses=2 generators=0 storage=0 horizon=None
-exit=0
 ```
+The exit code was 0.
 
-**Broken copy `runs/demo_bad/plan_bad.csv`:** the bus-2 site now has a 250 MW generator on a 220 MW connection.
+**Copy with the mistake:** in `runs/demo/plan_bad.csv`, site-bus1 gets a 300 MW generator on its 235 MW connection.
+```bash
+sed 's/site-bus1,1,235,0/site-bus1,1,235,300/' runs/demo/plan.csv > runs/demo/plan_bad.csv
+ercot-game-check-csv --file runs/demo/plan_bad.csv --artifact-dir data/teaching/ieee14_demo_representative
 ```
-team-demo,site-bus2,2,220,250,0,0
 ```
-Checker output:
+INVALID: runs/demo/plan_bad.csv
+- row 2: generator capacity cannot exceed 0.5 x connection capacity (300 MW > 117.5 MW)
 ```
-INVALID: runs/demo_bad/plan_bad.csv
-- row 3: generator capacity cannot exceed connection capacity
-Expected header: team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh
-Example row: team-a,site-north,1001,40,20,10,40
-exit=1
-```
-Row 3 means the second data row, because the header counts as row 1. In the real game, a file like this would score 0.
+The exit code was 1.
 
-I put the broken copy in its own folder on purpose. The preview tool runs every CSV in a folder together, so keeping it out of `runs/demo/` stops it from being mixed in.
+The checker's limit is stricter than "no bigger than the connection": a generator can be at most half the connection capacity, which is 117.5 MW for this site. That is the G ≤ 0.5C rule from Part I. A file like this one would score 0, so check every file you upload with `--artifact-dir`.
 
-**Caveat:** "valid" only means the file is well-formed. It says nothing about whether the grid can serve the load. Buses 1 and 2 share network capacity, so their hosting capacities don't add up. Also, 460 MW of new load plus the 288 MW peak is about 748 MW, against only 772.4 MW of total generation. Running `ercot-game-preview` on `runs/demo` with `--preview-stride 1` would show how much of this plan is actually served.
+These are the only files I created, both in `runs/demo/`.

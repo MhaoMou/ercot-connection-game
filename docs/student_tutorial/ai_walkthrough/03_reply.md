@@ -1,38 +1,36 @@
-I ran the hosting-capacity tool on all 14 buses for all 168 hours. All 2,352 solves finished with no failures, in about 2.5 s. I'd shortlist **buses 1 and 2**, but treat their numbers as a ceiling, not a guarantee, because other teams can crowd them.
+I computed the hosting capacity of all 14 buses over the 120 hours (1,680 solves, all optimal). Output went to a temporary folder outside the project, so no project files changed.
 
-Commands (run from the project folder):
+```bash
+ercot-game-hosting-capacity \
+  --artifact-dir data/teaching/ieee14_demo_representative \
+  --horizon 120 --period-count 120 --output-dir <tmp>/hc14
+# backend highs, bus_count 14, completed_point_count 1680, failed_point_count 0, wall_time 1.6 s
 ```
-.venv/bin/ercot-game-hosting-capacity --help
-.venv/bin/ercot-game-hosting-capacity --artifact-dir data/teaching/ieee14_demo_1h \
-  --horizon 168 --start-period 0 --period-count 168 \
-  --output-dir work/demo_hc_all --write-long-form
-# -> "bus_count": 14, "complete": true, "completed_point_count": 2352, "failed_point_count": 0
-.venv/bin/python -I -c "...read work/demo_hc_all/hosting_capacity_long.csv.gz, take the minimum per bus..."
-```
-The run wrote its results to a new folder, `work/demo_hc_all/`. No other files were changed. (`pandas` isn't installed in `.venv/`, so I read the results with the standard `csv`/`gzip` modules.)
 
-**Minimum hosting capacity per bus over the week.** Every bus hits its minimum in hour 157, which is the peak-load hour.
+Then I took each bus's minimum from `hosting_capacity_mw.npy`, which has one value per hour and bus. The columns are in the order of `bus_ids` in the metadata file (`1,10,11,...`), not numeric order, so I matched them up by that list.
 
-| Bus | Min HC (MW) | Bus | Min HC (MW) |
-|---|---|---|---|
-| 1 | 484.7 | 6 | 171.7 |
-| 2 | 440.6 | 9 | 105.7 |
-| 5 | 317.9 | 13 | 52.5 |
-| 4 | 248.1 | 11 | 46.1 |
-| 3 | 185.4 | 10 | 45.0 |
-| 7 | 180.0 | 12 | 43.2 |
-| 8 | 180.0 | 14 | 38.5 |
+| Bus | Min hosting capacity (MW) |
+|---|---|
+| 1 | 470.7 |
+| 2 | 428.8 |
+| 5 | 310.8 |
+| 4 | 240.9 |
+| 3 | 180.3 |
+| 7 | 177.7 |
+| 8 | 177.7 |
+| 6 | 168.8 |
+| 9 | 103.0 |
+| 13 | 50.8 |
+| 11 | 45.4 |
+| 10 | 44.5 |
+| 12 | 42.9 |
+| 14 | 37.6 |
 
-These values match the hour-157 table in the package's `README.md`.
+**What it means:** a bus's minimum hosting capacity is the most new load you could add at that bus alone, with every other bus at its normal load, that the grid can still serve in every one of the 120 hours without overloading a line or running out of generation. For every bus the lowest value falls in hour 109, which is on the peak day.
 
-**What the number means:** it is the largest extra load you could add at that one bus, with no other new load anywhere, that the grid could still serve in every hour of the week without overloading a line or running out of generation.
+**Shortlist: buses 1 and 2.**
+- They have by far the most room: 471 and 429 MW, even in the peak hour.
+- They sit next to the two cheapest and largest generators: g1 (332 MW at $14/MWh) and g2 (140 MW at $18/MWh).
+- They are far from the weak 20–30 MVA lines around buses 9–14, where hosting capacity drops to 38–103 MW.
 
-**Why buses 1 and 2:**
-- **Most room:** at about 485 MW and 441 MW, they have far more space than any other bus.
-- **Cheapest energy:** they sit next to the cheapest generators (g1 at $14/MWh and g2 at $18/MWh). Energy costs little here unless lines get congested.
-- **Little swing:** their hosting capacity changes only about 10% over the week.
-
-**Caveats:**
-- **Not additive:** each value is for one bus on its own. Buses 1 and 2 are directly connected and share the same network capacity, so you can't build 485 MW at one and 441 MW at the other.
-- **Shared with other teams:** every team sees this same table, so these buses may get crowded. The fair-share rule then cuts everyone back, and a team served less than 50% of its request gets nothing.
-- **Avoid buses 13 and 14:** they share a bottleneck (lines 6-13, 9-14 and 13-14). The README reports that 30 MW at each doesn't fit together, even though each fits alone.
+**One caution:** these numbers are for one bus at a time, and they don't add up. Every team will see the same table, so buses 1 and 2 may get crowded. Bus 5 (311 MW) is a good fallback.

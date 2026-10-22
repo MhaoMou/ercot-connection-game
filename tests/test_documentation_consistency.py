@@ -57,7 +57,7 @@ def test_production_batch_docs_describe_submission_number_modes(path: Path):
 def test_active_settlement_docs_match_joint_dispatch_modes(path: Path):
     text = path.read_text(encoding="utf-8")
     assert "Submission 1" in text
-    assert "energy-purchase cost" in text
+    assert "energy cost" in text.lower()
     assert "Submission 2" in text
     assert "joint dispatch" in text
     assert "LMP" in text

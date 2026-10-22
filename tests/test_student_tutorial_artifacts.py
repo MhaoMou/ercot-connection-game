@@ -209,8 +209,8 @@ def test_task5_pipeline_assigns_context_to_package_and_csv_to_student():
     caption = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
 
     assert "hourly source data" in pipeline
-    assert "six-hour release" in pipeline
-    assert "6-hour profiles" in pipeline
+    assert "representative-day release" in pipeline
+    assert "5 typical days" in pipeline
     assert "student creates" in pipeline
     assert "package -- (csv)" not in pipeline
     assert "feeds the seven-column site csv" not in caption
@@ -221,15 +221,15 @@ def test_task5_csv_flow_separates_exact_evaluator_from_preview():
     flow = (TUTORIAL_ROOT / "figures" / "csv_evaluation_flow.tex").read_text(encoding="utf-8").lower()
     main = (TUTORIAL_ROOT / "main.tex").read_text(encoding="utf-8").lower()
 
-    assert "six-hour sampled" in flow
+    assert "all-hours" in flow
     assert "idle-storage" in flow
     assert "non-authoritative screening" in flow
     assert "exact instructor evaluator" in flow
     assert "joint storage-aware" in flow
     assert "dcopf/lp" in flow
-    assert "every 6th six-hour period (every 36 hours)" in main
+    assert "all 120 representative hours" in main
     assert "not dispatched (idle)" in main
-    assert "dispatched independently within each 24-hour block" in main
+    assert "dispatched within each representative day" in main
 
 
 def test_task5_csv_flow_gives_output_boxes_a_clear_vertical_gap():
@@ -298,7 +298,7 @@ def test_latex_presentation_layer_has_required_source_contracts():
     assert "breaklines=true" in main
     assert "breakatwhitespace=false" in main
     assert "emergencystretch=3em" in main
-    for phrase in ("Using AI", "privacy", "six-hour half-year", "student_preview"):
+    for phrase in ("Using AI", "privacy", "representative data", "student_preview"):
         assert phrase.lower() in main.lower()
     assert "@misc{activsg2000" in bibliography
 

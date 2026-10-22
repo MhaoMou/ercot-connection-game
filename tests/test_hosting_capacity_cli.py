@@ -127,13 +127,17 @@ def test_hosting_capacity_cli_rejects_invalid_ranges(option, value, message, cap
     assert message in capsys.readouterr().err
 
 
-def test_hosting_capacity_cli_requires_one_input_mode(capsys):
-    from ercot_game.hosting_capacity_cli import parse_args
+def test_hosting_capacity_cli_defaults_to_the_released_representative_package():
+    from ercot_game.hosting_capacity_cli import parse_args, provider_for_args
+    from ercot_game.release_config import canonical_release_artifact_dir
 
-    with pytest.raises(SystemExit):
-        parse_args(["--output-dir", "out"])
+    args = parse_args(["--output-dir", "out"])
+    assert args.artifact_dir is None and not args.ieee14
 
-    assert "one of the arguments --artifact-dir --ieee14 is required" in capsys.readouterr().err
+    _provider, horizon = provider_for_args(args)
+
+    assert args.artifact_dir == canonical_release_artifact_dir()
+    assert horizon == 120
 
 
 def test_hosting_capacity_cli_rejects_conflicting_input_modes(capsys):

@@ -1,0 +1,51 @@
+{
+  "release_version": "connection-game-representative-v1",
+  "status": "released",
+  "scenario_package": "data/processed/activsg2000_representative_v1",
+  "scoring_rules": "data/teaching/dispatch_scoring_rules_representative_v1.json",
+  "horizon": 120,
+  "time_step_hours": 1,
+  "representative_days": 5,
+  "planning_horizon_years": 10,
+  "storage_boundary_mode": "daily_exact_cycle",
+  "max_generator_to_connection_ratio": 0.5,
+  "generator_daily_energy_hours": 2.0,
+  "generator_capital_cost_per_mw": 2000000.0,
+  "preview_stride": 1,
+  "solver_backend": "auto",
+  "submission_contract": "site_level_csv_no_time_series_rows",
+  "source_dataset": "ACTIVSg2000-derived representative days of the 2028 scenario year",
+  "weeks": [
+    {
+      "week_id": "week-1",
+      "feedback_only": true,
+      "energy_cost_enabled": false,
+      "submissions": ["week-1-submission-1", "week-1-submission-2"]
+    },
+    {
+      "week_id": "week-2",
+      "feedback_only": false,
+      "energy_cost_enabled": false,
+      "submissions": ["week-2-submission-1", "week-2-submission-2"]
+    },
+    {
+      "week_id": "week-3",
+      "feedback_only": false,
+      "energy_cost_enabled": true,
+      "submissions": ["week-3-submission-1", "week-3-submission-2"]
+    }
+  ],
+  "submission_2": {
+    "base_load": "representative base load plus the hourly net grid withdrawal of every Submission 1 site of every team (site load served minus its private generation and battery net discharge)",
+    "submission_1_sites": "fixed base load; not re-evaluated, re-scored, re-projected or re-dispatched",
+    "csv_contents": "new sites only; a site_id may not repeat one of the same team's Submission 1 site_ids",
+    "scoring": "Submission 1 sites keep their Submission 1 ten-year value"
+  },
+  "final_score": "week-2 submission 1 + week-2 submission 2 + week-3 submission 1 + week-3 submission 2",
+  "validation": {
+    "required_before_release": [
+      "all 120 representative periods pass single-period DCOPF validation",
+      "official eight-team benchmark completes for a Submission 1 and a Submission 2 with carried base load"
+    ]
+  }
+}

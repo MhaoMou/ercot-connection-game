@@ -1,44 +1,47 @@
-With the rival copying our plan, each team gets a service fraction of 0.527 and each scores about −$174M. Our plan only works if nobody else builds near buses 1 and 2.
+With an identical rival, each team gets **52.4% service** and the score falls from $15.6B to **$2.8B per team**. That is just above the 50% line below which a team gets nothing.
 
-```
-mkdir -p runs/demo_joint
-cp runs/demo/plan.csv runs/demo_joint/team-demo.csv
-sed 's/^team-demo,/team-rival,/' runs/demo/plan.csv > runs/demo_joint/team-rival.csv
-.venv/bin/ercot-game-check-csv --file runs/demo_joint/team-rival.csv --artifact-dir data/teaching/ieee14_demo_1h   # VALID
-.venv/bin/ercot-game-batch run --submissions-dir runs/demo_joint \
-  --artifact-dir data/teaching/ieee14_demo_1h \
-  --rules data/teaching/dispatch_scoring_rules_ieee14_demo_1h_v1.json \
-  --output-dir work/demo_joint_batch --horizon 168 --time-step-hours 1 --submission-number 2
+I made the rival's file by copying our plan and changing only `team_id`, then ran the official joint evaluator on both files for Week 3 with the demo rules.
+
+```bash
+mkdir -p runs/demo/joint
+cp runs/demo/plan.csv runs/demo/joint/team-demo.csv
+sed 's/team-demo/team-rival/' runs/demo/plan.csv > runs/demo/joint/team-rival.csv
+ercot-game-batch run --submissions-dir runs/demo/joint \
+  --artifact-dir data/teaching/ieee14_demo_representative \
+  --rules data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json \
+  --week 3 --output-dir runs/demo/joint_week3
 # summary: 2 teams scored, 0 rejected, scope=joint_projection
-.venv/bin/python -I -c "...read work/demo_joint_batch/evaluation.json and leaderboard.csv..."
 ```
-New files are `runs/demo_joint/` (two CSVs) and `work/demo_joint_batch/`.
 
-**Result.** The combined 920 MW was infeasible, so the evaluator applied the fair-share rule. Both teams were cut back to the same level of 242.35 MW each.
+`evaluation.json` reports `DCOPF physically infeasible`. Together the two teams ask for 898 MW, and the grid cannot carry that, so the fair projection was used:
 
-| Team | Requested | Served | Service fraction | Score |
-|---|---|---|---|---|
-| team-demo | 460 MW | 242.35 MW | **0.527** | **−$174.07M** |
-| team-rival | 460 MW | 242.35 MW | **0.527** | **−$174.07M** |
+| | team-demo | team-rival |
+|---|---|---|
+| Requested | 449 MW | 449 MW |
+| Served (common level) | 235.3 MW | 235.3 MW |
+| **Service fraction** | **52.4%** | **52.4%** |
+| IT value | $14.48B | $14.48B |
+| Energy cost | $0.43B | $0.43B |
+| Site cost | $11.23B | $11.23B |
+| **Score** | **$2.82B** | **$2.82B** |
 
-For each team, IT value falls to $264.7M and energy cost to $1.2M, but site cost stays at $437.5M because it is charged on the full 460 MW requested.
+The two teams have identical scores. The leaderboard's ranks 1 and 2 are just tie order.
 
 **What it means for our plan:**
-- **Swing:** with one copycat, our score drops from +$62.5M (alone) to −$174M.
-- **Below break-even:** 52.7% served is far below the ~88% this plan needs.
-- **Near the cutoff:** 52.7% is just above the 50% cutoff, so one more copycat or a slightly bigger request would drop us to zero service. We would still pay the $437.5M site cost.
-- **Smaller requests are safer:** the two teams together got 484.7 MW, which equals the hosting capacity of bus 1 alone. A smaller request would be served in full under the same rule.
-- **The table isn't a budget per team:** a hosting-capacity number is shared by everyone who reads it.
+- Site cost is charged on the 449 MW we request, served or not. So the score drops from about $15.6B alone to $2.8B, even though about half the load is still served.
+- We are only 2.4 points above the 50% cutoff. A third team copying the same table would likely push both of us under it: zero IT value, but the full $11.2B site cost, for a score of about −$11B.
+- Half of hosting capacity is safe only if nobody else builds there. Smaller sites, or a spread to buses 4 and 5, are much more robust to copying.
 
-**Assumptions from this session you should check yourself:**
-1. **Course rules:** Part I leaves dates, file naming, grading, tie-breaks, the late policy and team-coordination rules as instructor placeholders. My summary doesn't cover them.
-2. **Package choice:** I used `data/teaching/ieee14_demo_1h` as you asked. It is a teaching demo, not the ACTIVSg2000 game grid. Its capital costs are scaled down to one week (168/4416), so none of these numbers transfer.
-3. **Hosting capacity:** I computed each bus on its own with `--artifact-dir` (not the bundled `--ieee14` case), over periods 0–167. I treated the per-bus minimum as "safe" capacity, but these values don't add across buses.
-4. **The shortlist:** I picked buses 1 and 2 for headroom and cheap nearby generators. I didn't consider what other teams would do, which this run shows matters most.
-5. **Sizing:** "about half" became 240 and 220 MW (rounded). The site IDs are names I made up.
-6. **The broken file:** I put it in `runs/demo_bad/` so it can't be mixed into a preview or batch run.
-7. **Preview:** it skips battery dispatch and is not the official score. I assumed `--preview-stride 1` and `--submission-number 2` match how the demo would be graded.
-8. **Joint run:** I passed the package README's flags (`--time-step-hours 1`, `--horizon 168`) and let the evaluator infer `--source-period-offset` and use its default `--projection-iterations` (the README run uses 10). I ran a single Submission 2 with no Submission 1 history, so all capital is charged here.
-9. **The rival:** it is an exact copy. Real rivals would choose different buses and sizes, and there would be more than two teams.
-10. **Break-even:** the ~88% figure is my own arithmetic from the preview's site cost and energy cost.
-11. **Extra files:** I created `runs/demo/`, `runs/demo_bad/`, `runs/demo_joint/` and the `work/` outputs. Check that your course repository ignores these before you commit anything. The repository files themselves are unchanged.
+**Assumptions to check yourself:**
+1. **Rules:** I trusted Part I of the tutorial over the README, whose numbers ($6,500/MWh, six-hour package) look out of date. Check the course's current rules.
+2. **Rules file:** I used the demo scoring rules (`dispatch_scoring_rules_ieee14_demo_representative_v1.json`). I didn't check that they match the real game's rules, and nothing here applies to the ACTIVSg2000 network.
+3. **Bus columns:** I mapped the columns of `hosting_capacity_mw.npy` to buses using the string-sorted `bus_ids` list in its metadata file. A wrong mapping would change the whole table and the shortlist.
+4. **Hosting-capacity scope:** the numbers are for one bus at a time with no other new load, and they don't add up. I shortlisted on the minimum over all hours.
+5. **Sizes:** "about half" became 235 and 214 MW, rounded by me.
+6. **Served share:** in the preview, I read 100% service from served_load_mwh = 449 × 8,760. The preview doesn't run batteries and is not official.
+7. **Week 3 setting:** I assumed `--week 3` turns on LMP energy cost in both tools. The outputs show energy cost on, but the README's batch example uses other flags.
+8. **Submission number:** both runs used the default submission number. I didn't model Submission 1 to Submission 2 carry-over.
+9. **Rival:** an exact copy is an extreme case. Real rivals will differ, and there will be more of them.
+10. **Break-even:** the "about 44%" figure is my own back-of-envelope arithmetic, not evaluator output.
+
+New files: `runs/demo/joint/` (team-demo.csv, team-rival.csv) and `runs/demo/joint_week3/` (evaluation.json, leaderboard.csv, diagnostics/).

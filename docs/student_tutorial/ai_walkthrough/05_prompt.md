@@ -1,1 +1,1 @@
-Preview the valid plan as Submission 2 with the demo rules data/teaching/dispatch_scoring_rules_ieee14_demo_1h_v1.json (use --preview-stride 1 so every hour is included). Report the share of load served, the score, and the term that dominates it. Is the plan above break-even?
+Preview the valid plan for Week 3, when energy is charged at the LMP (use --week 3). Report the share of load served, the score, and the term that dominates it. Is the plan above break-even?

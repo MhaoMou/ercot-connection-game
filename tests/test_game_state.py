@@ -25,7 +25,38 @@ def test_new_game_state_exposes_first_round() -> None:
     state = GameState.new()
 
     assert state.current_round_key is None
-    assert state.next_round_key == "2027_jan_jun"
+    assert state.next_round_key == "week-1-submission-1"
+    assert GameState.new("half-year-6h").next_round_key == "2027_jan_jun"
+
+
+def test_fresh_state_adopts_the_schedule_of_its_first_round() -> None:
+    legacy = GameState.new().advance("2027_jan_jun", (_plan(),))
+    assert legacy.schedule_id == "half-year-6h"
+    assert legacy.next_round_key == "2027_jul_dec"
+
+    state = GameState.new().advance("week-1-submission-1", (_plan(),))
+    assert state.schedule_id == "representative"
+    assert state.current_week_id == "week-1"
+    assert state.current_submission_number == 1
+    assert state.next_round_key == "week-1-submission-2"
+    with pytest.raises(RoundTransitionError, match="expected week-1-submission-2"):
+        state.advance("2027_jul_dec", ())
+
+
+def test_carried_base_load_round_trips_and_resets_at_the_next_week() -> None:
+    state = GameState(
+        current_round_key="week-1-submission-1",
+        completed_rounds=("week-1-submission-1",),
+        carried_base_load_mw_by_bus={"b0001": (1.0, 2.0)},
+    )
+    restored = GameState.from_dict(json.loads(json.dumps(state.to_dict())))
+    assert restored.carried_base_load_mw_by_bus == {"b0001": (1.0, 2.0)}
+    assert restored.schedule_id == "representative"
+
+    same_week = restored.advance("week-1-submission-2", ())
+    assert same_week.carried_base_load_mw_by_bus == {"b0001": (1.0, 2.0)}
+    next_week = same_week.advance("week-2-submission-1", ())
+    assert next_week.carried_base_load_mw_by_bus == {}
 
 
 def test_advance_persists_assets_and_moves_to_next_half_year() -> None:

@@ -1,27 +1,30 @@
-"""Build the IEEE-14 teaching-demo scenario package.
+"""Build the IEEE-14 teaching-demo scenario package (representative-day format).
 
-The demo is a deliberately small stand-in for one ACTIVSg2000 scenario block.
-It uses the canonical IEEE 14-bus topology, branch reactances, base loads,
-and generator locations/nameplates.  Thermal limits and linear generator
-costs are instructional choices (the canonical case has no line ratings and
-quadratic costs); they are listed below and in the package README.
+The demo is a deliberately small stand-in for the released ACTIVSg2000
+representative-day package.  It uses the canonical IEEE 14-bus topology,
+branch reactances, base loads, and generator locations/nameplates.  Thermal
+limits and linear generator costs are instructional choices (the canonical
+case has no line ratings and quadratic costs); they are listed below and in
+the package README.
 
-Loads follow the same daily shape as the ACTIVSg2000 packages: every bus
-base load is multiplied by ``scenario_profiles.demand_multiplier`` for the
-first week (168 hours) of the 2028 jul_dec calendar block, giving 168
-one-hour periods (no averaging).  The demand rows are materialized in ``demand_bus.csv`` so the package does not
-depend on the half-year calendar.
+Days and weights are copied from the main package
+(``data/processed/activsg2000_representative_v1``): the same five days
+(four k-medoids days of 2028 plus the peak day) with the same day weights,
+24 one-hour periods each, 120 periods in total.  Every bus base load is
+multiplied by ``scenario_profiles.demand_multiplier`` for that day and hour
+of the 2028 source year (the mechanism ``hourly_state`` uses for the main
+package), and the rows are materialized in ``demand_bus.csv``.
 
 Run from the repository root (``highspy`` is required because every period
 is validated with the DCOPF before the manifest is marked ``passed``)::
 
     python -m tools.build_ieee14_demo_package
 
-This rewrites ``data/teaching/ieee14_demo_1h/`` (except README.md) and
-``data/teaching/dispatch_scoring_rules_ieee14_demo_1h_v1.json``, derived from
-the released jul_dec six-hour rules (operating coefficients and the
-``daily_exact_cycle`` storage mode) with one-hour periods and capital costs
-prorated from the 4416-hour half-year to the 168-hour demo week.
+This rewrites ``data/teaching/ieee14_demo_representative/`` (except
+README.md) and ``data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json``.
+The rules are exactly the main release economics
+(``scripts/create_representative_scoring_rules.py``) with the demo's day
+weights.
 """
 
 from __future__ import annotations
@@ -29,24 +32,29 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
 
 from ercot_game.scenario_package import (
-    IEEE14_DEMO_BLOCK,
-    IEEE14_DEMO_EXPECTED_HORIZONS,
     IEEE14_DEMO_PACKAGE_VERSION,
-    IEEE14_DEMO_TIME_STEP_HOURS,
+    REPRESENTATIVE_BLOCK,
+    REPRESENTATIVE_DAY_COUNT,
+    REPRESENTATIVE_HORIZON,
+    REPRESENTATIVE_TIME_STEP_HOURS,
+    require_validated_block,
     sha256_file,
 )
 from ercot_game.scenario_profiles import block_offset, demand_multiplier
 
 
-HORIZON = IEEE14_DEMO_EXPECTED_HORIZONS[IEEE14_DEMO_BLOCK]
-TIME_STEP_HOURS = IEEE14_DEMO_TIME_STEP_HOURS
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HOURS_PER_DAY = 24
+HORIZON = REPRESENTATIVE_HORIZON
+TIME_STEP_HOURS = REPRESENTATIVE_TIME_STEP_HOURS
 PROFILE_YEAR = 2028
-PROFILE_CALENDAR_BLOCK = "jul_dec"
+MAIN_PACKAGE = REPO_ROOT / "data" / "processed" / "activsg2000_representative_v1"
 BASE_MVA = 100.0
 
 # Canonical IEEE-14 active-power demand (MW), buses 1..14.
@@ -119,29 +127,49 @@ def _hash_payload(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def period_multipliers() -> tuple[float, ...]:
-    """Return the per-period mean load multipliers of the demo week.
+def main_package_days(main_package: str | Path = MAIN_PACKAGE) -> list[dict[str, Any]]:
+    """Return the representative days (date, source block/start, weight) of the main package."""
+    manifest = require_validated_block(main_package)
+    days = sorted(manifest["representative_days"], key=lambda day: day["day_position"])
+    if len(days) != REPRESENTATIVE_DAY_COUNT:
+        raise ValueError("main package must list five representative days")
+    year = int(manifest["selection"]["source_year"])
+    if year != PROFILE_YEAR:
+        raise ValueError(f"main package source year {year} != {PROFILE_YEAR}")
+    return [
+        {
+            "day_position": int(day["day_position"]),
+            "date": day["date"],
+            "source_block": day["source_block"],
+            "source_period_start": int(day["source_period_start"]),
+            "is_peak_day": bool(day["is_peak_day"]),
+            "represented_days": day["represented_days"],
+            "weight": float(day["weight"]),
+            "first_period": int(day["day_position"]) * HOURS_PER_DAY,
+        }
+        for day in days
+    ]
 
-    With one-hour periods each value is the hourly multiplier itself.
-    """
-    start = block_offset(PROFILE_YEAR, PROFILE_CALENDAR_BLOCK)
+
+def period_multipliers(days: list[dict[str, Any]]) -> tuple[float, ...]:
+    """Return the hourly system load multiplier of every demo period."""
     return tuple(
         round(
-            sum(
-                demand_multiplier(start + period * TIME_STEP_HOURS + hour, year=PROFILE_YEAR)
-                for hour in range(TIME_STEP_HOURS)
-            )
-            / TIME_STEP_HOURS,
+            demand_multiplier(
+                block_offset(PROFILE_YEAR, day["source_block"]) + day["source_period_start"] + hour,
+                year=PROFILE_YEAR,
+            ),
             8,
         )
-        for period in range(HORIZON)
+        for day in days
+        for hour in range(HOURS_PER_DAY)
     )
 
 
-def demand_rows() -> list[dict[str, float]]:
+def demand_rows(days: list[dict[str, Any]]) -> list[dict[str, float]]:
     return [
         {str(bus): round(load * multiplier, 6) for bus, load in enumerate(BASE_LOAD_MW, start=1)}
-        for multiplier in period_multipliers()
+        for multiplier in period_multipliers(days)
     ]
 
 
@@ -182,8 +210,10 @@ def _validate_periods(rows: list[dict[str, float]]) -> tuple[str, list[dict[str,
     return digest.hexdigest(), summaries
 
 
-def build_package(output_dir: str | Path) -> dict[str, Any]:
+def build_package(output_dir: str | Path, main_package: str | Path = MAIN_PACKAGE) -> dict[str, Any]:
     output = Path(output_dir)
+    days = main_package_days(main_package)
+    multipliers = period_multipliers(days)
     output.mkdir(parents=True, exist_ok=True)
     # Never leave a stale "passed" manifest next to regenerated tables.
     (output / "manifest.json").unlink(missing_ok=True)
@@ -194,7 +224,7 @@ def build_package(output_dir: str | Path) -> dict[str, Any]:
         ("bus_id", "base_load_mw"),
         [(bus, load) for bus, load in zip(bus_ids, BASE_LOAD_MW)],
     )
-    rows = demand_rows()
+    rows = demand_rows(days)
     _write_csv(
         output / "demand_bus.csv",
         ("period", *bus_ids),
@@ -221,32 +251,58 @@ def build_package(output_dir: str | Path) -> dict[str, Any]:
     _write_csv(output / "dcline.csv", ("status", "from_bus_id", "to_bus_id", "Pt"), [])
 
     state_hash, period_summaries = _validate_periods(rows)
+    day_weights = [day["weight"] for day in days]
+    period_day_weights = [day["weight"] for day in days for _hour in range(HOURS_PER_DAY)]
+    representative_days = []
+    for day in days:
+        totals = [period_summaries[day["first_period"] + hour]["total_load_mw"] for hour in range(HOURS_PER_DAY)]
+        peak_hour = max(range(HOURS_PER_DAY), key=totals.__getitem__)
+        representative_days.append(
+            {
+                **day,
+                "peak_period": day["first_period"] + peak_hour,
+                "peak_load_mw": max(totals),
+                "daily_energy_mwh": round(sum(totals) * TIME_STEP_HOURS, 4),
+            }
+        )
     block_entry = {
         "horizon": HORIZON,
         "time_step_hours": TIME_STEP_HOURS,
-        "source_horizon_hours": HORIZON * TIME_STEP_HOURS,
+        "days": REPRESENTATIVE_DAY_COUNT,
         "validation_status": "passed",
         "validated_state_hash": state_hash,
         "sha256": _hash_payload(
-            {"block": IEEE14_DEMO_BLOCK, "horizon": HORIZON, "time_step_hours": TIME_STEP_HOURS}
+            {
+                "package_version": IEEE14_DEMO_PACKAGE_VERSION,
+                "horizon": HORIZON,
+                "time_step_hours": TIME_STEP_HOURS,
+                "day_weights": day_weights,
+            }
         ),
     }
     manifest = {
         "package_version": IEEE14_DEMO_PACKAGE_VERSION,
         "validation_status": "passed",
         "description": (
-            "IEEE 14-bus teaching demo, one week of one-hour periods. "
+            "IEEE 14-bus teaching demo in the representative-day format: the five days and "
+            "weights of activsg2000-representative-v1, 24 one-hour periods each. "
             "Not the game network; see README.md."
         ),
-        "block": IEEE14_DEMO_BLOCK,
+        "block": REPRESENTATIVE_BLOCK,
         **block_entry,
-        "blocks": {IEEE14_DEMO_BLOCK: block_entry},
+        "blocks": {REPRESENTATIVE_BLOCK: block_entry},
+        "day_weights": day_weights,
+        "day_weights_sum": round(sum(day_weights), 9),
+        "period_day_weights": period_day_weights,
+        "representative_days": representative_days,
         "load_profile": {
-            "mechanism": "ercot_game.scenario_profiles.demand_multiplier, hourly values",
+            "mechanism": (
+                "canonical IEEE-14 bus base load x ercot_game.scenario_profiles.demand_multiplier"
+                "(block_offset(2028, source_block) + source_period_start + hour), hourly values"
+            ),
             "profile_year": PROFILE_YEAR,
-            "profile_calendar_block": PROFILE_CALENDAR_BLOCK,
-            "profile_source_hours": [0, HORIZON * TIME_STEP_HOURS],
-            "period_multipliers": list(period_multipliers()),
+            "days_and_weights_from": "activsg2000-representative-v1 (manifest representative_days)",
+            "period_multipliers": list(multipliers),
         },
         "network": {
             "bus_count": len(bus_ids),
@@ -270,78 +326,42 @@ def build_package(output_dir: str | Path) -> dict[str, Any]:
     return manifest
 
 
-def build_rules(source_rules: str | Path, output_path: str | Path) -> dict[str, Any]:
-    """Derive the one-hour demo scoring rules from the released rules.
+def _representative_rules_module():
+    path = REPO_ROOT / "scripts" / "create_representative_scoring_rules.py"
+    spec = importlib.util.spec_from_file_location("create_representative_scoring_rules", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
-    Operating coefficients ($/MWh values, the team generator cost curve and
-    the ``daily_exact_cycle`` storage mode) are copied unchanged; the period
-    length becomes one hour.  Capital costs (site, generator, storage) are
-    scaled by demo hours / source half-year hours (168/4416 for jul_dec) so
-    that one demo week has the same economics as one half-year submission;
-    without this every demo score is dominated by half a year of capital.
-    """
-    payload = json.loads(Path(source_rules).read_text(encoding="utf-8"))
-    source_step_hours = float(payload.get("time_step_hours", 0))
-    if source_step_hours <= 0 or 24 % TIME_STEP_HOURS:
-        raise ValueError("source rules need a positive time_step_hours and the demo step must divide 24")
-    values = {float(value) for value in payload["it_value_per_mwh"]}
-    if len(values) != 1:
-        raise ValueError("source rules must use a constant IT value")
-    it_value = values.pop()
-    source_version = payload["rules_version"]
-    source_horizon_hours = round(len(payload["it_value_per_mwh"]) * source_step_hours)
-    capital_scale = HORIZON * TIME_STEP_HOURS / source_horizon_hours
-    for key in (
-        "site_cost_per_mw",
-        "generator_capital_cost_per_mw",
-        "storage_capital_cost_per_mw",
-        "storage_capital_cost_per_mwh",
-    ):
-        payload[key] = round(float(payload[key]) * capital_scale, 2)
-    payload["rules_version"] = "dispatch-scoring-ieee14-demo-1h-v1"
+
+def build_rules(package_dir: str | Path, output_path: str | Path) -> dict[str, Any]:
+    """Write the demo scoring rules: the main release economics with the demo's day weights."""
+    payload = _representative_rules_module().build_rules(package_dir)
+    payload["rules_version"] = "dispatch-scoring-ieee14-demo-representative-v1"
     payload["status"] = "teaching_demo"
     payload["description"] = (
-        f"One-hour scoring rules for the IEEE-14 teaching demo (one week, {HORIZON} periods). "
-        f"Operating coefficients are copied from {source_version}; capital costs are "
-        f"prorated by {HORIZON * TIME_STEP_HOURS}/{source_horizon_hours} hours so that one "
-        "demo week has the same economics as one half-year submission."
+        "Scoring rules for the IEEE-14 teaching demo (5 representative days x 24 one-hour "
+        "periods). Identical to dispatch-scoring-representative-v1 (ten-year present value, "
+        "r = 7%, IT value 1000 $/MWh, capital charged once, daily_exact_cycle storage); "
+        "the period weights come from the demo package's day weights."
     )
-    payload["capital_cost_scale"] = capital_scale
-    payload["source_rules_version"] = source_version
-    payload["it_value_per_mwh"] = [it_value] * HORIZON
-    payload["time_step_hours"] = float(TIME_STEP_HOURS)
-    payload["storage_boundary_mode"] = "daily_exact_cycle"
-    payload["time_step_hours_provenance"] = {
-        "interpretation": "one-hour interval; daily storage cycle of 24 periods",
-        "horizon_hours": HORIZON * TIME_STEP_HOURS,
-        "calendar_block": IEEE14_DEMO_BLOCK,
-        "source_horizon_hours": HORIZON * TIME_STEP_HOURS,
-        "horizon_periods": HORIZON,
-        "time_step_hours": float(TIME_STEP_HOURS),
-        "capital_cost_source_horizon_hours": source_horizon_hours,
-    }
-    payload["it_value_provenance"]["horizon_hours"] = HORIZON
-    payload.pop("economic_profile_artifact", None)
     Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--output-dir", type=Path, default=Path("data/teaching/ieee14_demo_1h"))
-    parser.add_argument(
-        "--source-rules",
-        type=Path,
-        default=Path("data/teaching/dispatch_scoring_rules_jul_dec_6h_v1.json"),
-    )
+    parser.add_argument("--output-dir", type=Path, default=Path("data/teaching/ieee14_demo_representative"))
+    parser.add_argument("--main-package", type=Path, default=MAIN_PACKAGE)
     parser.add_argument(
         "--rules-output",
         type=Path,
-        default=Path("data/teaching/dispatch_scoring_rules_ieee14_demo_1h_v1.json"),
+        default=Path("data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json"),
     )
     args = parser.parse_args(argv)
-    manifest = build_package(args.output_dir)
-    build_rules(args.source_rules, args.rules_output)
+    manifest = build_package(args.output_dir, args.main_package)
+    build_rules(args.output_dir, args.rules_output)
     print(json.dumps({key: manifest[key] for key in ("package_version", "block", "horizon", "validation_status")}, sort_keys=True))
     return 0
 

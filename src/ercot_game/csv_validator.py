@@ -12,8 +12,20 @@ import re
 from pathlib import Path
 from collections.abc import Iterable, Mapping, Sequence
 
-from .csv_submission import CANONICAL_CSV_COLUMNS, load_bus_ids, read_student_csv
+from .csv_submission import (
+    CANONICAL_CSV_COLUMNS,
+    generator_cap_violation,
+    load_bus_ids,
+    read_student_csv,
+)
 from .calendars import half_year_calendar
+from .release_config import (
+    CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO,
+    CANONICAL_RELEASE,
+    LEGACY_MAX_GENERATOR_TO_CONNECTION_RATIO,
+    LEGACY_RELEASE,
+    RELEASES,
+)
 
 
 @dataclass(frozen=True)
@@ -84,6 +96,7 @@ def validate_csv_submission(
     bus_ids: Iterable[str] | None = None,
     generator_ids: Iterable[str] | None = None,
     horizon: int | None = None,
+    max_generator_to_connection_ratio: float = 1.0,
 ) -> ValidationReport:
     """Validate a canonical one-row-per-site student CSV.
 
@@ -93,6 +106,9 @@ def validate_csv_submission(
 
     ``horizon`` is retained in the report for CLI compatibility; it does not
     impose a row-count or hourly-coverage requirement.
+
+    ``max_generator_to_connection_ratio`` is the private-generator cap
+    G <= ratio x C (0.5 in the ten-year release, 1.0 in the half-year rules).
     """
     if horizon is not None and horizon <= 0:
         raise ValueError("horizon must be positive")
@@ -200,8 +216,12 @@ def validate_csv_submission(
             generator = values["generator_capacity_mw"]
             storage_power = values["storage_power_mw"]
             storage_energy = values["storage_energy_mwh"]
-            if connection is not None and generator is not None and generator > connection:
-                issues.append(_issue("generator capacity cannot exceed connection capacity", row_number))
+            if connection is not None and generator is not None:
+                cap_message = generator_cap_violation(
+                    generator, connection, max_generator_to_connection_ratio
+                )
+                if cap_message:
+                    issues.append(_issue(cap_message, row_number))
             if storage_power is not None and storage_energy is not None:
                 if (storage_power == 0) != (storage_energy == 0):
                     issues.append(_issue("storage power and energy must both be zero or positive", row_number))
@@ -225,6 +245,7 @@ def validate_csv_submission(
                 source_path,
                 bus_ids=known_buses,
                 generator_cost_by_id=generator_costs,
+                max_generator_to_connection_ratio=max_generator_to_connection_ratio,
             )
         except ValueError as exc:
             issues.append(_issue(str(exc)))
@@ -250,6 +271,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--horizon", type=int, help="optional historical horizon context for the report")
     parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="optional released instructional scenario year")
     parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="optional released half-year context")
+    parser.add_argument(
+        "--release",
+        choices=RELEASES,
+        default=CANONICAL_RELEASE,
+        help=(
+            "rule set: the ten-year representative release caps each private generator at "
+            "0.5 x connection capacity; the retired half-year release at 1.0 x"
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="print a machine-readable JSON report")
     return parser
 
@@ -269,7 +299,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         horizon = None
     try:
-        report = validate_csv_submission(args.file, artifact_dir=args.artifact_dir, horizon=horizon)
+        ratio = (
+            LEGACY_MAX_GENERATOR_TO_CONNECTION_RATIO
+            if args.release == LEGACY_RELEASE
+            else CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO
+        )
+        report = validate_csv_submission(
+            args.file,
+            artifact_dir=args.artifact_dir,
+            horizon=horizon,
+            max_generator_to_connection_ratio=ratio,
+        )
     except (OSError, ValueError) as exc:
         print(f"CONFIGURATION ERROR: {exc}")
         return 2

@@ -121,19 +121,19 @@ def br_check_figure(out: Path, fig_dir: Path) -> None:
                          for r in rows if r["case"] == name and r["team"] == check["team"])
             x = np.array([p[0] for p in pts]) - check["w_mw"]
             keep = (x >= -4.0) & (x <= 3.0)
-            gain = (np.array([p[1] for p in pts]) - check["payoff_at_w"]) / 1e3
-            gain0 = (np.array([p[2] for p in pts]) - no_energy[check["team"]]["payoff_at_w"]) / 1e3
+            gain = (np.array([p[1] for p in pts]) - check["payoff_at_w"]) / 1e6
+            gain0 = (np.array([p[2] for p in pts]) - no_energy[check["team"]]["payoff_at_w"]) / 1e6
             ax.plot(x[keep], gain[keep], lw=0.9, color=colors[i % 3], marker="o", ms=1.5,
                     label=f"bus {check['bus']}")
             ax.plot(x[keep], gain0[keep], lw=0.8, ls=":", color=colors[i % 3])
         ax.axhline(0, color=GREY, lw=0.4)
         ax.axvline(0, color=GREY, lw=0.4)
-        ax.set_ylim(-700, 700)
+        ax.set_ylim(-160, 20)
         ax.set_xlim(-4, 3)
         ax.set_xlabel("own deviation $r_i - w_i$ (MW)")
         ax.set_title(f"({'abc'[cases.index(name)]}) buses {', '.join(case['sites'])}", loc="left")
-        ax.legend(frameon=False, loc="upper right")
-    axes[0][0].set_ylabel("gain over staying at $w_i$ (\\$k)")
+        ax.legend(frameon=False, loc="lower right")
+    axes[0][0].set_ylabel("gain over staying at $w_i$ (\\$M)")
     axes[0][-1].plot([], [], color=GREY, lw=0.8, ls=":", label="without energy cost")
     axes[0][-1].legend(frameon=False, loc="center left", bbox_to_anchor=(1.0, 0.5))
     fig.tight_layout(w_pad=0.8)

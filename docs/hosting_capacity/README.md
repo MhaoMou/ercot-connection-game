@@ -116,7 +116,7 @@ The CLI writes these files under `--output-dir`:
 | `hosting_capacity_long.csv.gz` | Optional output created by `--write-long-form`, with columns `period_index,bus_id,hosting_capacity_mw,status,solve_time_s`. |
 
 Rows of the matrix and summary are in ascending requested `period_index` order.
-Columns are in sorted unique `bus_id` order. The long-form CSV is ordered by
+Columns are in sorted unique `bus_id` order (sorted as strings). The long-form CSV is ordered by
 period first and then by that same sorted bus order. The metadata records these
 lists under `ordering.period_indices`, `ordering.bus_ids`, and
 `ordering.array_axes: ["period_index", "bus_id"]`; do not infer bus order from
@@ -169,23 +169,31 @@ ercot-game-hosting-capacity \
 This case is a correctness and output-shape smoke test, not a production-scale
 performance benchmark.
 
-## 10. ACTIVSg2000 24-period smoke test
-
-After the prepared ACTIVSg2000 block has passed its validation contract, solve
-the first 24 periods of the 2028 January--June block. In the canonical
-six-hour package (`activsg2000_scenarios_v2_6h`) each period is a six-hour
-mean of the hourly source data, so 24 periods cover six days. The `24h`/`1h`
-suffixes in the output-directory names below are legacy labels for 24 and 1
-periods:
+The IEEE 14-bus demo package `data/teaching/ieee14_demo_representative` (rules
+`data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json`) has
+the same 120-period representative-day structure as the game package. All
+14 buses x 120 periods = 1,680 LPs take about 1.6 s:
 
 ```bash
 ercot-game-hosting-capacity \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/teaching/ieee14_demo_representative \
+  --output-dir results/hosting_capacity_ieee14_demo
+```
+
+## 10. ACTIVSg2000 24-period smoke test
+
+Without `--artifact-dir`, the CLI uses the released representative-day package
+`data/processed/activsg2000_representative_v1` (5 days x 24 one-hour periods =
+120 periods). Solve the first day (24 periods); the `24h`/`1h` suffixes in the
+output-directory names below mean 24 and 1 periods:
+
+```bash
+ercot-game-hosting-capacity \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --solver-backend highs \
   --workers 1 \
-  --output-dir results/hosting_capacity_2028_jan_jun_24h
+  --output-dir results/hosting_capacity_representative_24h
 ```
 
 Use `--write-long-form` when a row-oriented CSV is needed for inspection. The
@@ -196,8 +204,8 @@ unverified manifest is rejected before the matrix run.
 
 Before any full-horizon run, all three pilots below must pass and the operator
 must record explicit operator approval. Do not start a full-horizon run before
-that approval. These commands use the prepared
-2028 January--June `bus.csv`: `1001` is the one-bus pilot, `1001` through
+that approval. These commands use the representative package's
+`bus.csv`: `1001` is the one-bus pilot, `1001` through
 `1010` are the ten-bus pilot, and omitting `--bus-id` selects all 2,000 buses.
 All generated files, checkpoints, summaries, and raw resource logs stay below
 `/private/tmp/hosting-capacity-pilot`.
@@ -211,8 +219,7 @@ Run the one-bus pilot once from a clean output directory:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-fresh.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --bus-id 1001 \
   --solver-backend highs \
@@ -228,8 +235,7 @@ checkpoint directory:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/one-bus-24h/resource-usage-resumed.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --bus-id 1001 \
   --solver-backend highs \
@@ -244,8 +250,7 @@ Run the ten-bus pilot with the ten concrete IDs from that same `bus.csv`:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/ten-bus-24h/resource-usage.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 24 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 24 \
   --bus-id 1001 \
   --bus-id 1002 \
@@ -269,8 +274,7 @@ Run the one-period all-bus pilot without any `--bus-id` option:
 ```bash
 env PYTHONPATH=.:src /usr/bin/time -l -o /private/tmp/hosting-capacity-pilot/all-bus-1h/resource-usage.txt \
   python3 -m ercot_game.hosting_capacity_cli \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 1 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --period-count 1 \
   --solver-backend highs \
   --solver-threads 1 \
@@ -305,27 +309,27 @@ execution requires the operator's explicit approval recorded after this gate.
 
 ## 12. Full-horizon command and warning
 
-The following is the planned 2028 January--June full-horizon command:
+The full-horizon command for the representative package (the default
+artifact) is:
 
 ```bash
 ercot-game-hosting-capacity \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
-  --horizon 728 \
-  --solver-backend auto \
-  --workers 4 \
-  --output-dir results/hosting_capacity_2028_jan_jun
+  --artifact-dir data/processed/activsg2000_representative_v1 \
+  --solver-backend gurobi \
+  --workers 32 \
+  --output-dir results/hosting_capacity_representative
 ```
 
 The pilot gate above is mandatory. Do not launch this command until all three
 pilots pass and explicit operator approval is recorded.
 
-**Warning:** with the default all-bus selection, this requests approximately
-1.5 million point solves: 2,000 candidate buses × 728 six-hour periods =
-1,456,000 independent `H_{s,t}` values. Run all three Task 9 pilots first; the
-IEEE-14 and generic 24-period smoke stages do not replace them. Verify the output and
-checkpoint behavior, and launch the full horizon only after reviewing measured
-resource use and recording operator approval. The command is resumable, but
-resumability does not make the workload small.
+With the default all-bus selection this requests 2,000 candidate buses x 120
+one-hour periods = 240,000 independent `H_{s,t}` LPs. On a server with Gurobi
+and 32 workers it took about 19 minutes; on a laptop (Apple M1 Pro) with
+HiGHS and `--workers 6` it takes an estimated 22 minutes (measured on 12,000
+points). The result is `hosting_capacity_mw.npy` with axes
+`[period_index, bus_id]`, bus columns in the string-sorted order recorded in
+`ordering.bus_ids` of the metadata. The command is resumable.
 
 ## 13. Benchmark interpretation
 
@@ -384,10 +388,12 @@ environment), with one worker and one solver thread, and recorded `wall_time_s=0
 records were failed because `highspy` was unavailable, so there is no successful
 hosting-capacity value or solver-performance claim in this release evidence.
 
-This evidence predates the canonical six-hour package and was recorded against
-the retired hourly package (`activsg2000_scenarios_v1`). The ACTIVSg2000
+This evidence predates the representative-day package and was recorded against
+the hourly package (`activsg2000_scenarios_v1`). The ACTIVSg2000
 one-period attempt was blocked before its stage row by the
 unavailable required project dependency `highspy` and
 `validation_status=unverified_dependency`. The 24-period, 168-period, and
 full-horizon stages were not run. These limitations mean the published row is
 not evidence for ACTIVSg2000 timing, memory, capacity, or full-horizon behavior.
+The later representative-package run (240,000 LPs in about 19 minutes with
+Gurobi and 32 workers, Section 12) is not recorded in these benchmark files.

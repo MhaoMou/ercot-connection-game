@@ -2,40 +2,57 @@
 
 Instructor-facing implementation of a competitive connection-planning game
 based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
-workflow uses the checked-in three-year six-hour scenario package rather than
-the retired prototype or its abstract teaching network. The six half-year
-blocks have passed the release DCOPF validation; the hourly package remains a
+workflow uses the checked-in representative-day package
+(`data/processed/activsg2000_representative_v1`): 5 representative days x 24
+hourly periods = 120 periods, weighted to stand for the next ten years. All 120
+periods have passed the release DCOPF validation; the hourly package remains a
 derivation/reference input.
 
 ## Current production pipeline
 
 ```text
-ACTIVSg2000 hourly source -> six-hour release package (validated)
+ACTIVSg2000 hourly source -> 5-day x 24-hour representative package (validated)
         -> student canonical site-level CSV submissions
         -> CSV/catalog validation
-        -> daily-cycle joint DCOPF dispatch
+        -> daily-cycle joint DCOPF dispatch (per hourly period)
         -> fair continuous projection if required
-        -> team score and ranking
+        -> ten-year present-value team score and ranking
 ```
 
 The Python evaluator is authoritative. Students submit CSV files; instructors
 run the batch evaluator and return scores plus the intended privacy-safe
 feedback artifacts. Student-owned generators and storage serve only their own
-team. The current score (from `data/teaching/dispatch_scoring_rules_*_6h_v1.json`)
-uses IT value of \$6,500/MWh, a team-generator curve of \$80/\$150/\$250 per
-MWh over 25%/50%/25% of capacity, site cost of \$25M/MW of connection
-capacity, generator capital cost of \$1.5M/MW, and storage capital costs of
-\$400k/MW plus \$250k/MWh. Storage operating cost is not charged, and an
-invalid submission scores 0.
+team. The score (from `data/teaching/dispatch_scoring_rules_representative_v1.json`)
+is a ten-year present value: IT value of \$1,000/MWh served, a team-generator
+curve of \$80/\$150/\$250 per MWh over 25%/50%/25% of capacity and (in Week 3)
+grid energy at the LMP, each weighted per period by `period_weight_hours`
+(1 h x day weight x annuity factor A = 7.0236 at a 7% discount rate; the
+weights sum to 61,526.57 h, so a fully served MW is worth about \$61.5M of IT
+value). Capital costs are charged once and undiscounted: site cost of \$25M/MW
+of connection capacity, generator capital cost of \$2.0M/MW, and storage
+capital costs of \$400k/MW plus \$250k/MWh. Generator capacity is capped at
+0.5 x connection capacity, and each generator may produce at most 2 h x its
+capacity per representative day (`generator_daily_energy_hours` = 2, a
+run-hour budget like an engine air permit); storage is zero or exactly four
+hours (B = 4P).
+Without energy cost a site breaks even at about 41% served. Storage operating
+cost is not charged, and an invalid submission scores 0.
 
-The classroom game has three weekly matches of two half-year submissions.
-Week 1 (2027) is practice/feedback only. In Weeks 2 (2028) and 3 (2029), both
-Submission 1 and Submission 2 are scored, and the final ranking is the sum of
-the four scores: Week 2 S1 + Week 2 S2 + Week 3 S1 + Week 3 S2. Capital cost
-(site, generator, storage) is charged once, in the submission where the asset
-is first built: assets built in Submission 1 carry into Submission 2 without a
-second charge, and Submission 2 pays only for newly added sites/assets. All
-assets reset between weeks.
+The five representative days are 2028-01-03 (weight 83.77), 05-10 (99.73),
+07-12 (82.77), 09-10 (97.73), and the peak day 09-15 (weight exactly 1, holding
+peak period 109); the day weights sum to 365.
+
+The classroom game has three weekly matches of two submissions, six
+submissions in all, every one on the same representative package (there are no
+calendar years). Week 1 is practice/feedback only, with no energy cost. Week 2
+is scored with no energy cost. Week 3 is scored with grid energy charged at the
+LMP in both submissions. The final ranking is the sum of the four scores:
+Week 2 S1 + Week 2 S2 + Week 3 S1 + Week 3 S2. In Submission 2 the base load
+is the representative base plus each Submission 1 site's hourly net grid
+withdrawal; Submission 1 sites keep their Submission 1 value, and the
+Submission 2 CSV lists only new sites. Between submissions the instructor
+releases only per-bus load totals, never teams' plans. Each week resets to the
+representative base.
 
 ## Repository layout
 
@@ -43,12 +60,12 @@ assets reset between weeks.
 | --- | --- |
 | `src/ercot_game/` | Canonical CSV reader, validator, batch evaluator, and CLI |
 | `tools/activsg2000/` | Scenario construction, per-period validation, DCOPF, storage scheduling, and joint dispatch |
-| `data/processed/activsg2000_scenarios_v2_6h/` | Canonical validated six-block ACTIVSg2000 package |
-| `data/teaching/` | Half-year scoring rules |
-| `scripts/` | CSV check and scoring-rules generation |
+| `data/processed/activsg2000_representative_v1/` | Canonical validated representative-day ACTIVSg2000 package (built by `tools/activsg2000/build_representative_package.py`) |
+| `data/teaching/` | Scoring rules and release config (`dispatch_scoring_rules_representative_v1.json`, `game_release_representative_v1.json`) and the IEEE 14-bus practice demo (`ieee14_demo_representative/`) |
+| `scripts/` | CSV check and scoring-rules generation (`create_representative_scoring_rules.py`) |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
 | `docs/` | Student tutorial, guest lecture, hyperparameters, instructor guides, and data documentation |
-| `examples/eight_team_round/` | Eight-team example round with six-hour results and grid map |
+| `examples/eight_team_round/` | Eight-team example round and grid map |
 
 ## Setup
 
@@ -64,8 +81,13 @@ python -m pip install -e .
 
 ```bash
 ercot-game-check-csv \
-  --file path/to/team.csv
+  --file path/to/team.csv \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
+  --release representative
 ```
+
+`--release representative` (the default game) enforces the 0.5 x connection
+generator cap.
 
 The active canonical header is exactly seven columns, with one data row per
 site:
@@ -78,55 +100,68 @@ team-blue,site-south,1002,15,0,0,0
 
 Canonical submissions contain no hourly `period`/`load_mw` rows and no
 `submission_id`, `generator_id`, or `storage_id` columns. `bus_id` values come
-from the selected scenario block; capacities use MW/MWh. The released
-year/round and half-year horizon describe evaluator context, not CSV row
-coverage. `--artifact-dir`, `--horizon`, `--year`, and `--round` remain optional
-checker context when an instructor wants catalog or historical report details.
+from the package's `bus.csv`; capacities use MW/MWh. `--year`, `--round`, and
+`--horizon` belong only to the retired half-year release.
 
 For Python callers, `CANONICAL_CSV_COLUMNS` is the named active constant.
 `CSV_COLUMNS` and `BUS_CSV_COLUMNS` remain deprecated compatibility aliases to
 that same tuple. The retired ten-column hourly names are available only for
 explicit historical/legacy parsing and are not current submission examples.
 
-## Evaluate a half-year round
+## Evaluate a weekly round
 
-For a 2027 January--June round:
+Submission 1 of Week 2 (omit `--artifact-dir`/`--rules` to use the
+representative release; `--week` sets the energy charge: weeks 1-2 off,
+week 3 on):
 
 ```bash
 ercot-game-batch run \
-  --submissions-dir path/to/submissions \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2027/jan_jun \
-  --rules data/teaching/dispatch_scoring_rules_jan_jun_6h_v1.json \
-  --year 2027 --round jan_jun \
-  --submission-number 2 \
-  --horizon 724 \
+  --submissions-dir path/to/week2_sub1 \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
+  --rules data/teaching/dispatch_scoring_rules_representative_v1.json \
+  --week 2 --submission-number 1 \
   --workers 8 \
   --projection-iterations 10 \
-  --output-dir work/batch_results_jan_jun
+  --output-dir work/week2_sub1
 ```
 
-`--submission-number 2` is the default and includes locational
-energy-purchase cost settled at the LMP from the selected joint dispatch. Use
-`--submission-number 1` for a Submission 1 run; it has no energy-purchase cost
-while retaining the other active scoring terms. In Weeks 2 and 3 both
-submissions are scored; submission number is evaluator-side metadata and is
-not a CSV column. A standalone `run` has no prior-submission ledger and
-therefore charges capital for every asset in the files; the `classroom`
-command carries Submission 1 assets into Submission 2 so they are charged only
-once.
+Submission 2 of the same week adds the Submission 1 sites to the base load:
 
-Use `--year 2027 --round jul_dec` for July--December. The canonical release
-uses six-hour game periods: 724 periods for January--June 2027/2029, 728 for
-January--June 2028, and 736 for July--December. The source profiles contain
-4,344, 4,368, and 4,416 real hours respectively. The three-year package uses
-deterministic bus-level load over fixed ACTIVSg2000 topology. Generator status,
-PMIN, PMAX, and marginal costs come from the dataset; because ACTIVSg2000 does
-not provide technology labels or hourly availability data, the active release
-uses static generator limits.
+```bash
+ercot-game-batch run \
+  --submissions-dir path/to/week2_sub2 \
+  --week 2 --submission-number 2 \
+  --base-load-from work/week2_sub1 \
+  --workers 8 \
+  --output-dir work/week2_sub2
+```
+
+`--base-load-from` is required for Submission 2 on the representative package
+(the run stops with an error otherwise); it reads the Submission 1
+`site_net_withdrawal.csv` and writes a derived artifact under
+`<output-dir>/base_load_artifact`. Instead of `--week`, `--energy-cost on|off`
+sets the LMP energy charge directly. Submission number is evaluator-side
+metadata and is not a CSV column. The `classroom` command runs all six
+submissions from one manifest.
+
+Generator status, PMIN, PMAX, and marginal costs come from the dataset; because
+ACTIVSg2000 does not provide technology labels or hourly availability data, the
+release uses static generator limits. The `--year`/`--round` flags select the
+retired half-year six-hour release only.
 See `docs/ACTIVSG2000_SCENARIO_PACKAGE.md`.
 
-If the joint plan is infeasible, the evaluator applies the documented fair
-continuous common service projection before deterministic fallback isolation.
+For practice, the IEEE 14-bus demo uses the same flow with
+`--artifact-dir data/teaching/ieee14_demo_representative` and
+`--rules data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json`.
+
+Hosting capacity on the full package (`ercot-game-hosting-capacity`) solves
+2,000 buses x 120 periods = 240,000 LPs, about 19 minutes with Gurobi
+(32 workers) on a server.
+
+If the joint plan is infeasible in a period, the evaluator applies the uniform
+fair projection: a common MW level rises by water-filling, teams served below
+50% of their request are dropped (largest short request first), and
+deterministic fallback isolation follows only if that fails.
 Malformed submissions are rejected independently so valid teams can still be
 scored. The output directory is the instructor-side source of truth.
 

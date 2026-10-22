@@ -193,6 +193,36 @@ def normalize_plan_for_adapter(
     )
 
 
+def check_generator_cap(plan: TeamPlan, max_generator_to_connection_ratio: float = 1.0) -> None:
+    """Reject a submitted plan whose private generators exceed ratio x connection.
+
+    Applies to the submitted (unprojected) plan: the fair projection scales
+    connection capacity only, so a projected plan may legitimately exceed it.
+    """
+    from ercot_game.csv_submission import generator_cap_violation
+
+    capacity_by_site = {site.site_id: site.connection_capacity_mw for site in plan.sites}
+    for connection in plan.connections:
+        capacity_by_site.setdefault(connection.connection_id, connection.capacity_mw)
+    generator_by_site: dict[str, float] = {}
+    for site in plan.sites:
+        if site.generator_capacity_mw:
+            generator_by_site[site.site_id] = site.generator_capacity_mw
+    for generator in plan.generators:
+        if generator.connection_id not in {site.site_id for site in plan.sites}:
+            generator_by_site[generator.connection_id] = (
+                generator_by_site.get(generator.connection_id, 0.0) + generator.capacity_mw
+            )
+    for site_id, generator_mw in sorted(generator_by_site.items()):
+        message = generator_cap_violation(
+            generator_mw,
+            capacity_by_site.get(site_id, 0.0),
+            max_generator_to_connection_ratio,
+        )
+        if message:
+            raise ValueError(f"team {plan.team_id} site {site_id}: {message}")
+
+
 # Private compatibility alias retained for existing callers during the public
 # helper migration.
 _normalize_plan_for_adapter = normalize_plan_for_adapter
@@ -394,8 +424,16 @@ def evaluate_plans_with_prepared_dcopf(
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_boundary_mode: str = "half_year_terminal_floor",
+    generator_daily_energy_hours: float | None = None,
 ) -> BatchDispatchResult:
     """Evaluate all teams jointly on the shared prepared network.
+
+    ``generator_daily_energy_hours`` (h) limits each team generator of
+    capacity G to h x G MWh per day (24-hour blocks of ``period_indices``).
+    Plans with a budgeted generator are dispatched by the daily-cycle
+    Benders solve (the generator is a master asset, like storage), or by one
+    monolithic LP per day with ``storage_solver="monolithic"``; ``None``
+    keeps the hourly solve.
 
     Base system demand and submitted data-center demand are both fixed. All
     teams are solved jointly on the shared network; if any period is
@@ -449,7 +487,15 @@ def evaluate_plans_with_prepared_dcopf(
             connection.connection_id: connection for connection in ordered_connections
         }
 
-    if any(plan.storages for plan in ordered_plans):
+    if generator_daily_energy_hours is not None and (
+        not _is_finite_number(generator_daily_energy_hours)
+        or generator_daily_energy_hours < 0
+    ):
+        raise ValueError("generator_daily_energy_hours must be finite and non-negative or None")
+    budgeted = generator_daily_energy_hours is not None and any(
+        generator.capacity_mw > 0.0 for plan in ordered_plans for generator in plan.generators
+    )
+    if any(plan.storages for plan in ordered_plans) or budgeted:
         return _evaluate_batch_with_central_storage(
             artifact_dir,
             ordered_plans=ordered_plans,
@@ -465,6 +511,7 @@ def evaluate_plans_with_prepared_dcopf(
             storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
             storage_max_iterations=storage_max_iterations,
             storage_boundary_mode=storage_boundary_mode,
+            generator_daily_energy_hours=generator_daily_energy_hours if budgeted else None,
         )
 
     storage_schedules = {
@@ -612,11 +659,15 @@ def _evaluate_batch_with_central_storage(
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_boundary_mode: str = "half_year_terminal_floor",
+    generator_daily_energy_hours: float | None = None,
 ) -> BatchDispatchResult:
     """Build one joint horizon solve and attribute storage only to its owner.
 
     Storage-bearing batches use exact Benders by default; ``monolithic`` is
-    retained only as an explicit small-fixture reference route.
+    retained only as an explicit small-fixture reference route.  With a
+    generator daily energy budget the budgeted generators join the Benders
+    master with one energy row per day (storage, if any, cycles daily); the
+    monolithic route solves one LP per day with the same rows.
     """
     base_demand_by_team: dict[str, tuple[dict[str, float], ...]] = {}
     for plan in ordered_plans:
@@ -721,7 +772,51 @@ def _evaluate_batch_with_central_storage(
         owner_load_mw_by_team=owner_load_mw_by_team,
         time_step_hours=time_step_hours,
     )
-    if storage_boundary_mode == "daily_exact_cycle":
+    if generator_daily_energy_hours is not None:
+        if storage_records and storage_boundary_mode != "daily_exact_cycle":
+            raise ValueError(
+                "a generator daily energy budget with storage requires "
+                "storage_boundary_mode 'daily_exact_cycle'"
+            )
+        daily_block_periods = 24.0 / time_step_hours
+        if not math.isfinite(daily_block_periods) or not daily_block_periods.is_integer():
+            raise ValueError("a generator daily energy budget requires time_step_hours to divide 24 hours")
+        daily_block_periods = int(daily_block_periods)
+        energy_limits = {
+            _student_generator_id(plan.team_id, generator.generator_id): (
+                tuple(
+                    _student_generator_segment_id(plan.team_id, generator.generator_id, segment=segment)
+                    for segment in range(1, len(TEAM_GENERATOR_COST_CURVE) + 1)
+                ),
+                generator_daily_energy_hours * generator.capacity_mw,
+            )
+            for plan in ordered_plans
+            for generator in plan.generators
+        }
+        if storage_solver == "monolithic":
+            # Reference route: one coupled LP per day.
+            horizon_result = solve_prepared_daily_blocks(
+                **horizon_kwargs,
+                storage_solver="monolithic",
+                block_hours=daily_block_periods,
+                parallel_workers=workers,
+                generator_energy_limits_mwh=energy_limits,
+            )
+        else:
+            # Budgeted generators are master assets of the daily-cycle
+            # Benders solve, like storage; recourse stays hourly.
+            horizon_result = solve_prepared_horizon_benders(
+                **horizon_kwargs,
+                max_iterations=storage_max_iterations,
+                parallel_workers=workers,
+                solver_backend=storage_solver_backend,
+                solver_threads=storage_solver_threads,
+                wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                storage_cycle_hours=daily_block_periods,
+                terminal_soc_policy="exact_half",
+                generator_energy_limits_mwh=energy_limits,
+            )
+    elif storage_boundary_mode == "daily_exact_cycle":
         daily_block_periods = 24.0 / time_step_hours
         if not math.isfinite(daily_block_periods) or not daily_block_periods.is_integer():
             raise ValueError("daily_exact_cycle requires time_step_hours to divide 24 hours")

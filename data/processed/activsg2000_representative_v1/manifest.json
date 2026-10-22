@@ -1,0 +1,998 @@
+{
+  "block": "representative",
+  "blocks": {
+    "representative": {
+      "days": 5,
+      "horizon": 120,
+      "sha256": "cf2b931ec28aafb0ec6e0a1a28948e80952d4ad6612c01183503e895bb980d89",
+      "time_step_hours": 1,
+      "validated_state_hash": "e73e943abb1c50a01f282c543832ac9699f1a8501fe7783d9adc730bfe917d76",
+      "validation_status": "passed"
+    }
+  },
+  "day_weights": [
+    83.769863013699,
+    99.72602739726,
+    82.772602739726,
+    97.731506849315,
+    1.0
+  ],
+  "day_weights_sum": 365.0,
+  "days": 5,
+  "description": "ACTIVSg2000 representative days for the ten-year connection game: four k-medoids days of the 2028 source year plus its peak day, 24 one-hour periods each.",
+  "horizon": 120,
+  "network": {
+    "bus_count": 2000,
+    "files": [
+      "bus.csv",
+      "bus_load_base.csv",
+      "branch_limits.csv",
+      "generator_catalog.csv",
+      "generator_limits.csv",
+      "dcline.csv",
+      "demand_bus.csv",
+      "representative_days.csv"
+    ],
+    "generator_limits": "static source status, PMIN and PMAX",
+    "sha256": {
+      "branch_limits.csv": "07ea681c7fd5e0bddd1b7c455a8e4feadcd8647c2b24dfeb908eb06ba7c47481",
+      "bus.csv": "067b6d8532413226346b94913c33bb1c623d0c47aeac1d20b22cfeb8326ae487",
+      "bus_load_base.csv": "40f3ef64f67c7fdbd789b4e1fcebefa69002b65050b0f3f593698625558e0d08",
+      "dcline.csv": "843b38d7bef71ea519f7734f5af67f688b337423145c4fe6210a6ec0e3f78bde",
+      "demand_bus.csv": "2a109f73fbd4bca05d6c06b4fada883defb46632392235814bf8857854a6d69d",
+      "generator_catalog.csv": "d9ccbb55f129cd6e0b00c4bfb54a2c5da9a366cecf773360c26fbf939d976787",
+      "generator_limits.csv": "d9ccbb55f129cd6e0b00c4bfb54a2c5da9a366cecf773360c26fbf939d976787",
+      "representative_days.csv": "b95039ecdfcf113e2e4760cf99899fd5abbb7419eca370e9372cc7998fb90f91"
+    }
+  },
+  "package_version": "activsg2000-representative-v1",
+  "period_day_weights": [
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    83.769863013699,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    99.72602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    82.772602739726,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    97.731506849315,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "representative_days": [
+    {
+      "cluster": 0,
+      "daily_energy_mwh": 1568846.824,
+      "date": "2028-01-03",
+      "day_position": 0,
+      "first_period": 0,
+      "is_peak_day": false,
+      "min_load_mw": 61342.065,
+      "peak_load_mw": 69395.17,
+      "profile_day_index": 2,
+      "represented_days": 84,
+      "source_block": "jan_jun",
+      "source_period_start": 48,
+      "weight": 83.769863013699
+    },
+    {
+      "cluster": 1,
+      "daily_energy_mwh": 1492655.127,
+      "date": "2028-05-10",
+      "day_position": 1,
+      "first_period": 24,
+      "is_peak_day": false,
+      "min_load_mw": 58167.411,
+      "peak_load_mw": 66220.516,
+      "profile_day_index": 130,
+      "represented_days": 100,
+      "source_block": "jan_jun",
+      "source_period_start": 3120,
+      "weight": 99.72602739726
+    },
+    {
+      "cluster": 2,
+      "daily_energy_mwh": 1653259.476,
+      "date": "2028-07-12",
+      "day_position": 2,
+      "first_period": 48,
+      "is_peak_day": false,
+      "min_load_mw": 64859.259,
+      "peak_load_mw": 72912.364,
+      "profile_day_index": 194,
+      "represented_days": 83,
+      "source_block": "jul_dec",
+      "source_period_start": 264,
+      "weight": 82.772602739726
+    },
+    {
+      "cluster": 3,
+      "daily_energy_mwh": 1729444.27,
+      "date": "2028-09-10",
+      "day_position": 3,
+      "first_period": 72,
+      "is_peak_day": false,
+      "min_load_mw": 68033.625,
+      "peak_load_mw": 76086.731,
+      "profile_day_index": 254,
+      "represented_days": 98,
+      "source_block": "jul_dec",
+      "source_period_start": 1704,
+      "weight": 97.731506849315
+    },
+    {
+      "cluster": null,
+      "daily_energy_mwh": 1779617.6,
+      "date": "2028-09-15",
+      "day_position": 4,
+      "first_period": 96,
+      "is_peak_day": true,
+      "min_load_mw": 70124.181,
+      "peak_load_mw": 78177.286,
+      "profile_day_index": 259,
+      "represented_days": 1,
+      "source_block": "jul_dec",
+      "source_period_start": 1824,
+      "weight": 1.0
+    }
+  ],
+  "selection": {
+    "annual_energy_mwh": 589448571.701,
+    "annual_peak_hourly_load_mw": 78177.286,
+    "clusters": 4,
+    "feature": "24-hour system load divided by the annual peak hourly system load",
+    "feature_scale": 1000000,
+    "load_mechanism": "ercot_game.scenario_profiles.hourly_state (bus base load times demand_multiplier); jul_dec starts at block_offset, so its profile_day_index is one day ahead of the calendar date in 2028",
+    "method": "PAM k-medoids (BUILD + SWAP, no random numbers) on squared Euclidean distances of the features quantized to integers",
+    "peak_day": "day of the annual peak hourly system load, weight = 1 day, removed from its cluster",
+    "source_blocks": [
+      "jan_jun",
+      "jul_dec"
+    ],
+    "source_day_count": 366,
+    "source_package": "activsg2000-scenarios-v1",
+    "source_year": 2028,
+    "weight_rule": "peak day 1; other days: represented days x 364/365 so weights sum to 365",
+    "weighted_annual_energy_mwh": 587924051.577
+  },
+  "sha256": "cf2b931ec28aafb0ec6e0a1a28948e80952d4ad6612c01183503e895bb980d89",
+  "time_step_hours": 1,
+  "validated_state_hash": "e73e943abb1c50a01f282c543832ac9699f1a8501fe7783d9adc730bfe917d76",
+  "validation": {
+    "expected_period_count": 120,
+    "method": "single-period DCOPF (HiGHS) of every representative period",
+    "passed_period_count": 120,
+    "periods": [
+      {
+        "objective_cost": 786764,
+        "period_index": 0,
+        "solver_status": "optimal",
+        "total_load_mw": 61479.267
+      },
+      {
+        "objective_cost": 784370,
+        "period_index": 1,
+        "solver_status": "optimal",
+        "total_load_mw": 61342.065
+      },
+      {
+        "objective_cost": 786764,
+        "period_index": 2,
+        "solver_status": "optimal",
+        "total_load_mw": 61479.267
+      },
+      {
+        "objective_cost": 793788,
+        "period_index": 3,
+        "solver_status": "optimal",
+        "total_load_mw": 61881.521
+      },
+      {
+        "objective_cost": 804972,
+        "period_index": 4,
+        "solver_status": "optimal",
+        "total_load_mw": 62521.415
+      },
+      {
+        "objective_cost": 819557,
+        "period_index": 5,
+        "solver_status": "optimal",
+        "total_load_mw": 63355.341
+      },
+      {
+        "objective_cost": 836592,
+        "period_index": 6,
+        "solver_status": "optimal",
+        "total_load_mw": 64326.469
+      },
+      {
+        "objective_cost": 854931,
+        "period_index": 7,
+        "solver_status": "optimal",
+        "total_load_mw": 65368.618
+      },
+      {
+        "objective_cost": 873270,
+        "period_index": 8,
+        "solver_status": "optimal",
+        "total_load_mw": 66410.766
+      },
+      {
+        "objective_cost": 890447,
+        "period_index": 9,
+        "solver_status": "optimal",
+        "total_load_mw": 67381.894
+      },
+      {
+        "objective_cost": 905242,
+        "period_index": 10,
+        "solver_status": "optimal",
+        "total_load_mw": 68215.82
+      },
+      {
+        "objective_cost": 916631,
+        "period_index": 11,
+        "solver_status": "optimal",
+        "total_load_mw": 68855.715
+      },
+      {
+        "objective_cost": 923819,
+        "period_index": 12,
+        "solver_status": "optimal",
+        "total_load_mw": 69257.969
+      },
+      {
+        "objective_cost": 926284,
+        "period_index": 13,
+        "solver_status": "optimal",
+        "total_load_mw": 69395.17
+      },
+      {
+        "objective_cost": 923819,
+        "period_index": 14,
+        "solver_status": "optimal",
+        "total_load_mw": 69257.969
+      },
+      {
+        "objective_cost": 916631,
+        "period_index": 15,
+        "solver_status": "optimal",
+        "total_load_mw": 68855.715
+      },
+      {
+        "objective_cost": 905242,
+        "period_index": 16,
+        "solver_status": "optimal",
+        "total_load_mw": 68215.82
+      },
+      {
+        "objective_cost": 890447,
+        "period_index": 17,
+        "solver_status": "optimal",
+        "total_load_mw": 67381.894
+      },
+      {
+        "objective_cost": 873270,
+        "period_index": 18,
+        "solver_status": "optimal",
+        "total_load_mw": 66410.766
+      },
+      {
+        "objective_cost": 854931,
+        "period_index": 19,
+        "solver_status": "optimal",
+        "total_load_mw": 65368.618
+      },
+      {
+        "objective_cost": 836592,
+        "period_index": 20,
+        "solver_status": "optimal",
+        "total_load_mw": 64326.469
+      },
+      {
+        "objective_cost": 819557,
+        "period_index": 21,
+        "solver_status": "optimal",
+        "total_load_mw": 63355.341
+      },
+      {
+        "objective_cost": 804972,
+        "period_index": 22,
+        "solver_status": "optimal",
+        "total_load_mw": 62521.415
+      },
+      {
+        "objective_cost": 793788,
+        "period_index": 23,
+        "solver_status": "optimal",
+        "total_load_mw": 61881.521
+      },
+      {
+        "objective_cost": 731564,
+        "period_index": 24,
+        "solver_status": "optimal",
+        "total_load_mw": 58304.612
+      },
+      {
+        "objective_cost": 729194,
+        "period_index": 25,
+        "solver_status": "optimal",
+        "total_load_mw": 58167.411
+      },
+      {
+        "objective_cost": 731564,
+        "period_index": 26,
+        "solver_status": "optimal",
+        "total_load_mw": 58304.612
+      },
+      {
+        "objective_cost": 738519,
+        "period_index": 27,
+        "solver_status": "optimal",
+        "total_load_mw": 58706.867
+      },
+      {
+        "objective_cost": 749625,
+        "period_index": 28,
+        "solver_status": "optimal",
+        "total_load_mw": 59346.761
+      },
+      {
+        "objective_cost": 764127,
+        "period_index": 29,
+        "solver_status": "optimal",
+        "total_load_mw": 60180.687
+      },
+      {
+        "objective_cost": 781052,
+        "period_index": 30,
+        "solver_status": "optimal",
+        "total_load_mw": 61151.815
+      },
+      {
+        "objective_cost": 799247,
+        "period_index": 31,
+        "solver_status": "optimal",
+        "total_load_mw": 62193.964
+      },
+      {
+        "objective_cost": 817470,
+        "period_index": 32,
+        "solver_status": "optimal",
+        "total_load_mw": 63236.112
+      },
+      {
+        "objective_cost": 834497,
+        "period_index": 33,
+        "solver_status": "optimal",
+        "total_load_mw": 64207.24
+      },
+      {
+        "objective_cost": 849169,
+        "period_index": 34,
+        "solver_status": "optimal",
+        "total_load_mw": 65041.166
+      },
+      {
+        "objective_cost": 860429,
+        "period_index": 35,
+        "solver_status": "optimal",
+        "total_load_mw": 65681.06
+      },
+      {
+        "objective_cost": 867507,
+        "period_index": 36,
+        "solver_status": "optimal",
+        "total_load_mw": 66083.315
+      },
+      {
+        "objective_cost": 869922,
+        "period_index": 37,
+        "solver_status": "optimal",
+        "total_load_mw": 66220.516
+      },
+      {
+        "objective_cost": 867507,
+        "period_index": 38,
+        "solver_status": "optimal",
+        "total_load_mw": 66083.315
+      },
+      {
+        "objective_cost": 860429,
+        "period_index": 39,
+        "solver_status": "optimal",
+        "total_load_mw": 65681.06
+      },
+      {
+        "objective_cost": 849169,
+        "period_index": 40,
+        "solver_status": "optimal",
+        "total_load_mw": 65041.166
+      },
+      {
+        "objective_cost": 834497,
+        "period_index": 41,
+        "solver_status": "optimal",
+        "total_load_mw": 64207.24
+      },
+      {
+        "objective_cost": 817470,
+        "period_index": 42,
+        "solver_status": "optimal",
+        "total_load_mw": 63236.112
+      },
+      {
+        "objective_cost": 799247,
+        "period_index": 43,
+        "solver_status": "optimal",
+        "total_load_mw": 62193.964
+      },
+      {
+        "objective_cost": 781052,
+        "period_index": 44,
+        "solver_status": "optimal",
+        "total_load_mw": 61151.815
+      },
+      {
+        "objective_cost": 764127,
+        "period_index": 45,
+        "solver_status": "optimal",
+        "total_load_mw": 60180.687
+      },
+      {
+        "objective_cost": 749625,
+        "period_index": 46,
+        "solver_status": "optimal",
+        "total_load_mw": 59346.761
+      },
+      {
+        "objective_cost": 738519,
+        "period_index": 47,
+        "solver_status": "optimal",
+        "total_load_mw": 58706.867
+      },
+      {
+        "objective_cost": 848382,
+        "period_index": 48,
+        "solver_status": "optimal",
+        "total_load_mw": 64996.46
+      },
+      {
+        "objective_cost": 845968,
+        "period_index": 49,
+        "solver_status": "optimal",
+        "total_load_mw": 64859.259
+      },
+      {
+        "objective_cost": 848382,
+        "period_index": 50,
+        "solver_status": "optimal",
+        "total_load_mw": 64996.46
+      },
+      {
+        "objective_cost": 855460,
+        "period_index": 51,
+        "solver_status": "optimal",
+        "total_load_mw": 65398.715
+      },
+      {
+        "objective_cost": 866721,
+        "period_index": 52,
+        "solver_status": "optimal",
+        "total_load_mw": 66038.609
+      },
+      {
+        "objective_cost": 881432,
+        "period_index": 53,
+        "solver_status": "optimal",
+        "total_load_mw": 66872.535
+      },
+      {
+        "objective_cost": 898632,
+        "period_index": 54,
+        "solver_status": "optimal",
+        "total_load_mw": 67843.663
+      },
+      {
+        "objective_cost": 917167,
+        "period_index": 55,
+        "solver_status": "optimal",
+        "total_load_mw": 68885.812
+      },
+      {
+        "objective_cost": 935857,
+        "period_index": 56,
+        "solver_status": "optimal",
+        "total_load_mw": 69927.96
+      },
+      {
+        "objective_cost": 953305,
+        "period_index": 57,
+        "solver_status": "optimal",
+        "total_load_mw": 70899.088
+      },
+      {
+        "objective_cost": 968297,
+        "period_index": 58,
+        "solver_status": "optimal",
+        "total_load_mw": 71733.014
+      },
+      {
+        "objective_cost": 979807,
+        "period_index": 59,
+        "solver_status": "optimal",
+        "total_load_mw": 72372.908
+      },
+      {
+        "objective_cost": 987068,
+        "period_index": 60,
+        "solver_status": "optimal",
+        "total_load_mw": 72775.163
+      },
+      {
+        "objective_cost": 989568,
+        "period_index": 61,
+        "solver_status": "optimal",
+        "total_load_mw": 72912.364
+      },
+      {
+        "objective_cost": 987068,
+        "period_index": 62,
+        "solver_status": "optimal",
+        "total_load_mw": 72775.163
+      },
+      {
+        "objective_cost": 979807,
+        "period_index": 63,
+        "solver_status": "optimal",
+        "total_load_mw": 72372.908
+      },
+      {
+        "objective_cost": 968297,
+        "period_index": 64,
+        "solver_status": "optimal",
+        "total_load_mw": 71733.014
+      },
+      {
+        "objective_cost": 953305,
+        "period_index": 65,
+        "solver_status": "optimal",
+        "total_load_mw": 70899.088
+      },
+      {
+        "objective_cost": 935857,
+        "period_index": 66,
+        "solver_status": "optimal",
+        "total_load_mw": 69927.96
+      },
+      {
+        "objective_cost": 917167,
+        "period_index": 67,
+        "solver_status": "optimal",
+        "total_load_mw": 68885.812
+      },
+      {
+        "objective_cost": 898632,
+        "period_index": 68,
+        "solver_status": "optimal",
+        "total_load_mw": 67843.663
+      },
+      {
+        "objective_cost": 881432,
+        "period_index": 69,
+        "solver_status": "optimal",
+        "total_load_mw": 66872.535
+      },
+      {
+        "objective_cost": 866721,
+        "period_index": 70,
+        "solver_status": "optimal",
+        "total_load_mw": 66038.609
+      },
+      {
+        "objective_cost": 855460,
+        "period_index": 71,
+        "solver_status": "optimal",
+        "total_load_mw": 65398.715
+      },
+      {
+        "objective_cost": 904443,
+        "period_index": 72,
+        "solver_status": "optimal",
+        "total_load_mw": 68170.827
+      },
+      {
+        "objective_cost": 902006,
+        "period_index": 73,
+        "solver_status": "optimal",
+        "total_load_mw": 68033.625
+      },
+      {
+        "objective_cost": 904443,
+        "period_index": 74,
+        "solver_status": "optimal",
+        "total_load_mw": 68170.827
+      },
+      {
+        "objective_cost": 911598,
+        "period_index": 75,
+        "solver_status": "optimal",
+        "total_load_mw": 68573.081
+      },
+      {
+        "objective_cost": 923011,
+        "period_index": 76,
+        "solver_status": "optimal",
+        "total_load_mw": 69212.975
+      },
+      {
+        "objective_cost": 937994,
+        "period_index": 77,
+        "solver_status": "optimal",
+        "total_load_mw": 70046.902
+      },
+      {
+        "objective_cost": 955442,
+        "period_index": 78,
+        "solver_status": "optimal",
+        "total_load_mw": 71018.029
+      },
+      {
+        "objective_cost": 974182,
+        "period_index": 79,
+        "solver_status": "optimal",
+        "total_load_mw": 72060.178
+      },
+      {
+        "objective_cost": 993046,
+        "period_index": 80,
+        "solver_status": "optimal",
+        "total_load_mw": 73102.326
+      },
+      {
+        "objective_cost": 1010839,
+        "period_index": 81,
+        "solver_status": "optimal",
+        "total_load_mw": 74073.454
+      },
+      {
+        "objective_cost": 1026254,
+        "period_index": 82,
+        "solver_status": "optimal",
+        "total_load_mw": 74907.381
+      },
+      {
+        "objective_cost": 1038179,
+        "period_index": 83,
+        "solver_status": "optimal",
+        "total_load_mw": 75547.275
+      },
+      {
+        "objective_cost": 1045690,
+        "period_index": 84,
+        "solver_status": "optimal",
+        "total_load_mw": 75949.529
+      },
+      {
+        "objective_cost": 1048251,
+        "period_index": 85,
+        "solver_status": "optimal",
+        "total_load_mw": 76086.731
+      },
+      {
+        "objective_cost": 1045690,
+        "period_index": 86,
+        "solver_status": "optimal",
+        "total_load_mw": 75949.529
+      },
+      {
+        "objective_cost": 1038179,
+        "period_index": 87,
+        "solver_status": "optimal",
+        "total_load_mw": 75547.275
+      },
+      {
+        "objective_cost": 1026254,
+        "period_index": 88,
+        "solver_status": "optimal",
+        "total_load_mw": 74907.381
+      },
+      {
+        "objective_cost": 1010839,
+        "period_index": 89,
+        "solver_status": "optimal",
+        "total_load_mw": 74073.454
+      },
+      {
+        "objective_cost": 993046,
+        "period_index": 90,
+        "solver_status": "optimal",
+        "total_load_mw": 73102.326
+      },
+      {
+        "objective_cost": 974182,
+        "period_index": 91,
+        "solver_status": "optimal",
+        "total_load_mw": 72060.178
+      },
+      {
+        "objective_cost": 955442,
+        "period_index": 92,
+        "solver_status": "optimal",
+        "total_load_mw": 71018.029
+      },
+      {
+        "objective_cost": 937994,
+        "period_index": 93,
+        "solver_status": "optimal",
+        "total_load_mw": 70046.902
+      },
+      {
+        "objective_cost": 923011,
+        "period_index": 94,
+        "solver_status": "optimal",
+        "total_load_mw": 69212.975
+      },
+      {
+        "objective_cost": 911598,
+        "period_index": 95,
+        "solver_status": "optimal",
+        "total_load_mw": 68573.081
+      },
+      {
+        "objective_cost": 941848,
+        "period_index": 96,
+        "solver_status": "optimal",
+        "total_load_mw": 70261.382
+      },
+      {
+        "objective_cost": 939382,
+        "period_index": 97,
+        "solver_status": "optimal",
+        "total_load_mw": 70124.181
+      },
+      {
+        "objective_cost": 941848,
+        "period_index": 98,
+        "solver_status": "optimal",
+        "total_load_mw": 70261.382
+      },
+      {
+        "objective_cost": 949075,
+        "period_index": 99,
+        "solver_status": "optimal",
+        "total_load_mw": 70663.636
+      },
+      {
+        "objective_cost": 960575,
+        "period_index": 100,
+        "solver_status": "optimal",
+        "total_load_mw": 71303.531
+      },
+      {
+        "objective_cost": 975572,
+        "period_index": 101,
+        "solver_status": "optimal",
+        "total_load_mw": 72137.457
+      },
+      {
+        "objective_cost": 993160,
+        "period_index": 102,
+        "solver_status": "optimal",
+        "total_load_mw": 73108.585
+      },
+      {
+        "objective_cost": 1012255,
+        "period_index": 103,
+        "solver_status": "optimal",
+        "total_load_mw": 74150.733
+      },
+      {
+        "objective_cost": 1031574,
+        "period_index": 104,
+        "solver_status": "optimal",
+        "total_load_mw": 75192.882
+      },
+      {
+        "objective_cost": 1049694,
+        "period_index": 105,
+        "solver_status": "optimal",
+        "total_load_mw": 76164.01
+      },
+      {
+        "objective_cost": 1065264,
+        "period_index": 106,
+        "solver_status": "optimal",
+        "total_load_mw": 76997.936
+      },
+      {
+        "objective_cost": 1077244,
+        "period_index": 107,
+        "solver_status": "optimal",
+        "total_load_mw": 77637.83
+      },
+      {
+        "objective_cost": 1084822,
+        "period_index": 108,
+        "solver_status": "optimal",
+        "total_load_mw": 78040.084
+      },
+      {
+        "objective_cost": 1087414,
+        "period_index": 109,
+        "solver_status": "optimal",
+        "total_load_mw": 78177.286
+      },
+      {
+        "objective_cost": 1084822,
+        "period_index": 110,
+        "solver_status": "optimal",
+        "total_load_mw": 78040.084
+      },
+      {
+        "objective_cost": 1077244,
+        "period_index": 111,
+        "solver_status": "optimal",
+        "total_load_mw": 77637.83
+      },
+      {
+        "objective_cost": 1065264,
+        "period_index": 112,
+        "solver_status": "optimal",
+        "total_load_mw": 76997.936
+      },
+      {
+        "objective_cost": 1049694,
+        "period_index": 113,
+        "solver_status": "optimal",
+        "total_load_mw": 76164.01
+      },
+      {
+        "objective_cost": 1031574,
+        "period_index": 114,
+        "solver_status": "optimal",
+        "total_load_mw": 75192.882
+      },
+      {
+        "objective_cost": 1012255,
+        "period_index": 115,
+        "solver_status": "optimal",
+        "total_load_mw": 74150.733
+      },
+      {
+        "objective_cost": 993160,
+        "period_index": 116,
+        "solver_status": "optimal",
+        "total_load_mw": 73108.585
+      },
+      {
+        "objective_cost": 975572,
+        "period_index": 117,
+        "solver_status": "optimal",
+        "total_load_mw": 72137.457
+      },
+      {
+        "objective_cost": 960575,
+        "period_index": 118,
+        "solver_status": "optimal",
+        "total_load_mw": 71303.531
+      },
+      {
+        "objective_cost": 949075,
+        "period_index": 119,
+        "solver_status": "optimal",
+        "total_load_mw": 70663.636
+      }
+    ]
+  },
+  "validation_status": "passed"
+}

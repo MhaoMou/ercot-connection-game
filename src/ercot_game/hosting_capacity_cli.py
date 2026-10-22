@@ -108,8 +108,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Compute exact one-bus hosting capacity for each requested period."
     )
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--artifact-dir", type=Path, help="validated ACTIVSg2000 block")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
+        "--artifact-dir",
+        type=Path,
+        help="validated ACTIVSg2000 block (default: the released representative-day package)",
+    )
     source.add_argument("--ieee14", action="store_true", help="use the bundled IEEE-14 smoke case")
     parser.add_argument("--horizon", type=_at_least_one("horizon"), help="available period count")
     parser.add_argument("--start-period", type=_nonnegative("start-period"), default=0)
@@ -197,7 +201,9 @@ def provider_for_args(args: argparse.Namespace):
     if args.ieee14:
         return ieee14_provider(), 1
     if args.artifact_dir is None:
-        raise ValueError("one input mode is required")
+        from .release_config import canonical_release_artifact_dir
+
+        args.artifact_dir = canonical_release_artifact_dir()
     artifact_dir = args.artifact_dir.resolve()
     if not artifact_dir.is_dir():
         raise ValueError(f"artifact directory does not exist or is not a directory: {artifact_dir}")
