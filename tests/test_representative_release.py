@@ -227,9 +227,9 @@ def test_per_period_weights_reproduce_a_hand_calculation():
     assert score.score == pytest.approx(it_value - energy - generator - 10 * 25e6 - 4 * 1.5e6)
 
 
-def test_default_weights_keep_the_half_year_time_step_scoring():
+def test_default_weights_use_the_rules_time_step():
     dispatch, values = _tiny_dispatch()
-    rules = BatchScoringRules(rules_version="6h", it_value_per_mwh=(1000.0,) * 3, time_step_hours=6.0)
+    rules = BatchScoringRules(rules_version="t", it_value_per_mwh=(1000.0,) * 3, time_step_hours=6.0)
     score = _score_team(_tiny_plan(), dispatch, rules, submission_number=2)
     assert score.it_value == pytest.approx(sum(load for load, _, _ in values) * 1000.0 * 6.0)
     assert score.served_load_mwh == pytest.approx(28.0 * 6.0)
@@ -267,7 +267,9 @@ def test_generator_cap_is_half_the_connection_in_the_release(tmp_path, capsys):
     assert "0.5 x connection capacity" in capsys.readouterr().out
     assert csv_validator.main(["--file", str(ok), "--artifact-dir", str(PACKAGE)]) == 0
     capsys.readouterr()
-    assert csv_validator.main(["--file", str(over), "--release", "half-year-6h"]) == 0
+    with pytest.raises(SystemExit):
+        csv_validator.main(["--file", str(over), "--release", "representative"])
+    capsys.readouterr()
 
 
 def test_batch_rejects_a_team_above_the_cap_and_scores_the_rest(tmp_path, monkeypatch):

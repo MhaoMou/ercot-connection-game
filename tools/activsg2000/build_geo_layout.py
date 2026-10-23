@@ -151,7 +151,7 @@ def build_layout(artifact_dir: Path, aux: Path, matpower_case: Path, boundary_ge
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--artifact-dir", type=Path, default=Path("data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun"))
+    parser.add_argument("--artifact-dir", type=Path, default=Path("data/processed/activsg2000_representative_v1"))
     parser.add_argument("--aux", type=Path, required=True)
     parser.add_argument("--matpower-case", type=Path, required=True)
     parser.add_argument("--boundary-geojson", type=Path, required=True)

@@ -1,10 +1,10 @@
-"""Persistent state for team-owned assets across half-year rounds.
+"""Persistent state for team-owned assets within one classroom week.
 
-The dispatch evaluator still evaluates one frozen half-year at a time.  This
-module provides the state contract needed by the multi-round game: a team's
-generator and storage assets remain owned by that team after the round in
-which they are first declared.  Students may choose display labels, while
-the ledger uses a stable team/site/kind identity internally.
+The ledger records the sites, generators and storage a team declared in a
+week's Submission 1, so that Submission 2 can treat those sites as fixed base
+load and reject reused site IDs.  It is reset at each weekly boundary.
+Students may choose display labels, while the ledger uses a stable
+team/site/kind identity internally.
 """
 
 from __future__ import annotations
@@ -24,25 +24,9 @@ class AssetStateError(ValueError):
     """Raised when a plan conflicts with previously persisted team assets."""
 
 
-def canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
+def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
     """Return the stable ledger identity for one team/site asset kind."""
     return f"{kind}:{team_id}:{connection_id}"
-
-
-def canonical_asset_keys_for_plan(plan: TeamPlan, *, kind: str) -> frozenset[str]:
-    """Return declared team/site identities, including site-only assets."""
-    _, generators, storages = _plan_components(plan)
-    assets = generators if kind == "generator" else storages if kind == "storage" else None
-    if assets is None:
-        raise ValueError(f"unsupported asset kind: {kind}")
-    return frozenset(
-        canonical_asset_key(plan.team_id, asset.connection_id, kind)
-        for asset in assets.values()
-    )
-
-
-def _canonical_asset_key(team_id: str, connection_id: str, kind: str) -> str:
-    return canonical_asset_key(team_id, connection_id, kind)
 
 
 class _AssetCollection(ABCMapping):
@@ -393,66 +377,6 @@ class AssetLedger:
                 if site_id not in {site.site_id for site in plan.sites}
             ) + tuple(sorted(plan.sites, key=lambda item: item.site_id)),
         )
-
-    def update_storage_soc(
-        self,
-        state_of_charge_mwh_by_team: Mapping[str, Mapping[str, float]],
-    ) -> "AssetLedger":
-        """Return a copy with validated end-of-round storage SOC values."""
-        if not isinstance(state_of_charge_mwh_by_team, Mapping):
-            raise AssetStateError("storage state of charge must be a mapping by team")
-        updated = dict(self.teams)
-        for team_id, storage_values in state_of_charge_mwh_by_team.items():
-            if team_id not in self.teams:
-                raise AssetStateError(f"unknown team in storage state of charge: {team_id}")
-            if not isinstance(storage_values, Mapping):
-                raise AssetStateError(
-                    f"storage state of charge for team {team_id} must be a mapping"
-                )
-            current = self.teams[team_id]
-            storages = current.storages.canonical_dict()
-            for storage_id, value in storage_values.items():
-                try:
-                    asset = current.storages[storage_id]
-                except KeyError:
-                    raise AssetStateError(
-                        f"unknown storage asset for team {team_id}: {storage_id}"
-                    )
-                if isinstance(value, bool) or not isinstance(value, (int, float)):
-                    raise AssetStateError(
-                        f"storage state of charge must be finite for {team_id}/{storage_id}"
-                    )
-                if not math.isfinite(value):
-                    raise AssetStateError(
-                        f"storage state of charge must be finite for {team_id}/{storage_id}"
-                    )
-                if value < 0.0 or value > asset.energy_mwh:
-                    raise AssetStateError(
-                        f"storage state of charge must be between 0 and energy capacity "
-                        f"for {team_id}/{storage_id}"
-                    )
-                if value < asset.energy_mwh * 0.5:
-                    raise AssetStateError(
-                        f"storage state of charge must be at least half of energy capacity "
-                        f"for {team_id}/{storage_id}"
-                    )
-                storages[asset.asset_key] = StorageAsset(
-                    team_id=asset.team_id,
-                    storage_id=asset.storage_id,
-                    connection_id=asset.connection_id,
-                    bus_id=asset.bus_id,
-                    power_mw=asset.power_mw,
-                    energy_mwh=asset.energy_mwh,
-                    state_of_charge_mwh=float(value),
-                )
-            updated[team_id] = TeamAssetState(
-                team_id=current.team_id,
-                sites=current.sites,
-                generators=current.generators,
-                storages=storages,
-                last_round_key=current.last_round_key,
-            )
-        return AssetLedger(version=self.version, teams=updated)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -868,7 +792,7 @@ def _deserialize_assets(
                 f"{kind} asset {serialized_id} has a mismatched team identity"
             )
         connection_id = payload.get("connection_id")
-        canonical_id = canonical_asset_key(team_id, connection_id, kind)
+        canonical_id = _canonical_asset_key(team_id, connection_id, kind)
         label = payload[f"{kind}_id"]
         if version == ASSET_LEDGER_SCHEMA_VERSION:
             if serialized_id != canonical_id:

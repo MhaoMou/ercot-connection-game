@@ -121,10 +121,10 @@ weights, which are the same as the main package's:
 
 - IT value 1000 $/MWh; every energy term of period t is weighted by
   `1 h x day weight x A`, `A = sum_{y=1..10} 1.07^-y = 7.024`
-- capital charged once, undiscounted: site 25 M$/MW, generator 1.5 M$/MW,
+- capital charged once, undiscounted: site 25 M$/MW, generator 2.0 M$/MW,
   storage 400 k$/MW + 250 k$/MWh
-- generator capacity at most 0.5 x connection capacity; cost curve
-  80/150/250 $/MWh
+- generator capacity at most 0.5 x connection capacity, at most 2 hours of
+  full output per day; cost curve 80/150/250 $/MWh
 - storage mode `daily_exact_cycle`
 
 A site breaks even at about 40.6% served (25e6 / (1000 x 8760 x A)).

@@ -1,4 +1,4 @@
-"""Turn the raw Electrify results in data/raw into plot tables and numbers.tex.
+"""Turn the raw server results in data/raw into plot tables and numbers.tex.
 
 Run from docs/guest_lecture:  python scripts/make_lecture_data.py
 All inputs come from the 2028 July-December block at one-hour resolution
@@ -131,7 +131,7 @@ if pair_file.exists():
     numbers["PairHCa"] = fmt(pair["hc_alone"][0])
     numbers["PairHCb"] = fmt(pair["hc_alone"][1])
     numbers["PairHCaGiven"] = fmt(pair["hc_a_given_b60"])
-    # Payoffs under the evaluator's uniform rule (scratch uniform_two_team.py on Electrify).
+    # Payoffs under the evaluator's uniform rule (scratch uniform_two_team.py on a server).
     uniform_file = RAW / "uniform_two_team_p1837.json"
     game = json.loads(uniform_file.read_text())["game"] if uniform_file.exists() else pair["game"]
     cell = lambda key: f"{game[key]['payoff_musd'][0]:,.0f} / {game[key]['payoff_musd'][1]:,.0f}"
@@ -156,7 +156,7 @@ if pair_file.exists():
         if nash else "No pure-strategy Nash equilibrium."
     )
 
-# --- Eight-team six-hour run -----------------------------------------------
+# --- Eight-team hourly run ------------------------------------------------
 eight = RAW / "eight_team_1h_summary.json"
 if eight.exists():
     summary = json.loads(eight.read_text())

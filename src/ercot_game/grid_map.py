@@ -1,8 +1,9 @@
 """Privacy-safe interactive grid map for classroom result releases.
 
 The map draws the ACTIVSg2000 network as a schematic graph.  Each bus is
-colored by the total connection capacity that *all* valid teams placed there,
-so no individual team's plan is shown.  When dispatch results are supplied,
+colored by the total MW *served* to all scored teams there (service fraction
+x connection capacity, from the evaluator output), so no individual team's
+plan is shown and rejected or dropped requests do not appear.  When dispatch results are supplied,
 each branch is colored by its peak loading (largest ``|flow| / limit`` over the
 evaluated hours).  Tooltips (``<title>`` elements) and a small pan/zoom script
 make the SVG interactive in any browser.
@@ -22,8 +23,6 @@ from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
-from .csv_submission import load_bus_ids
-from .csv_validator import validate_csv_submission
 
 LAYOUT_VERSION = "activsg2000-schematic-layout-v1"
 NEAR_LIMIT_FRACTION = 0.99
@@ -154,29 +153,33 @@ def load_layout_background(layout_path: str | Path) -> tuple[list[list[tuple[flo
     return paths, payload.get("provenance", {}).get("kind")
 
 
-def aggregate_connection_by_bus(
-    submission_dirs: Iterable[str | Path],
-    bus_ids: Iterable[str],
-) -> tuple[dict[str, float], int]:
-    """Sum connection capacity per bus over every valid CSV in the directories.
+def served_load_by_bus(evaluation_dirs: Iterable[str | Path]) -> tuple[dict[str, float], int]:
+    """Sum the MW served to every scored site per bus over evaluator outputs.
 
-    Invalid files are skipped, matching the evaluator.  Only per-bus totals are
-    returned; team and site identifiers are discarded.
+    Reads each output's ``site_net_withdrawal.csv``, which lists only sites
+    of teams that were scored feasible, at their projected load (service
+    fraction x connection capacity).  Rejected files (including Submission 2
+    files that reuse a Submission 1 site ID) and infeasible teams are not in
+    it; a team dropped by the minimum allocation is served 0 MW and adds
+    nothing.  A site's served MW is its largest hourly load (the projected
+    capacity for a flat CSV site).  Only per-bus totals are returned; team
+    and site identifiers are discarded.  Returns ``(totals, served_sites)``.
     """
-    known = frozenset(bus_ids)
+    from .base_load import read_site_net_withdrawal
+
     totals: dict[str, float] = {}
-    valid_files = 0
-    for directory in submission_dirs:
-        for path in sorted(Path(directory).glob("*.csv")):
-            if not validate_csv_submission(path, bus_ids=known).valid:
-                continue
-            valid_files += 1
-            with path.open(newline="", encoding="utf-8-sig") as handle:
-                for row in csv.DictReader(handle):
-                    capacity = float(row["connection_capacity_mw"])
-                    if capacity > 0:
-                        totals[row["bus_id"]] = totals.get(row["bus_id"], 0.0) + capacity
-    return totals, valid_files
+    served_sites = 0
+    for directory in evaluation_dirs:
+        peak: dict[tuple[str, str], tuple[str, float]] = {}
+        for row in read_site_net_withdrawal(directory):
+            key = (str(row["team_id"]), str(row["site_id"]))
+            previous = peak.get(key, (row["bus_id"], 0.0))[1]
+            peak[key] = (str(row["bus_id"]), max(previous, float(row["load_mw"])))
+        for bus_id, mw in peak.values():
+            if mw > 1e-9:
+                served_sites += 1
+                totals[bus_id] = totals.get(bus_id, 0.0) + mw
+    return totals, served_sites
 
 
 def branch_loading(
@@ -260,7 +263,6 @@ def render_svg(
     base_load_by_bus: Mapping[str, float] | None = None,
     loading_by_branch: Mapping[str, tuple[float, int]] | None = None,
     hours: int = 0,
-    time_step_hours: float = 1.0,
     title: str = "Grid map",
     subtitle: str = "",
     background_paths: Sequence[Sequence[tuple[float, float]]] = (),
@@ -298,12 +300,12 @@ def render_svg(
         out.append(f'<text x="{margin}" y="64" font-size="14">{escape(subtitle)}</text>')
     out.append(
         f'<text x="{margin}" y="86" font-size="12" fill="#57606a">{layout_note} '
-        "Bus color = total connection capacity of all teams at that bus. "
+        "Bus color = MW served to all scored teams at that bus. "
         "Hover for details; scroll to zoom, drag to pan, double-click to reset.</text>"
     )
     # Legend: bus colors and line loading.
     legend_y = 112
-    out.append(f'<text x="{margin}" y="{legend_y}" font-size="12" font-weight="bold">Teams\' connection at bus</text>')
+    out.append(f'<text x="{margin}" y="{legend_y}" font-size="12" font-weight="bold">MW served to teams at bus</text>')
     for i, fraction in enumerate((0.0, 0.25, 0.5, 0.75, 1.0)):
         cx = margin + 10 + i * 46
         out.append(f'<circle cx="{cx}" cy="{legend_y + 22}" r="7" fill="{_bus_color(fraction * max_mw, max_mw)}"/>')
@@ -311,7 +313,7 @@ def render_svg(
     out.append(f'<text x="{margin + 240}" y="{legend_y + 46}" font-size="11">MW</text>')
     if loading_by_branch is not None:
         lx = margin + 330
-        span = f"{hours} h" if time_step_hours == 1 else f"{hours} periods of {time_step_hours:g} h"
+        span = f"{hours} h"
         out.append(f'<text x="{lx}" y="{legend_y}" font-size="12" font-weight="bold">Peak line loading over {escape(span)}</text>')
         for i, (label, value) in enumerate((("< 50%", 0.0), ("50-80%", 0.6), ("80-99%", 0.9), ("at limit", 1.0))):
             color, stroke = _line_style(value)
@@ -334,8 +336,7 @@ def render_svg(
         tip = f"Line {branch.branch_id}: bus {branch.from_bus_id} to {branch.to_bus_id}, limit {branch.limit_mw:g} MW"
         if loading_by_branch is not None and branch.branch_id in loading_by_branch:
             loading, near_hours = loading_by_branch[branch.branch_id]
-            unit = "h" if time_step_hours == 1 else "periods"
-            tip += f"\npeak loading {loading:.0%}; at or near limit in {near_hours} of {hours} {unit}"
+            tip += f"\npeak loading {loading:.0%}; at or near limit in {near_hours} of {hours} h"
         color, stroke = _line_style(loading)
         x1, y1 = point(branch.from_bus_id)
         x2, y2 = point(branch.to_bus_id)
@@ -348,7 +349,7 @@ def render_svg(
         mw = connection_by_bus.get(bus_id, 0.0)
         tip = f"Bus {bus_id}\nbase load {base_load_by_bus.get(bus_id, 0.0):g} MW"
         if mw > 0:
-            tip += f"\nteams' connection capacity (all teams): {mw:g} MW"
+            tip += f"\nserved to teams (all teams): {mw:.1f} MW"
             radius = 3.5 + 6.5 * (mw / max_mw) ** 0.5
             out.append(
                 f'<circle class="site" cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" fill="{_bus_color(mw, max_mw)}" '
@@ -368,28 +369,29 @@ def render_svg(
 def build_map(
     *,
     artifact_dir: str | Path,
-    submission_dirs: Sequence[str | Path],
+    evaluation_dirs: Sequence[str | Path],
     layout_path: str | Path,
     dispatch_dir: str | Path | None = None,
     title: str = "Grid map",
     subtitle: str = "",
-    time_step_hours: float = 6.0,
 ) -> str:
     bus_ids, branches, base_load = load_network(artifact_dir)
     positions = load_or_create_layout(layout_path, bus_ids, branches)
     background_paths, layout_kind = load_layout_background(layout_path)
-    connection, _ = aggregate_connection_by_bus(submission_dirs, load_bus_ids(artifact_dir))
+    served, _ = served_load_by_bus(evaluation_dirs)
+    unknown = sorted(set(served) - set(bus_ids))
+    if unknown:
+        raise ValueError("evaluation output references buses outside the artifact: " + ", ".join(unknown[:5]))
     loading, hours = (None, 0)
     if dispatch_dir is not None:
         loading, hours = branch_loading(dispatch_dir, branches)
     return render_svg(
         positions=positions,
         branches=branches,
-        connection_by_bus=connection,
+        connection_by_bus=served,
         base_load_by_bus=base_load,
         loading_by_branch=loading,
         hours=hours,
-        time_step_hours=time_step_hours,
         background_paths=background_paths,
         layout_kind=layout_kind,
         title=title,
@@ -405,35 +407,25 @@ def _parser() -> argparse.ArgumentParser:
         help="scenario block directory (default: the released representative-day package)",
     )
     parser.add_argument(
-        "--submissions-dir", required=True, type=Path, action="append",
-        help="directory of team CSVs; repeat to include Submission 1 sites carried into Submission 2",
+        "--evaluation-dir", required=True, type=Path, action="append",
+        help=(
+            "batch_cli run output directory (its site_net_withdrawal.csv gives served MW); "
+            "repeat with the Submission 1 output to include Submission 1 sites carried into Submission 2"
+        ),
     )
-    parser.add_argument("--dispatch-dir", type=Path, help="evaluator dispatch/ directory with period_*.json files")
+    parser.add_argument(
+        "--dispatch-dir",
+        type=Path,
+        help="evaluator dispatch/ directory with period_*.json files (default: <last --evaluation-dir>/dispatch when present)",
+    )
     parser.add_argument(
         "--layout", type=Path, default=Path("data/teaching/activsg2000_layout_v1.json"),
         help="stored bus layout (created if missing)",
-    )
-    parser.add_argument(
-        "--time-step-hours",
-        type=float,
-        help="length of one dispatch period (default: the artifact's time_step_hours, else 6)",
     )
     parser.add_argument("--title", default="Grid map")
     parser.add_argument("--subtitle", default="")
     parser.add_argument("--output", required=True, type=Path)
     return parser
-
-
-def _artifact_time_step_hours(artifact_dir: Path) -> float:
-    for name in ("manifest.json", "scenario_profile.json"):
-        try:
-            payload = json.loads((artifact_dir / name).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        value = payload.get("time_step_hours") if isinstance(payload, dict) else None
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
-            return float(value)
-    return 6.0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -442,16 +434,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .release_config import canonical_release_artifact_dir
 
         args.artifact_dir = canonical_release_artifact_dir()
-    if args.time_step_hours is None:
-        args.time_step_hours = _artifact_time_step_hours(args.artifact_dir)
+    dispatch_dir = args.dispatch_dir
+    if dispatch_dir is None and (args.evaluation_dir[-1] / "dispatch").is_dir():
+        dispatch_dir = args.evaluation_dir[-1] / "dispatch"
     svg = build_map(
         artifact_dir=args.artifact_dir,
-        submission_dirs=args.submissions_dir,
+        evaluation_dirs=args.evaluation_dir,
         layout_path=args.layout,
-        dispatch_dir=args.dispatch_dir,
+        dispatch_dir=dispatch_dir,
         title=args.title,
         subtitle=args.subtitle,
-        time_step_hours=args.time_step_hours,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(svg, encoding="utf-8")

@@ -429,8 +429,17 @@ def evaluate_plans_with_prepared_dcopf(
     storage_max_iterations: int = 200,
     storage_boundary_mode: str = "half_year_terminal_floor",
     generator_daily_energy_hours: float | None = None,
+    storage_recourse_workers: int | None = None,
 ) -> BatchDispatchResult:
     """Evaluate all teams jointly on the shared prepared network.
+
+    ``workers`` threads solve independent hourly periods (deterministic).
+    ``storage_recourse_workers`` (default: ``workers``) threads solve the
+    hourly recourse LPs of the Benders routes; with more than one the
+    reusable recourse models are warm-started in a scheduling-dependent
+    order, so the dispatch can differ at solver tolerance from a serial
+    solve.  The batch evaluator passes 1 and parallelizes across whole
+    dispatches instead.
 
     ``generator_daily_energy_hours`` (h) limits each team generator of
     capacity G to h x G MWh per day (24-hour blocks of ``period_indices``).
@@ -499,6 +508,14 @@ def evaluate_plans_with_prepared_dcopf(
     budgeted = generator_daily_energy_hours is not None and any(
         generator.capacity_mw > 0.0 for plan in ordered_plans for generator in plan.generators
     )
+    if storage_recourse_workers is None:
+        storage_recourse_workers = workers
+    if (
+        not isinstance(storage_recourse_workers, int)
+        or isinstance(storage_recourse_workers, bool)
+        or storage_recourse_workers <= 0
+    ):
+        raise ValueError("storage_recourse_workers must be a positive integer")
     if any(plan.storages for plan in ordered_plans) or budgeted:
         return _evaluate_batch_with_central_storage(
             artifact_dir,
@@ -508,7 +525,7 @@ def evaluate_plans_with_prepared_dcopf(
             ordered_connections_by_team=ordered_connections_by_team,
             period_indices=period_indices,
             time_step_hours=time_step_hours,
-            workers=workers,
+            workers=storage_recourse_workers,
             storage_solver=storage_solver,
             storage_solver_backend=storage_solver_backend,
             storage_solver_threads=storage_solver_threads,

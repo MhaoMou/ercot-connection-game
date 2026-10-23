@@ -22,7 +22,7 @@ source blocks of ``activsg2000-scenarios-v1`` (``jan_jun`` followed by
 
 Bus demand is materialized in ``demand_bus.csv`` (one row per period), in
 the same way as the IEEE-14 demo package, so the package does not depend on
-the half-year calendar.  Generators, branches and DC lines are copied from
+the source-block calendar.  Generators, branches and DC lines are copied from
 the source block (static limits).  The manifest is marked ``passed`` only
 after every period has been solved with the single-period DCOPF.
 
@@ -437,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--source-package", type=Path, default=Path("data/processed/activsg2000_scenarios_v1"))
     parser.add_argument("--output-dir", type=Path, default=Path("data/processed/activsg2000_representative_v1"))
-    parser.add_argument("--year", type=int, default=SOURCE_YEAR)
+    parser.add_argument("--source-year", dest="year", type=int, default=SOURCE_YEAR)
     parser.add_argument("--skip-validation", action="store_true", help="write a pending manifest without DCOPF checks")
     args = parser.parse_args(argv)
     manifest = build_package(args.source_package, args.output_dir, year=args.year, validate=not args.skip_validation)

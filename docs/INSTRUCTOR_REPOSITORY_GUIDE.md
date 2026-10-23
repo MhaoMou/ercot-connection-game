@@ -8,9 +8,8 @@ release-approved scenario block, and produce auditable team scores.
 The released game runs on one representative-day package: 5 representative
 days x 24 hourly periods = 120 periods that together stand for the next ten
 years (no calendar years). Scores are ten-year present values. The hourly
-`activsg2000_scenarios_v1` blocks are its derivation input; the six-hour
-half-year package `activsg2000_scenarios_v2_6h` belongs to the retired
-half-year release.
+`activsg2000_scenarios_v1` source blocks are its derivation input; they are
+built locally and are not distributed.
 
 ## Production boundary
 
@@ -59,7 +58,8 @@ python -m pip install -e .
 
 ```bash
 ercot-game-check-csv \
-  --file path/to/team.csv --release representative
+  --file path/to/team.csv \
+  --artifact-dir data/processed/activsg2000_representative_v1
 
 # Submission 1 (the representative package and rules are the defaults)
 ercot-game-batch run \
@@ -91,8 +91,8 @@ generate. The seven-column CSV has no asset-ID columns; the evaluator assigns
 deterministic private generator and storage IDs internally from each team/site
 pair, and those IDs are not student inputs.
 `--artifact-dir` and `--horizon` remain optional catalog context for the
-checker; `--year` and `--round` belong to the retired half-year release. The retired hourly schema is kept
-only for explicitly marked compatibility fixtures.
+checker. The retired hourly schema is kept only for explicitly marked
+compatibility fixtures.
 
 ## Fast student preview
 
@@ -130,24 +130,50 @@ representative package): each Submission 1 site's hourly net grid withdrawal
 list only new sites. Release that base load to students as per-bus totals
 only, never as teams' plans. `--submission-number` is not a CSV field.
 
+To prepare that release before evaluating Submission 2, build and validate the
+Submission 2 artifact alone:
+
+```bash
+ercot-game-batch base-load \
+  --base-load-from <Submission 1 output dir> \
+  --output-dir <Submission 2 release data dir>
+```
+
+Every period is re-solved; periods that sit within solver tolerance of the
+feasibility boundary (Submission 1 serves teams up to that edge) are accepted
+after a demand change of at most 1e-3 MW, recorded in the artifact's
+`manifest.json` (`validation.tolerance_adjustments`); a real infeasibility
+stops with the offending periods and `validation_status: failed`. See
+`docs/ERCOT_INSTRUCTOR_BATCH_EVALUATION.md`. `--workers N` parallelizes the
+fair projection without changing results, `--roster <file>` lists teams with
+no submission, and the `classroom` command writes
+`instructor/final_leaderboard.csv` (the four graded scores and their total)
+and salts the private team folder names with an instructor-only secret.
+
 ## Classroom grid map
 
 After each evaluated submission, release a privacy-safe interactive map with
-the score breakdown and service fractions. Each bus is colored by the total
-connection capacity of all valid teams at that bus (no team or site IDs appear
-in the file), and each line by its peak loading over the 120 evaluated hours.
-The artifact defaults to the representative package.
+the score breakdown and service fractions. Each bus is colored by the total MW
+*served* to all scored teams at that bus (service fraction x connection
+capacity, read from the evaluator output's `site_net_withdrawal.csv`), so
+rejected files (including Submission 2 files that reuse a Submission 1
+`site_id`), infeasible teams and teams dropped by the minimum allocation add
+nothing; no team or site IDs appear in the file. Each line is colored by its
+peak loading over the 120 evaluated hours (from `dispatch/`, written with
+`--output-mode full`). The artifact defaults to the representative package.
 
 ```bash
 ercot-game-grid-map \
-  --submissions-dir <round submissions directory> \
-  --dispatch-dir <evaluator output directory>/dispatch \
+  --evaluation-dir <evaluator output directory> \
   --title "Week 2, Submission 1" \
   --output <release directory>/grid_map.svg
 ```
 
-For Submission 2, repeat `--submissions-dir` with the Submission 1 directory so
-Submission 1 sites (now base load) are shown too. The bus positions come from
+`--dispatch-dir` defaults to `<last --evaluation-dir>/dispatch` when present.
+For Submission 2, pass the Submission 1 output first and the Submission 2
+output second (`--evaluation-dir <S1 out> --evaluation-dir <S2 out>`) so
+Submission 1 sites (now base load) are shown too, with Submission 2 line
+loading. The bus positions come from
 `data/teaching/activsg2000_layout_v1.json`, a deterministic schematic layout
 (the scenario package has no coordinates), so every round's map looks the same.
 A bus with a single team still reveals that team's total at that bus, but not
@@ -162,5 +188,6 @@ large local outputs remain outside version control according to `.gitignore`.
 Run the active suite with:
 
 ```bash
+pip install -e ".[test]"   # once, installs pytest
 PYTHONPATH=.:src pytest -q
 ```

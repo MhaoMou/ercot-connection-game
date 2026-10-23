@@ -19,20 +19,16 @@ from .batch_evaluation import (
     write_batch_outputs,
 )
 from .base_load import (
+    BaseLoadValidationError,
     materialize_base_load_artifact,
     net_withdrawal_by_bus,
     read_site_net_withdrawal,
     site_ids_by_team,
 )
-from .calendars import HALF_YEAR_SCHEDULE_ID, half_year_calendar, round_sequence
-from .temporal_aggregation import aggregated_horizon
 from .round_coordinator import ClassroomRoundInput, evaluate_classroom
 from .release_config import (
-    LEGACY_TIME_STEP_HOURS,
-    canonical_artifact_dir,
     canonical_release_artifact_dir,
     canonical_release_rules_path,
-    canonical_rules_path,
     week_energy_cost_enabled,
 )
 from .scenario_package import REPRESENTATIVE_PACKAGE_VERSIONS
@@ -83,16 +79,6 @@ def _period_indices(value: str) -> tuple[int, ...]:
     if len(set(indices)) != len(indices):
         raise argparse.ArgumentTypeError("must not contain duplicate indices")
     return indices
-
-
-def _source_period_offset(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError("must be 0, 4344, or 4368") from None
-    if parsed not in (0, 4344, 4368):
-        raise argparse.ArgumentTypeError("must be 0, 4344, or 4368")
-    return parsed
 
 
 def _read_json(path: Path, label: str) -> object:
@@ -174,35 +160,23 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--rules", type=Path)
     run_parser.add_argument("--output-dir", required=True, type=Path)
     run_parser.add_argument("--horizon", type=_positive_int)
-    run_parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="retired half-year release: scenario year")
-    run_parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="retired half-year release: half-year")
-    run_parser.add_argument(
-        "--time-step-hours",
-        type=_positive_int,
-        choices=(1, 6),
-        default=LEGACY_TIME_STEP_HOURS,
-        help="retired half-year release only: interval of one period with --year/--round (default 6)",
-    )
     run_parser.add_argument(
         "--submission-number",
         type=int,
         choices=(1, 2),
-        default=None,
-        help=(
-            "weekly submission number (default 1 for the representative release, 2 otherwise); "
-            "for the retired half-year release it also sets the energy charge (1 = none, 2 = LMP)"
-        ),
+        default=1,
+        help="weekly submission number (default 1); Submission 2 needs --base-load-from",
     )
     run_parser.add_argument(
         "--energy-cost",
         choices=("on", "off"),
-        help="charge grid purchases at the joint-dispatch LMP (on) or not (off); required for the representative release unless --week is given",
+        help="charge grid purchases at the joint-dispatch LMP (on) or not (off); required unless --week is given",
     )
     run_parser.add_argument(
         "--week",
         type=int,
         choices=(1, 2, 3),
-        help="representative release week; sets the energy charge (weeks 1-2 off, week 3 on)",
+        help="game week; sets the energy charge (weeks 1-2 off, week 3 on)",
     )
     run_parser.add_argument(
         "--base-load-from",
@@ -240,13 +214,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="optional comma-separated zero-based local scoring periods; defaults to the full horizon",
     )
     run_parser.add_argument(
-        "--source-period-offset",
-        required=False,
-        type=_source_period_offset,
-        default=None,
-        help="source-artifact row offset: 0 for Jan-Jun or 4368 for Jul-Dec; inferred from horizon when omitted",
-    )
-    run_parser.add_argument(
         "--output-mode",
         choices=("full", "compact"),
         default="full",
@@ -265,10 +232,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="native solver threads per reusable recourse model; avoid combining large values with --workers",
     )
     run_parser.add_argument(
+        "--roster",
+        type=Path,
+        help="optional class roster (one team_id per line, or a CSV with a team_id column); "
+        "teams without a submission are listed in the summary and roster_check.json",
+    )
+    run_parser.add_argument(
         "--region-map",
         required=False,
         type=Path,
         help="deprecated legacy region map; new submissions use artifact bus IDs directly",
+    )
+    base_load_parser = subparsers.add_parser(
+        "base-load",
+        help="build and validate the Submission 2 release data from a Submission 1 output",
+    )
+    base_load_parser.add_argument(
+        "--base-load-from",
+        required=True,
+        type=Path,
+        help="Submission 1 output directory (its site_net_withdrawal.csv becomes base load)",
+    )
+    base_load_parser.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+        help="where to write the derived Submission 2 scenario artifact",
+    )
+    base_load_parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        help="source scenario artifact (default: the released representative package)",
+    )
+    base_load_parser.add_argument("--horizon", type=_positive_int)
+    base_load_parser.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=1,
+        help="parallel period validations",
     )
     classroom_parser = subparsers.add_parser(
         "classroom",
@@ -277,6 +278,12 @@ def _build_parser() -> argparse.ArgumentParser:
     classroom_parser.add_argument("--manifest", required=True, type=Path)
     classroom_parser.add_argument("--state-path", required=False, type=Path)
     classroom_parser.add_argument("--output-dir", required=True, type=Path)
+    classroom_parser.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=1,
+        help="parallel dispatch workers per round (as for run)",
+    )
     return parser
 
 
@@ -314,15 +321,21 @@ def _classroom_round_inputs(manifest_path: Path) -> tuple[ClassroomRoundInput, .
             base_dir=base_dir,
             label=f"round {index} rules",
         )
+        if not artifact_dir.is_dir():
+            raise ValueError(
+                f"classroom manifest round {index} ({round_key}) artifact_dir does not exist "
+                f"or is not a directory: {artifact_dir}"
+            )
         if "horizon" in raw_round:
             horizon = _positive_int(str(raw_round["horizon"]))
-        elif round_key in round_sequence(HALF_YEAR_SCHEDULE_ID):
-            year, round_name = round_key.split("_", 1)
-            horizon = half_year_calendar(int(year), round_name).horizon
         else:
             horizon = _manifest_horizon(artifact_dir)
             if horizon is None:
-                raise ValueError(f"classroom manifest round {index} must provide horizon")
+                raise ValueError(
+                    f"classroom manifest round {index} ({round_key}): artifact_dir {artifact_dir} "
+                    "declares no horizon in its manifest.json (is it a scenario block such as "
+                    "data/processed/activsg2000_representative_v1?); give \"horizon\" in the round"
+                )
         rules = load_scoring_rules(rules_path, artifact_dir=artifact_dir, horizon=horizon)
         inputs.append(
             ClassroomRoundInput(
@@ -340,6 +353,114 @@ def _classroom_round_inputs(manifest_path: Path) -> tuple[ClassroomRoundInput, .
     return tuple(inputs)
 
 
+CLASSROOM_INSTRUCTOR_DIR = "instructor"
+_TEAM_FOLDER_SECRET_FILE = "team_folder_secret.txt"
+_GRADED_ROUNDS = (
+    ("week-2-submission-1", "week2_s1"),
+    ("week-2-submission-2", "week2_s2"),
+    ("week-3-submission-1", "week3_s1"),
+    ("week-3-submission-2", "week3_s2"),
+)
+
+
+def _team_folder_key(instructor_dir: Path) -> bytes:
+    """Per-class secret salting the private team folder names.
+
+    Created once (random) under the instructor-only directory and reused on
+    resume, so a team's folder name is stable within a class but cannot be
+    derived from its team ID without the secret.
+    """
+    import secrets
+
+    path = instructor_dir / _TEAM_FOLDER_SECRET_FILE
+    if path.is_file():
+        text = path.read_text(encoding="utf-8").strip()
+        if len(text) < 32:
+            raise ValueError(f"team folder secret {path} is too short")
+        return text.encode("utf-8")
+    instructor_dir.mkdir(parents=True, exist_ok=True)
+    text = secrets.token_hex(32)
+    path.write_text(text + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return text.encode("utf-8")
+
+
+def _write_round_scores(instructor_dir: Path, round_result, folders: Mapping[str, str]) -> None:
+    """Persist one round's per-team scores (instructor-only, resume-safe)."""
+    rows_dir = instructor_dir / "round_scores"
+    rows_dir.mkdir(parents=True, exist_ok=True)
+    scores = tuple(getattr(round_result.evaluation, "team_scores", ()) or ())
+    with (rows_dir / f"{round_result.round_key}.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(("team_id", "team_folder", "valid", "feasible", "score", "failure_reason"))
+        for score in sorted(scores, key=lambda item: item.team_id):
+            writer.writerow(
+                (
+                    score.team_id,
+                    folders.get(score.team_id, ""),
+                    score.valid,
+                    score.feasible,
+                    repr(float(score.score)),
+                    getattr(score, "failure_reason", None) or "",
+                )
+            )
+
+
+def _write_final_leaderboard(instructor_dir: Path) -> Path:
+    """Write final_leaderboard.csv: the four graded scores and their total.
+
+    Built from every persisted graded round (also those of earlier, resumed
+    runs).  A team without a scored file in a round gets 0 for it; rounds
+    not yet evaluated are left empty and listed in ``missing_rounds``.
+    """
+    rows_dir = instructor_dir / "round_scores"
+    by_team: dict[str, dict[str, float]] = {}
+    folders: dict[str, str] = {}
+    present = []
+    for round_key, column in _GRADED_ROUNDS:
+        path = rows_dir / f"{round_key}.csv"
+        if not path.is_file():
+            continue
+        present.append(column)
+        with path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                by_team.setdefault(row["team_id"], {})[column] = float(row["score"])
+                if row.get("team_folder"):
+                    folders[row["team_id"]] = row["team_folder"]
+    missing = [column for _key, column in _GRADED_ROUNDS if column not in present]
+    totals = {
+        team_id: sum(values.get(column, 0.0) for column in present)
+        for team_id, values in by_team.items()
+    }
+    ordered = sorted(totals, key=lambda team_id: (-totals[team_id], team_id))
+    instructor_dir.mkdir(parents=True, exist_ok=True)
+    path = instructor_dir / "final_leaderboard.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(
+            ("rank", "team_id", "team_folder", *(column for _key, column in _GRADED_ROUNDS), "total", "missing_rounds")
+        )
+        for rank, team_id in enumerate(ordered, start=1):
+            values = by_team[team_id]
+            writer.writerow(
+                (
+                    rank,
+                    team_id,
+                    folders.get(team_id, ""),
+                    *(
+                        repr(values.get(column, 0.0)) if column in present else ""
+                        for _key, column in _GRADED_ROUNDS
+                    ),
+                    repr(totals[team_id]),
+                    ";".join(missing),
+                )
+            )
+    return path
+
+
 def _run_classroom(args: argparse.Namespace) -> int:
     manifest_path = args.manifest.resolve()
     round_inputs = _classroom_round_inputs(manifest_path)
@@ -348,7 +469,10 @@ def _run_classroom(args: argparse.Namespace) -> int:
     result = evaluate_classroom(
         state_path=state_path,
         rounds=round_inputs,
+        evaluator_kwargs={"dispatch_workers": args.workers} if args.workers != 1 else None,
     )
+    instructor_dir = output_dir / CLASSROOM_INSTRUCTOR_DIR
+    folder_key = _team_folder_key(instructor_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     round_inputs_by_key = {item.round_key: item for item in round_inputs}
@@ -367,7 +491,7 @@ def _run_classroom(args: argparse.Namespace) -> int:
             period.period_index for period in periods
         ) or tuple(range(round_input.horizon))
         round_output_dir = output_dir / round_result.week_id / f"submission-{round_result.submission_number}"
-        write_classroom_outputs(
+        folders = write_classroom_outputs(
             round_result.evaluation,
             round_output_dir,
             week_id=round_result.week_id,
@@ -380,8 +504,11 @@ def _run_classroom(args: argparse.Namespace) -> int:
             source_period_indices=(
                 getattr(round_result.evaluation, "source_period_indices", None) or None
             ),
+            team_folder_key=folder_key,
         )
+        _write_round_scores(instructor_dir, round_result, folders or {})
         round_output_dirs.append(round_output_dir.relative_to(output_dir).as_posix())
+    leaderboard_path = _write_final_leaderboard(instructor_dir)
 
     public_payload = result.to_public_dict()
     public_payload["round_output_dirs"] = round_output_dirs
@@ -393,79 +520,178 @@ def _run_classroom(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
     print(f"output directory: {output_dir.resolve()}")
+    print(f"final leaderboard (instructor-only): {leaderboard_path.resolve()}")
     processed_count = len(result.submissions)
     submission_label = "submission" if processed_count == 1 else "submissions"
-    print(f"summary: {processed_count} half-year {submission_label}")
+    print(f"summary: {processed_count} {submission_label} evaluated")
     return 0
 
 
-def _energy_cost_setting(args: argparse.Namespace, representative: bool) -> bool | None:
+def _energy_cost_setting(args: argparse.Namespace) -> bool:
     explicit = None if args.energy_cost is None else args.energy_cost == "on"
     from_week = None if args.week is None else week_energy_cost_enabled(args.week)
     if explicit is not None and from_week is not None and explicit != from_week:
         raise ValueError(f"--energy-cost {args.energy_cost} contradicts week {args.week}")
     setting = explicit if explicit is not None else from_week
-    if setting is None and representative:
+    if setting is None:
         raise ValueError(
-            "the representative release needs --energy-cost on|off or --week 1|2|3 "
+            "provide --energy-cost on|off or --week 1|2|3 "
             "(weeks 1-2: off, week 3: on)"
         )
     return setting
 
 
+def _rejection_lines(result) -> list[str]:
+    """One line per rejected file, so an all-rejected folder is explained."""
+    lines = []
+    for record in getattr(result, "rejected_submissions", ()) or ():
+        name = getattr(getattr(record, "path", None), "name", None) or record.team_id
+        lines.append(f"rejected {name} (team {record.team_id}): {record.failure_reason}")
+    return lines
+
+
+def _build_base_load(
+    artifact_dir: Path,
+    base_load_from: Path,
+    derived_dir: Path,
+    *,
+    horizon: int,
+    validate: bool,
+    workers: int = 1,
+) -> list[dict]:
+    """Write (and validate) the Submission 2 base-load artifact; return the withdrawal rows."""
+    withdrawal_rows = read_site_net_withdrawal(base_load_from)
+    try:
+        manifest = materialize_base_load_artifact(
+            artifact_dir,
+            net_withdrawal_by_bus(withdrawal_rows, horizon),
+            derived_dir,
+            provenance={"submission_1_output": str(base_load_from)},
+            validate=validate,
+            workers=workers,
+        )
+    except BaseLoadValidationError:
+        raise
+    except (RuntimeError, ValueError) as exc:
+        raise ValueError(f"Submission 2 base-load validation ({derived_dir}): {exc}") from exc
+    validation = manifest.get("validation", {})
+    print(f"submission 2 base load artifact: {derived_dir.resolve()}")
+    if not validate:
+        print("submission 2 base load validation: skipped (--skip-base-load-validation)")
+    else:
+        adjusted = validation.get("tolerance_adjusted_period_count", 0)
+        line = (
+            f"submission 2 base load validation: passed {validation.get('passed_period_count')} periods"
+        )
+        if adjusted:
+            line += (
+                f"; {adjusted} periods within tolerance after "
+                f"{validation.get('tolerance_adjusted_total_mw'):.3g} MW of demand change "
+                "(recorded in manifest.json)"
+            )
+        print(line)
+    return withdrawal_rows
+
+
+def _run_base_load(args: argparse.Namespace) -> int:
+    artifact_dir = args.artifact_dir or canonical_release_artifact_dir()
+    if not Path(artifact_dir).is_dir():
+        raise ValueError(f"artifact directory does not exist or is not a directory: {artifact_dir}")
+    horizon = args.horizon or _manifest_horizon(artifact_dir)
+    if horizon is None:
+        raise ValueError("provide --horizon (the artifact manifest declares none)")
+    _build_base_load(
+        artifact_dir,
+        args.base_load_from,
+        args.output_dir,
+        horizon=horizon,
+        validate=True,
+        workers=args.workers,
+    )
+    return 0
+
+
+def _read_roster(path: Path) -> tuple[str, ...]:
+    """Team IDs of a roster: one per line, or a CSV with a ``team_id`` column."""
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"could not read roster {path}: {exc}") from None
+    rows = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+    if rows and "team_id" in [cell.strip() for cell in rows[0].split(",")]:
+        reader = csv.DictReader(rows)
+        team_ids = [str(row.get("team_id") or "").strip() for row in reader]
+    else:
+        team_ids = [row.split(",")[0].strip() for row in rows]
+    team_ids = [team_id for team_id in team_ids if team_id]
+    if not team_ids:
+        raise ValueError(f"roster {path} lists no team_id")
+    duplicates = sorted({team_id for team_id in team_ids if team_ids.count(team_id) > 1})
+    if duplicates:
+        raise ValueError(f"roster {path} lists duplicate team_id: {', '.join(duplicates)}")
+    return tuple(team_ids)
+
+
+def _write_roster_check(roster: tuple[str, ...], result, output_dir: Path) -> str:
+    """Write roster_check.json and return the summary line."""
+    submitted = {score.team_id for score in result.team_scores}
+    missing = sorted(set(roster) - submitted)
+    payload = {
+        "roster_team_count": len(roster),
+        "submitted_roster_team_count": len(set(roster) & submitted),
+        "missing_team_ids": missing,
+        "not_on_roster_team_ids": sorted(submitted - set(roster)),
+    }
+    (Path(output_dir) / "roster_check.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    line = f"roster: {payload['submitted_roster_team_count']} of {len(roster)} teams submitted"
+    line += f"; missing: {', '.join(missing)}" if missing else "; none missing"
+    if payload["not_on_roster_team_ids"]:
+        line += f"; not on roster: {', '.join(payload['not_on_roster_team_ids'])}"
+    return line
+
+
 def _run(args: argparse.Namespace) -> int:
-    uses_half_year = args.year is not None or args.round_name is not None
-    if args.artifact_dir is None and args.rules is None and not uses_half_year:
+    if not Path(args.submissions_dir).is_dir():
+        raise ValueError(f"submissions directory not found: {args.submissions_dir}")
+    if args.artifact_dir is None and args.rules is None:
         args.artifact_dir = canonical_release_artifact_dir()
         args.rules = canonical_release_rules_path()
     elif args.rules is None and args.artifact_dir is not None and _is_representative(args.artifact_dir):
         args.rules = canonical_release_rules_path()
     elif args.artifact_dir is None or args.rules is None:
-        if args.year is None or args.round_name is None:
-            raise ValueError(
-                "provide --artifact-dir and --rules, omit both for the representative release, "
-                "or provide --year and --round for the retired six-hour release"
-            )
-        args.artifact_dir = canonical_artifact_dir(args.year, args.round_name)
-        args.rules = canonical_rules_path(args.round_name)
+        raise ValueError(
+            "provide --artifact-dir and --rules, or omit both for the released "
+            "representative-day package"
+        )
     if not args.artifact_dir.is_dir():
         raise ValueError(
             f"artifact directory does not exist or is not a directory: {args.artifact_dir}"
         )
     representative = _is_representative(args.artifact_dir)
-    if args.horizon is None and not uses_half_year:
+    if args.horizon is None:
         horizon = _manifest_horizon(args.artifact_dir)
         if horizon is None:
-            raise ValueError("provide --horizon or both --year and --round")
-        calendar = None
-    elif args.horizon is None:
-        if args.year is None or args.round_name is None:
-            raise ValueError("provide --horizon or both --year and --round")
-        calendar = half_year_calendar(args.year, args.round_name)
-        horizon = aggregated_horizon(calendar.horizon, args.time_step_hours)
+            raise ValueError("provide --horizon (the artifact manifest declares none)")
     else:
-        if args.year is not None or args.round_name is not None:
-            raise ValueError("--year/--round cannot be combined with --horizon")
-        calendar = None
         horizon = args.horizon
-    if args.submission_number is None:
-        args.submission_number = 1 if representative else 2
-    energy_cost_enabled = _energy_cost_setting(args, representative)
+    energy_cost_enabled = _energy_cost_setting(args)
+    roster = _read_roster(args.roster) if args.roster is not None else None
     reserved_site_ids = None
     if args.base_load_from is not None:
         if args.submission_number != 2:
             raise ValueError("--base-load-from applies to --submission-number 2")
-        withdrawal_rows = read_site_net_withdrawal(args.base_load_from)
-        reserved_site_ids = site_ids_by_team(withdrawal_rows)
         derived_dir = args.base_load_artifact_dir or args.output_dir / "base_load_artifact"
-        materialize_base_load_artifact(
+        withdrawal_rows = _build_base_load(
             args.artifact_dir,
-            net_withdrawal_by_bus(withdrawal_rows, horizon),
+            args.base_load_from,
             derived_dir,
-            provenance={"submission_1_output": str(args.base_load_from)},
+            horizon=horizon,
             validate=not args.skip_base_load_validation,
+            workers=args.workers,
         )
-        print(f"submission 2 base load artifact: {derived_dir.resolve()}")
+        reserved_site_ids = site_ids_by_team(withdrawal_rows)
         args.artifact_dir = derived_dir
     elif representative and args.submission_number == 2:
         raise ValueError(
@@ -483,15 +709,6 @@ def _run(args: argparse.Namespace) -> int:
         if args.period_indices is None
         else args.period_indices
     )
-    # A validated ACTIVSg2000 scenario block is indexed locally from hour 0.
-    # The legacy calendar offset applies only to the retired contiguous-source
-    # artifacts and must not shift a half-year block into a different block.
-    scenario_block_offset = (
-        0
-        if (args.artifact_dir / "scenario_profile.json").is_file()
-        and args.source_period_offset is None
-        else None
-    )
     result = evaluate_csv_batch(
         args.submissions_dir,
         artifact_dir=args.artifact_dir,
@@ -499,28 +716,14 @@ def _run(args: argparse.Namespace) -> int:
         horizon=horizon,
         rules=rules,
         period_indices=period_indices,
-        source_period_offset=(
-            args.source_period_offset
-            if args.source_period_offset is not None
-            else scenario_block_offset
-            if scenario_block_offset is not None
-            else calendar.source_row_start
-            if calendar is not None
-            else None
-        ),
+        source_period_offset=0,
         dispatch_workers=args.workers,
         projection_iterations=args.projection_iterations,
         storage_solver_backend=args.solver_backend,
         storage_solver_threads=args.solver_threads,
         submission_number=args.submission_number,
-        **(
-            {}
-            if energy_cost_enabled is None and reserved_site_ids is None
-            else {
-                "energy_cost_enabled": energy_cost_enabled,
-                "reserved_site_ids_by_team": reserved_site_ids,
-            }
-        ),
+        energy_cost_enabled=energy_cost_enabled,
+        reserved_site_ids_by_team=reserved_site_ids,
     )
     write_batch_outputs(
         result,
@@ -532,7 +735,15 @@ def _run(args: argparse.Namespace) -> int:
         output_mode=args.output_mode,
     )
     print(f"output directory: {args.output_dir.resolve()}")
+    for line in _rejection_lines(result):
+        print(line)
     print(_summary(result))
+    if roster is not None:
+        print(_write_roster_check(roster, result, args.output_dir))
+    else:
+        (Path(args.output_dir) / "roster_check.json").unlink(missing_ok=True)
+    if not any(score.valid for score in result.team_scores):
+        print("no valid CSV submissions were found", file=sys.stderr)
     return 0
 
 
@@ -542,6 +753,8 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
         if args.command == "classroom":
             return _run_classroom(args)
+        if args.command == "base-load":
+            return _run_base_load(args)
         if args.command != "run":
             parser.error("a command is required")
         return _run(args)

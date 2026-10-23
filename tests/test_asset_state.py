@@ -49,18 +49,18 @@ def _plan(
 
 
 def test_register_plan_persists_team_owned_assets_and_round_metadata() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
 
     assert ledger.version == 2
     assert ledger.team("team-a").generators["gen-1"].bus_id == "b0001"
     assert ledger.team("team-a").generators["gen-1"].capacity_mw == 10.0
     assert ledger.team("team-a").storages["store-1"].energy_mwh == 20.0
     assert ledger.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
-    assert ledger.team("team-a").last_round_key == "2027_jan_jun"
+    assert ledger.team("team-a").last_round_key == "week-1-submission-1"
 
 
 def test_round_trip_json_preserves_assets_deterministically() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
 
     payload = ledger.to_dict()
     restored = AssetLedger.from_dict(json.loads(json.dumps(payload)))
@@ -69,7 +69,7 @@ def test_round_trip_json_preserves_assets_deterministically() -> None:
 
 
 def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     del payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"]["state_of_charge_mwh"]
 
@@ -79,7 +79,7 @@ def test_legacy_storage_asset_without_soc_loads_half_full() -> None:
 
 
 def test_persisted_storage_soc_null_is_rejected_instead_of_defaulting() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"]["state_of_charge_mwh"] = None
 
@@ -89,7 +89,7 @@ def test_persisted_storage_soc_null_is_rejected_instead_of_defaulting() -> None:
 
 @pytest.mark.parametrize("value", [9.0, 21.0, float("nan"), float("inf")])
 def test_persisted_storage_soc_must_be_finite_and_within_terminal_bounds(value) -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"]["state_of_charge_mwh"] = value
 
@@ -157,7 +157,7 @@ def test_direct_storage_asset_rejects_invalid_dimensions(field, value) -> None:
     ],
 )
 def test_asset_ledger_from_dict_rejects_invalid_storage_dimensions(field, value) -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     payload["teams"]["team-a"]["storages"]["storage:team-a:site-1"][field] = value
 
@@ -165,63 +165,25 @@ def test_asset_ledger_from_dict_rejects_invalid_storage_dimensions(field, value)
         AssetLedger.from_dict(payload)
 
 
-def test_update_storage_soc_returns_new_ledger_and_round_trips() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
-
-    updated = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
-
-    assert ledger.team("team-a").storages["store-1"].state_of_charge_mwh == 10.0
-    assert updated.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
-    assert AssetLedger.from_dict(updated.to_dict()) == updated
-
-
-@pytest.mark.parametrize(
-    "mapping, message",
-    [
-        ({"team-a": {"store-1": -1.0}}, "between 0 and energy capacity"),
-        ({"team-a": {"store-1": 9.0}}, "at least half"),
-        ({"team-a": {"store-1": 21.0}}, "between 0 and energy capacity"),
-        ({"team-a": {"store-1": float("nan")}}, "finite"),
-        ({"team-x": {"store-1": 10.0}}, "unknown team"),
-        ({"team-a": {"store-x": 10.0}}, "unknown storage asset"),
-    ],
-)
-def test_update_storage_soc_validates_bounds_and_ownership(mapping, message) -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
-
-    with pytest.raises(AssetStateError, match=message):
-        ledger.update_storage_soc(mapping)
-
-
 def test_same_asset_id_can_be_reused_only_with_identical_specification() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
 
-    unchanged = ledger.register_plan(_plan(), round_key="2027_jul_dec")
-    assert unchanged.team("team-a").last_round_key == "2027_jul_dec"
+    unchanged = ledger.register_plan(_plan(), round_key="week-1-submission-2")
+    assert unchanged.team("team-a").last_round_key == "week-1-submission-2"
 
     with pytest.raises(AssetStateError, match="generator gen-1 conflicts"):
         ledger.register_plan(
             _plan(generator_capacity=11.0),
-            round_key="2027_jul_dec",
+            round_key="week-1-submission-2",
         )
 
 
-def test_register_plan_preserves_existing_storage_soc() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
-    ledger = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
-
-    repeated = ledger.register_plan(_plan(), round_key="2027_jul_dec")
-
-    assert repeated.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
-
-
 def test_same_team_site_and_kind_reuses_asset_when_submitted_label_changes() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
-    ledger = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
 
     renamed = ledger.register_plan(
         _plan(generator_id="friendly-generator", storage_id="battery-label"),
-        round_key="2027_jul_dec",
+        round_key="week-1-submission-2",
     )
 
     team = renamed.team("team-a")
@@ -229,14 +191,13 @@ def test_same_team_site_and_kind_reuses_asset_when_submitted_label_changes() -> 
     assert len(team.storages) == 1
     assert team.generators["friendly-generator"].asset_key == "generator:team-a:site-1"
     assert team.storages["battery-label"].asset_key == "storage:team-a:site-1"
-    assert team.storages["battery-label"].state_of_charge_mwh == 15.0
 
 
 def test_different_sites_and_asset_kinds_keep_distinct_internal_identities() -> None:
-    first = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    first = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     combined = first.register_plan(
         _plan(site_id="site-2", bus_id="b0002", generator_id="gen-1", storage_id="store-1"),
-        round_key="2027_jul_dec",
+        round_key="week-1-submission-2",
     )
 
     team = combined.team("team-a")
@@ -269,10 +230,7 @@ def test_round_trip_preserves_assets_when_display_label_collides_with_canonical_
         ),
     )
 
-    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
-    ledger = ledger.update_storage_soc(
-        {"team-a": {"storage-at-site-a": 15.0, "storage-at-site-b": 12.0}}
-    )
+    ledger = AssetLedger.empty().register_plan(plan, round_key="week-1-submission-1")
 
     payload = ledger.to_dict()
     restored = AssetLedger.from_dict(json.loads(json.dumps(payload)))
@@ -289,26 +247,25 @@ def test_round_trip_preserves_assets_when_display_label_collides_with_canonical_
     assert team.generators.canonical_get("generator:team-a:site-a").marginal_cost_per_mwh == 16.0
     assert team.generators.canonical_get("generator:team-a:site-b").capacity_mw == 12.0
     assert team.generators.canonical_get("generator:team-a:site-b").marginal_cost_per_mwh == 22.0
-    assert team.storages["storage-at-site-a"].state_of_charge_mwh == 15.0
-    assert team.storages["storage-at-site-b"].state_of_charge_mwh == 12.0
+    assert team.storages["storage-at-site-a"].energy_mwh == 20.0
+    assert team.storages["storage-at-site-b"].energy_mwh == 16.0
     assert restored.to_dict() == payload
 
 
-def test_reset_clears_assets_and_storage_soc_for_a_new_weekly_match() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
-    ledger = ledger.update_storage_soc({"team-a": {"store-1": 15.0}})
+def test_reset_clears_assets_for_a_new_weekly_match() -> None:
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
 
     reset = ledger.reset()
 
     assert reset.team_ids() == ()
-    assert ledger.team("team-a").storages["store-1"].state_of_charge_mwh == 15.0
+    assert ledger.team_ids() == ("team-a",)
 
 
 def test_asset_ids_are_scoped_to_team_ownership() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     ledger = ledger.register_plan(
         _plan(team_id="team-b"),
-        round_key="2027_jul_dec",
+        round_key="week-1-submission-2",
     )
 
     assert set(ledger.team_ids()) == {"team-a", "team-b"}
@@ -364,7 +321,7 @@ def test_register_plan_rejects_duplicate_ids(
     )
 
     with pytest.raises(AssetStateError, match=message):
-        AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+        AssetLedger.empty().register_plan(plan, round_key="week-1-submission-1")
 
 
 def test_register_plan_rejects_duplicate_site_only_ids() -> None:
@@ -377,7 +334,7 @@ def test_register_plan_rejects_duplicate_site_only_ids() -> None:
     )
 
     with pytest.raises(AssetStateError, match="duplicate site_id: site-1"):
-        AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+        AssetLedger.empty().register_plan(plan, round_key="week-1-submission-1")
 
 
 def test_asset_collection_alias_lookup_is_explicit_and_ambiguous_aliases_are_rejected() -> None:
@@ -392,7 +349,7 @@ def test_asset_collection_alias_lookup_is_explicit_and_ambiguous_aliases_are_rej
             GeneratorPlan("same-label", "site-b", 12.0, 22.0),
         ),
     )
-    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(plan, round_key="week-1-submission-1")
     generators = ledger.team("team-a").generators
 
     assert generators["generator:team-a:site-a"].capacity_mw == 10.0
@@ -416,7 +373,7 @@ def test_asset_ledger_migrates_genuine_version_one_label_keyed_fixture() -> None
 
 
 def test_asset_ledger_migrates_version_one_canonical_keyed_payload() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     payload["version"] = 1
 
@@ -427,7 +384,7 @@ def test_asset_ledger_migrates_version_one_canonical_keyed_payload() -> None:
 
 
 def test_asset_ledger_version_two_requires_canonical_keys() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     asset = payload["teams"]["team-a"]["generators"].pop(
         "generator:team-a:site-1"
@@ -439,7 +396,7 @@ def test_asset_ledger_version_two_requires_canonical_keys() -> None:
 
 
 def test_asset_ledger_rejects_duplicate_canonical_identity_before_collection_build() -> None:
-    ledger = AssetLedger.empty().register_plan(_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_plan(), round_key="week-1-submission-1")
     payload = ledger.to_dict()
     payload["version"] = 1
     generators = payload["teams"]["team-a"]["generators"]

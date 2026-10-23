@@ -1,21 +1,25 @@
-"""Released classroom schedules and the retired half-year calendar.
+"""Released classroom schedule and the hourly source-block calendar.
 
-The released game (``REPRESENTATIVE_SCHEDULE``) has three weeks of two
-submissions on one representative-day package; the week decides whether
-grid purchases are charged.  The retired six-hour game
-(``HALF_YEAR_SCHEDULE``) played one calendar half-year per submission.
+The game (``CLASSROOM_SCHEDULE``) has three weeks of two submissions on one
+representative-day package; the week decides whether grid purchases are
+charged.
+
+``half_year_calendar`` describes the hourly ACTIVSg2000 source blocks
+(``jan_jun``/``jul_dec`` of 2027-2029) from which the representative days are
+drawn.  It is a data-provenance helper for the package builders, not a game
+schedule.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date
 import calendar as _calendar
 
 
 @dataclass(frozen=True)
 class HalfYearCalendar:
-    """One released half-year of one-hour local scoring periods."""
+    """One hourly ACTIVSg2000 source block (half a calendar year)."""
 
     year: int
     round_name: str
@@ -31,14 +35,13 @@ class HalfYearCalendar:
 
 @dataclass(frozen=True)
 class WeeklyMatch:
-    """The two half-year submissions that form one classroom match."""
+    """The two submissions that form one classroom week."""
 
     week_id: str
     round_keys: tuple[str, str]
     feedback_only: bool = False
-    # None = half-year rule (energy charged from Submission 2 on); a bool
-    # sets the charge for both submissions of the week.
-    energy_cost_enabled: bool | None = None
+    # Whether grid purchases are charged at LMP in both submissions of the week.
+    energy_cost_enabled: bool = False
 
     def __post_init__(self) -> None:
         round_keys = tuple(self.round_keys)
@@ -53,10 +56,7 @@ SUPPORTED_YEARS = (2027, 2028, 2029)
 _ROUND_MONTHS = {"jan_jun": (1, 6), "jul_dec": (7, 12)}
 
 
-REPRESENTATIVE_SCHEDULE_ID = "representative"
-HALF_YEAR_SCHEDULE_ID = "half-year-6h"
-
-REPRESENTATIVE_SCHEDULE = (
+CLASSROOM_SCHEDULE = (
     WeeklyMatch(
         "week-1",
         ("week-1-submission-1", "week-1-submission-2"),
@@ -75,48 +75,20 @@ REPRESENTATIVE_SCHEDULE = (
     ),
 )
 
-HALF_YEAR_SCHEDULE = (
-    WeeklyMatch("week-1", ("2027_jan_jun", "2027_jul_dec"), feedback_only=True),
-    WeeklyMatch("week-2", ("2028_jan_jun", "2028_jul_dec")),
-    WeeklyMatch("week-3", ("2029_jan_jun", "2029_jul_dec")),
-)
-
-SCHEDULES = {
-    REPRESENTATIVE_SCHEDULE_ID: REPRESENTATIVE_SCHEDULE,
-    HALF_YEAR_SCHEDULE_ID: HALF_YEAR_SCHEDULE,
-}
-# The released classroom schedule.
-CLASSROOM_SCHEDULE = REPRESENTATIVE_SCHEDULE
-
-
-def round_sequence(schedule_id: str) -> tuple[str, ...]:
-    """Return the six round keys of a schedule in play order."""
-    try:
-        schedule = SCHEDULES[schedule_id]
-    except KeyError:
-        raise ValueError(f"unknown classroom schedule: {schedule_id}") from None
-    return tuple(round_key for match in schedule for round_key in match.round_keys)
-
-
-def schedule_id_for(round_key: str) -> str:
-    """Return the schedule that contains ``round_key``."""
-    for schedule_id in SCHEDULES:
-        if round_key in round_sequence(schedule_id):
-            return schedule_id
-    raise ValueError(f"unknown classroom round key: {round_key}")
+# The six round keys in play order.
+ROUND_SEQUENCE = tuple(round_key for match in CLASSROOM_SCHEDULE for round_key in match.round_keys)
 
 
 def weekly_match_for(round_key: str) -> WeeklyMatch:
-    """Return the classroom match containing ``round_key``."""
-    for schedule in SCHEDULES.values():
-        for match in schedule:
-            if round_key in match.round_keys:
-                return match
+    """Return the classroom week containing ``round_key``."""
+    for match in CLASSROOM_SCHEDULE:
+        if round_key in match.round_keys:
+            return match
     raise ValueError(f"unknown classroom round key: {round_key}")
 
 
 def half_year_calendar(year: int, round_name: str) -> HalfYearCalendar:
-    """Return the exact hourly calendar for a released half-year."""
+    """Return the calendar of one hourly ACTIVSg2000 source block."""
     if year not in SUPPORTED_YEARS:
         raise ValueError(f"year must be one of the supported years: {SUPPORTED_YEARS}")
     if round_name not in _ROUND_MONTHS:
@@ -134,14 +106,4 @@ def half_year_calendar(year: int, round_name: str) -> HalfYearCalendar:
         source_row_start=0 if round_name == "jan_jun" else (
             (date(year, 7, 1) - date(year, 1, 1)).days * 24
         ),
-    )
-
-
-def hourly_timestamps(year: int) -> tuple[str, ...]:
-    """Return UTC-style hour-start labels for a calendar year."""
-    start = datetime(year, 1, 1)
-    hours = 366 if _calendar.isleap(year) else 365
-    return tuple(
-        (start + timedelta(hours=index)).strftime("%Y-%m-%d %H:%M:%S")
-        for index in range(hours * 24)
     )

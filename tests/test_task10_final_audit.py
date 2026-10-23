@@ -16,7 +16,6 @@ from ercot_game.batch_evaluation import (
     _fair_continuous_projection,
     _score_team,
 )
-from ercot_game.calendars import half_year_calendar
 from ercot_game.csv_submission import CANONICAL_CSV_COLUMNS, LEGACY_CSV_COLUMNS, read_student_csv
 from ercot_game.models import ConnectionPlan, GeneratorPlan, TeamPlan
 from ercot_game.round_coordinator import (
@@ -25,7 +24,6 @@ from ercot_game.round_coordinator import (
     evaluate_classroom,
     evaluate_round,
 )
-from scripts import create_half_year_scoring_rules
 
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
@@ -147,8 +145,7 @@ def _empty_plan(team_id: str) -> TeamPlan:
     return TeamPlan(team_id, connections=())
 
 
-def _audit_evaluation(**kwargs):
-    plans = tuple(kwargs["plan_overrides"].values())
+def _audit_evaluation(plans, **kwargs):
     submission_number = kwargs["submission_number"]
     team_ids = tuple(plan.team_id for plan in plans)
     scores = tuple(
@@ -190,18 +187,18 @@ def _audit_evaluation(**kwargs):
 
 def test_full_six_round_lifecycle_has_feedback_scored_and_reset_boundaries(tmp_path: Path) -> None:
     plans_by_round = {
-        "2027_jan_jun": (_audit_plan("team-a", "site-w1", "gen-w1"), _audit_plan("team-b", "site-b1", "gen-b1")),
-        "2027_jul_dec": (_empty_plan("team-a"), _empty_plan("team-b")),
-        "2028_jan_jun": (_audit_plan("team-a", "site-w2", "gen-w2"), _audit_plan("team-b", "site-b2", "gen-b2")),
-        "2028_jul_dec": (_empty_plan("team-a"), _empty_plan("team-b")),
-        "2029_jan_jun": (_audit_plan("team-a", "site-w3", "gen-w3"), _audit_plan("team-b", "site-b3", "gen-b3")),
-        "2029_jul_dec": (_empty_plan("team-a"), _empty_plan("team-b")),
+        "week-1-submission-1": (_audit_plan("team-a", "site-w1", "gen-w1"), _audit_plan("team-b", "site-b1", "gen-b1")),
+        "week-1-submission-2": (_empty_plan("team-a"), _empty_plan("team-b")),
+        "week-2-submission-1": (_audit_plan("team-a", "site-w2", "gen-w2"), _audit_plan("team-b", "site-b2", "gen-b2")),
+        "week-2-submission-2": (_empty_plan("team-a"), _empty_plan("team-b")),
+        "week-3-submission-1": (_audit_plan("team-a", "site-w3", "gen-w3"), _audit_plan("team-b", "site-b3", "gen-b3")),
+        "week-3-submission-2": (_empty_plan("team-a"), _empty_plan("team-b")),
     }
     def plan_loader(submissions, **_kwargs):
         return plans_by_round[str(submissions)]
 
-    def evaluator(*_args, **kwargs):
-        return _audit_evaluation(**kwargs)
+    def evaluator(submissions, **kwargs):
+        return _audit_evaluation(plans_by_round[str(submissions)], **kwargs)
 
     rounds = tuple(
         ClassroomRoundInput(
@@ -318,42 +315,6 @@ def test_fair_projection_handles_missing_catalog_and_zero_request_without_leakag
     assert all("team-rejected" not in call for call in calls)
 
 
-def test_active_release_surfaces_match_six_six_hour_blocks_and_generator_status() -> None:
-    active_docs = (
-        REPOSITORY_ROOT / "README.md",
-        REPOSITORY_ROOT / "docs" / "INSTRUCTOR_REPOSITORY_GUIDE.md",
-        REPOSITORY_ROOT / "docs" / "HYPERPARAMETERS.md",
-    )
-    for path in active_docs:
-        text = path.read_text(encoding="utf-8")
-        assert CANONICAL_HEADER in text
-        assert "Submission 1" in text and "Submission 2" in text
-        assert "half-year" in text.lower()
-        assert "six-period" not in text.lower()
-
-    root = REPOSITORY_ROOT / "data" / "processed" / "activsg2000_scenarios_v2_6h"
-    block_manifests = sorted(root.glob("20??/*/manifest.json"))
-    assert len(block_manifests) == 6
-    assert [json.loads(path.read_text(encoding="utf-8"))["horizon"] for path in block_manifests] == [
-        half_year_calendar(int(path.parts[-3]), path.parts[-2]).horizon // 6
-        for path in block_manifests
-    ]
-
-    for rules_name, round_name in (
-        ("dispatch_scoring_rules_jan_jun_6h_v1.json", "jan_jun"),
-        ("dispatch_scoring_rules_jul_dec_6h_v1.json", "jul_dec"),
-    ):
-        rules = json.loads((REPOSITORY_ROOT / "data" / "teaching" / rules_name).read_text(encoding="utf-8"))
-        generated = create_half_year_scoring_rules.build_rules_for_year_season(
-            year=2028,
-            round_name=round_name,
-            time_step_hours=6,
-        )
-        assert rules == generated
-        assert rules["status"] == "released"
-        assert len(rules["it_value_per_mwh"]) == half_year_calendar(2028, round_name).horizon // 6
-
-
 def test_projection_diagnostics_reject_unknown_team_at_round_boundary(tmp_path: Path) -> None:
     diagnostics = ProjectionDiagnostics(
         service_fraction_by_team={"team-valid": 0.5, "team-rejected": 0.5},
@@ -367,14 +328,14 @@ def test_projection_diagnostics_reject_unknown_team_at_round_boundary(tmp_path: 
         total_load_tolerance_mwh=1e-6,
     )
     def evaluator(*args, **kwargs):
-        result = _audit_evaluation(**kwargs)
+        result = _audit_evaluation((_audit_plan("team-valid", "site-valid", "gen-valid"),), **kwargs)
         result.projection_diagnostics = diagnostics
         return result
 
     with pytest.raises(RoundCoordinatorError, match="rejected or unknown team"):
         evaluate_round(
             state_path=tmp_path / "state.json",
-            round_key="2027_jan_jun",
+            round_key="week-1-submission-1",
             submissions=tmp_path / "submissions",
             artifact_dir=tmp_path / "artifact",
             horizon=1,

@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import pytest
 
 from ercot_game import batch_evaluation
-from ercot_game.calendars import half_year_calendar
 from ercot_game.batch_evaluation import (
     BatchCollection,
     BatchScoringRules,
@@ -25,7 +24,6 @@ from ercot_game.batch_evaluation import (
 )
 from ercot_game.csv_submission import CSVSubmission, LEGACY_CSV_COLUMNS, read_student_csv
 from ercot_game.batch_evaluation import DCOPFInfeasible
-from ercot_game.economic_profiles import load_economic_profiles
 from ercot_game.models import ConnectionPlan, GeneratorPlan, SitePlan, StoragePlan, TeamPlan
 from tools.activsg2000 import plan_adapter
 from tools.activsg2000.dcopf import DCOPFResult
@@ -1295,7 +1293,7 @@ def test_batch_scoring_rules_normalizes_vectors_to_tuples():
 
 def test_submission_two_lmp_settlement_does_not_require_static_energy_vector():
     rules = BatchScoringRules(
-        rules_version="six-hour-test",
+        rules_version="time-step-test",
         it_value_per_mwh=(6500.0,),
         energy_price_per_mwh=(),
         time_step_hours=6.0,
@@ -1312,7 +1310,7 @@ def test_submission_two_lmp_settlement_does_not_require_static_energy_vector():
 
 def test_submission_one_still_requires_static_energy_vector_without_profiles():
     rules = BatchScoringRules(
-        rules_version="six-hour-test",
+        rules_version="time-step-test",
         it_value_per_mwh=(6500.0,),
         energy_price_per_mwh=(),
         time_step_hours=6.0,
@@ -1329,21 +1327,10 @@ def test_submission_one_still_requires_static_energy_vector_without_profiles():
 
 
 def test_scoring_settles_grid_purchase_at_each_site_bus():
-    profiles = load_economic_profiles(
-        {
-            "horizon_hours": 1,
-            "energy_price_per_mwh_by_bus": {"B1": [10.0], "B2": [20.0]},
-            "it_value_per_mwh": [100.0],
-            "currency_year": "2026",
-            "price_source": "test baseline",
-            "profile_version": "test-v1",
-        }
-    )
     rules = BatchScoringRules(
         rules_version="test-v1",
-        it_value_per_mwh=(),
+        it_value_per_mwh=(100.0,),
         energy_price_per_mwh=(),
-        economic_profiles=profiles,
     )
     dispatch = SimpleNamespace(
         periods=(
@@ -1443,35 +1430,6 @@ def test_revised_capex_and_connection_cost_are_capacity_based_and_storage_has_no
     assert not hasattr(score, "storage_operating_cost")
 
 
-def test_load_scoring_rules_replaces_legacy_vectors_with_artifact(tmp_path):
-    artifact = tmp_path / "artifact"
-    artifact.mkdir()
-    (artifact / "bus.csv").write_text("bus_id\nB1\n", encoding="utf-8")
-    npz_path = artifact / "economic_profiles.npz"
-    import numpy as np
-    np.savez(npz_path, lmp_per_mwh=np.ones((4368, 1)))
-    digest = hashlib.sha256(npz_path.read_bytes()).hexdigest()
-    (artifact / "economic_profile_manifest.json").write_text(
-        json.dumps({"profile_version": "lmp-v1", "horizon_hours": 4368, "bus_ids": ["B1"], "artifact_sha256": digest, "price_source": "test"}),
-        encoding="utf-8",
-    )
-    (artifact / "economic_profile.json").write_text(
-        json.dumps({"it_value_per_mwh": [100.0] * 4368, "it_value_provenance": {"horizon_hours": 4368}}),
-        encoding="utf-8",
-    )
-    rules_path = tmp_path / "rules.json"
-    rules_path.write_text(json.dumps({"rules_version": "test-v1", "it_value_per_mwh": [200.0] * 4368, "energy_price_per_mwh": [50.0] * 4368}), encoding="utf-8")
-
-    rules = load_scoring_rules(rules_path, artifact_dir=artifact, horizon=4368)
-
-    assert rules.economic_profiles is not None
-    assert rules.economic_profiles.price_for_bus("B1", 0) == 1.0
-    assert rules.it_value_per_mwh == ()
-    assert rules.energy_price_per_mwh == ()
-
-
-
-
 def test_evaluate_csv_batch_rejects_explicit_empty_period_indices():
     with pytest.raises(ValueError, match="period_indices must be non-empty"):
         evaluate_csv_batch(
@@ -1518,64 +1476,6 @@ def test_evaluate_csv_batch_rejects_non_integer_period_indices_without_submissio
             rules=_rules(),
             period_indices=("0",),
         )
-
-
-def test_half_year_two_maps_local_scoring_periods_to_source_artifact_rows(
-    tmp_path, monkeypatch
-):
-    submission = tmp_path / "team-a.csv"
-    with submission.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=LEGACY_CSV_COLUMNS)
-        writer.writeheader()
-        for period in range(1, 4417):
-            writer.writerow(
-                {
-                    "team_id": "team-a",
-                    "submission_id": "half-year-2",
-                    "period": str(period),
-                    "site_id": "PANHANDLE",
-                    "load_mw": "2",
-                    "generator_id": "",
-                    "generator_capacity_mw": "",
-                    "storage_id": "",
-                    "storage_power_mw": "",
-                    "storage_energy_mwh": "",
-                }
-            )
-
-    rules = BatchScoringRules(
-        rules_version="test-v1",
-        it_value_per_mwh=(200.0,) * 4416,
-        energy_price_per_mwh=(50.0,) * 4416,
-    )
-    observed_source_periods = []
-    observed_profiles = []
-
-    def dispatch(_artifact_dir, plans, *, period_indices):
-        observed_source_periods.extend(period_indices)
-        observed_profiles.append(tuple(plans[0].connections[0].profile))
-        return _fake_dispatch(
-            tuple(sorted(plan.team_id for plan in plans)),
-            period_indices=tuple(period_indices),
-        )
-
-    monkeypatch.setattr(batch_evaluation, "evaluate_plans_with_prepared_dcopf", dispatch)
-    artifact_dir = _write_artifact_catalogs(tmp_path)
-    result = evaluate_csv_batch(
-        submission,
-        artifact_dir=artifact_dir,
-        region_to_source_bus={"PANHANDLE": "3002041"},
-        horizon=4416,
-        rules=rules,
-    )
-
-    assert observed_source_periods == list(range(4368, 8784))
-    assert len(observed_profiles[0]) == 8784
-    assert observed_profiles[0][4368] == 1.0
-    assert observed_profiles[0][8783] == 1.0
-    assert result.source_period_indices == tuple(range(4368, 8784))
-    assert tuple(period.period_index for period in result.dispatch.periods) == tuple(range(4416))
-    assert result.team_scores[0].served_load_mwh == 8832.0
 
 
 def test_evaluate_csv_batch_accepts_explicit_source_period_indices(tmp_path, monkeypatch):
@@ -1690,7 +1590,7 @@ def test_write_batch_outputs_matches_auditable_output_contract(tmp_path, monkeyp
     assert (output_dir / "leaderboard.csv").read_text(encoding="utf-8").splitlines()[0] == (
         "team_id,rank,valid,feasible,score,served_load_mwh,it_value,energy_cost,"
         "generator_operating_cost,generator_capital_cost,site_cost,storage_capital_cost,"
-        "competition_scope,failure_reason"
+        "competition_scope,failure_reason,service_fraction,dropped"
     )
     assert payload["output_sha256"]["dispatch/period_0.json"] == hashlib.sha256(
         (output_dir / "dispatch/period_0.json").read_bytes()

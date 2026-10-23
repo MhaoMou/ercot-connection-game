@@ -103,7 +103,8 @@ def validate(run_dir: Path) -> int:
                     errors.append(f"{path.name} cell {cell_index} contains an error output")
 
     artifact_root = run_dir.parent
-    allowed_published_entries = EXPECTED_ARTIFACTS | {run_dir.name}
+    # The notebooks write their input CSVs into a fixtures/ scratch folder.
+    allowed_published_entries = EXPECTED_ARTIFACTS | {run_dir.name, "fixtures"}
     unexpected = sorted(
         path.name
         for path in artifact_root.iterdir()

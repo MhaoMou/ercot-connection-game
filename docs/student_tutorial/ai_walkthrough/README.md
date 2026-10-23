@@ -4,6 +4,13 @@ Six prompts a student gave a coding agent, and the agent's replies, from one
 session on 2026-10-19. The tutorial section "Walk through the workflow with an
 AI agent" shows shortened versions of these; the files here are complete.
 
+**Recorded under an earlier draft.** The replies are kept exactly as the agent
+gave them. Since the session, the README was updated (it then still described
+the retired six-hour setup, which the agent noticed), and the generator rules
+changed to $2.0M/MW with at most two hours of full output per day (the agent
+quotes $1.5M/MW). The commands are shortened in places; for example
+`ercot-game-preview` needs `--submissions-dir` and `--output` (see the tutorial).
+
 - **Agent:** a Claude coding agent (Opus 5.5), running in a fresh clone of this
   repository with the package installed in a virtual environment. It had not
   seen this repository before the first prompt. The copy left out this folder

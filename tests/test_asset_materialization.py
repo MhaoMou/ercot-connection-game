@@ -49,7 +49,7 @@ def test_materialize_without_prior_assets_preserves_current_plan() -> None:
 
 
 def test_materialize_restores_omitted_assets_with_zero_load_placeholder() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="week-1-submission-1")
     current = _plan(
         connections=(ConnectionPlan("site-new", "b0002", 30.0, (0.5, 0.5)),),
     )
@@ -68,25 +68,8 @@ def test_materialize_restores_omitted_assets_with_zero_load_placeholder() -> Non
     )
 
 
-def test_materialization_injects_persisted_soc_for_omitted_and_redeclared_storage() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
-    ledger = ledger.update_storage_soc({"team-a": {"store-old": 15.0}})
-
-    omitted = ledger.materialize_plan(_plan(connections=()), horizon=2)
-    redeclared = ledger.materialize_plan(
-        _plan(
-            connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0, 1.0)),),
-            storages=(StoragePlan("store-old", "site-old", 5.0, 20.0),),
-        ),
-        horizon=2,
-    )
-
-    assert omitted.storages[0].initial_state_of_charge_mwh == 15.0
-    assert redeclared.storages[0].initial_state_of_charge_mwh == 15.0
-
-
 def test_materialization_reuses_canonical_asset_with_latest_submitted_label() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="week-1-submission-1")
     current = _plan(
         connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0, 1.0)),),
         generators=(GeneratorPlan("generator-label-v2", "site-old", 10.0, 16.0),),
@@ -113,7 +96,7 @@ def test_new_storage_materialization_keeps_default_initial_soc() -> None:
 
 
 def test_materialize_keeps_current_metadata_and_new_asset_specification() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="week-1-submission-1")
     current = _plan(
         connections=(
             ConnectionPlan("site-old", "b0001", 75.0, (0.2, 0.3)),
@@ -138,7 +121,7 @@ def test_materialize_keeps_current_metadata_and_new_asset_specification() -> Non
 
 def test_materialize_accepts_exact_repeat_of_persisted_asset() -> None:
     plan = _asset_plan()
-    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(plan, round_key="week-1-submission-1")
 
     materialized = ledger.materialize_plan(plan, horizon=2)
 
@@ -151,7 +134,7 @@ def test_materialize_accepts_exact_repeat_of_persisted_asset() -> None:
 
 
 def test_materialize_rejects_changed_persisted_asset() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="week-1-submission-1")
     changed = _plan(
         connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0, 0.5)),),
         generators=(GeneratorPlan("gen-old", "site-old", 11.0, 16.0),),
@@ -167,7 +150,7 @@ def test_materialize_rejects_legacy_connection_capacity_change_for_persisted_sit
             team_id="team-a",
             sites=(SitePlan("site-1", "b0001", 40.0),),
         ),
-        round_key="2027_jan_jun",
+        round_key="week-1-submission-1",
     )
     changed = TeamPlan(
         team_id="team-a",
@@ -182,7 +165,7 @@ def test_materialize_rejects_legacy_connection_capacity_change_for_persisted_sit
 
 
 def test_materialize_rejects_changed_persisted_storage() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="week-1-submission-1")
     changed = _plan(
         connections=(ConnectionPlan("site-old", "b0001", 40.0, (1.0, 0.5)),),
         storages=(StoragePlan("store-old", "site-old", 6.0, 20.0),),
@@ -253,7 +236,7 @@ def test_materialize_uses_unique_canonical_ids_for_duplicate_display_labels() ->
         ),
     )
 
-    ledger = AssetLedger.empty().register_plan(plan, round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(plan, round_key="week-1-submission-1")
     materialized = ledger.materialize_plan(plan, horizon=2)
 
     assert [generator.generator_id for generator in materialized.generators] == [
@@ -281,57 +264,13 @@ def test_site_only_plan_materializes_constant_connection_without_profile() -> No
     )
 
 
-def test_site_plans_expand_multiple_sites_and_keep_omitted_sites_active() -> None:
-    first = TeamPlan(
-        team_id="team-a",
-        sites=(
-            SitePlan("site-a", "b0001", 40.0, 10.0, 5.0, 20.0),
-            SitePlan("site-b", "b0002", 30.0, 8.0, 4.0, 16.0),
-        ),
-    )
-    ledger = AssetLedger.empty().register_plan(first, round_key="2027_jan_jun")
-    ledger = ledger.update_storage_soc(
-        {
-            "team-a": {
-                "storage:team-a:site-a": 15.0,
-                "storage:team-a:site-b": 12.0,
-            }
-        }
-    )
-
-    second = ledger.materialize_plan(
-        TeamPlan(team_id="team-a", sites=()),
-        horizon=3,
-    )
-
-    assert second.connections == (
-        ConnectionPlan("site-a", "b0001", 40.0, (1.0, 1.0, 1.0)),
-        ConnectionPlan("site-b", "b0002", 30.0, (1.0, 1.0, 1.0)),
-    )
-    assert {generator.connection_id for generator in second.generators} == {
-        "site-a",
-        "site-b",
-    }
-    assert {storage.connection_id for storage in second.storages} == {
-        "site-a",
-        "site-b",
-    }
-    assert {
-        storage.storage_id: storage.initial_state_of_charge_mwh
-        for storage in second.storages
-    } == {
-        "storage:team-a:site-a": 15.0,
-        "storage:team-a:site-b": 12.0,
-    }
-
-
 def test_materialize_requires_positive_horizon() -> None:
     with pytest.raises(AssetStateError, match="horizon must be a positive integer"):
         AssetLedger.empty().materialize_plan(_plan(), horizon=0)
 
 
 def test_materialize_after_ledger_json_round_trip_is_identical() -> None:
-    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="2027_jan_jun")
+    ledger = AssetLedger.empty().register_plan(_asset_plan(), round_key="week-1-submission-1")
     current = _plan(connections=(ConnectionPlan("site-new", "b0002", 30.0, (0.5, 0.5)),))
 
     expected = ledger.materialize_plan(current, horizon=4)

@@ -15,17 +15,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from .csv_submission import (
     CANONICAL_CSV_COLUMNS,
     generator_cap_violation,
+    header_mismatch_detail,
     load_bus_ids,
+    parse_decimal,
     read_student_csv,
+    site_capacity_issue,
 )
-from .calendars import half_year_calendar
-from .release_config import (
-    CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO,
-    CANONICAL_RELEASE,
-    LEGACY_MAX_GENERATOR_TO_CONNECTION_RATIO,
-    LEGACY_RELEASE,
-    RELEASES,
-)
+from .release_config import CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO
 
 
 @dataclass(frozen=True)
@@ -76,11 +72,9 @@ def _finite_number(value: str, name: str, row_number: int, *, required: bool) ->
             return None, _issue(f"{name} is required", row_number)
         return 0.0, None
     try:
-        number = float(value)
-    except ValueError:
-        return None, _issue(f"{name} must be a finite decimal", row_number)
-    if not math.isfinite(number):
-        return None, _issue(f"{name} must be finite", row_number)
+        number = parse_decimal(value)
+    except ValueError as exc:
+        return None, _issue(f"{name} {exc}", row_number)
     return number, None
 
 
@@ -108,7 +102,7 @@ def validate_csv_submission(
     impose a row-count or hourly-coverage requirement.
 
     ``max_generator_to_connection_ratio`` is the private-generator cap
-    G <= ratio x C (0.5 in the ten-year release, 1.0 in the half-year rules).
+    G <= ratio x C (0.5 in the released rules; the CLI always applies 0.5).
     """
     if horizon is not None and horizon <= 0:
         raise ValueError("horizon must be positive")
@@ -162,7 +156,8 @@ def validate_csv_submission(
             str(source_path),
             False,
             (_issue(
-                f"header must be exactly: {_VALID_HEADER}; "
+                f"header must be exactly: {_VALID_HEADER} "
+                f"({header_mismatch_detail(tuple(reader.fieldnames))}); "
                 f"example row: {_VALID_EXAMPLE}"
             ),),
             horizon=horizon,
@@ -216,6 +211,12 @@ def validate_csv_submission(
             generator = values["generator_capacity_mw"]
             storage_power = values["storage_power_mw"]
             storage_energy = values["storage_energy_mwh"]
+            if None not in (connection, generator, storage_power, storage_energy):
+                site_message = site_capacity_issue(
+                    connection, generator, storage_power, storage_energy
+                )
+                if site_message:
+                    issues.append(_issue(site_message, row_number))
             if connection is not None and generator is not None:
                 cap_message = generator_cap_violation(
                     generator, connection, max_generator_to_connection_ratio
@@ -269,17 +270,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--file", required=True, type=Path, help="CSV submission to validate")
     parser.add_argument("--artifact-dir", type=Path, help="validated scenario block containing bus.csv and generator_limits.csv")
     parser.add_argument("--horizon", type=int, help="optional historical horizon context for the report")
-    parser.add_argument("--year", type=int, choices=(2027, 2028, 2029), help="optional released instructional scenario year")
-    parser.add_argument("--round", dest="round_name", choices=("jan_jun", "jul_dec"), help="optional released half-year context")
-    parser.add_argument(
-        "--release",
-        choices=RELEASES,
-        default=CANONICAL_RELEASE,
-        help=(
-            "rule set: the ten-year representative release caps each private generator at "
-            "0.5 x connection capacity; the retired half-year release at 1.0 x"
-        ),
-    )
     parser.add_argument("--json", action="store_true", help="print a machine-readable JSON report")
     return parser
 
@@ -291,24 +281,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("CONFIGURATION ERROR: horizon must be positive")
             return 2
         horizon = args.horizon
-    elif args.year is not None or args.round_name is not None:
-        if args.year is None or args.round_name is None:
-            print("CONFIGURATION ERROR: provide both --year and --round when either is supplied")
-            return 2
-        horizon = half_year_calendar(args.year, args.round_name).horizon
     else:
         horizon = None
     try:
-        ratio = (
-            LEGACY_MAX_GENERATOR_TO_CONNECTION_RATIO
-            if args.release == LEGACY_RELEASE
-            else CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO
-        )
         report = validate_csv_submission(
             args.file,
             artifact_dir=args.artifact_dir,
             horizon=horizon,
-            max_generator_to_connection_ratio=ratio,
+            max_generator_to_connection_ratio=CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO,
         )
     except (OSError, ValueError) as exc:
         print(f"CONFIGURATION ERROR: {exc}")

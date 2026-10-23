@@ -44,6 +44,70 @@ _CANONICAL_HEADER_MESSAGE = (
 _CANONICAL_EXAMPLE = (
     "Example: team-a,site-north,1001,40,20,10,40"
 )
+# Plain decimal or scientific notation only: no "1_000", "0x10", or spaces.
+DECIMAL_PATTERN = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
+
+
+def parse_decimal(value: str) -> float:
+    """Parse one CSV number; raise ``ValueError`` with the reason.
+
+    The reason is ``"must be finite"`` for NaN/infinity and
+    ``"must be a finite decimal"`` for anything that is not a plain decimal
+    or scientific-notation number (Python-only syntax such as ``1_000`` is
+    rejected).
+    """
+    try:
+        number = float(value)
+    except ValueError:
+        raise ValueError("must be a finite decimal") from None
+    if not math.isfinite(number):
+        raise ValueError("must be finite")
+    if DECIMAL_PATTERN.fullmatch(value) is None:
+        raise ValueError("must be a finite decimal")
+    return number
+
+
+def header_mismatch_detail(fieldnames: tuple[str, ...] | list[str]) -> str:
+    """Name the offending header columns relative to the canonical header."""
+    found = tuple(fieldnames)
+    expected = CANONICAL_CSV_COLUMNS
+    missing = [name for name in expected if name not in found]
+    unexpected = [name for name in found if name not in expected]
+    duplicates = sorted({name for name in found if found.count(name) > 1})
+    parts = []
+    if missing:
+        parts.append("missing column(s): " + ", ".join(missing))
+    if unexpected:
+        parts.append("unexpected column(s): " + ", ".join(repr(name) for name in unexpected))
+    if duplicates:
+        parts.append("duplicate column(s): " + ", ".join(duplicates))
+    if not parts:
+        misplaced = [
+            f"{name} (position {index + 1}, expected {expected.index(name) + 1})"
+            for index, name in enumerate(found)
+            if name in expected and expected.index(name) != index
+        ]
+        parts.append("columns out of order: " + ", ".join(misplaced))
+    return "; ".join(parts)
+
+
+def site_capacity_issue(
+    connection_capacity_mw: float,
+    generator_capacity_mw: float,
+    storage_power_mw: float,
+    storage_energy_mwh: float,
+) -> str | None:
+    """Reject site rows that can never serve load (shared by all checkers)."""
+    if connection_capacity_mw != 0:
+        return None
+    if generator_capacity_mw == 0 and storage_power_mw == 0 and storage_energy_mwh == 0:
+        return "empty site: every capacity is 0; remove the row"
+    if generator_capacity_mw > 0 or storage_power_mw > 0:
+        return (
+            "connection_capacity_mw is 0, so this site's generator/storage cannot "
+            "serve any load; set connection_capacity_mw > 0 or remove the row"
+        )
+    return None
 
 # Team-built generators use a common convex curve, independent of the public
 # generator catalog. The scalar is retained only for compatibility with the
@@ -122,15 +186,20 @@ def generator_cap_violation(
     max_generator_to_connection_ratio: float = 1.0,
 ) -> str | None:
     """Return the validation message when G exceeds ratio x C, else ``None``."""
+    if connection_capacity_mw < 0 or generator_capacity_mw < 0:
+        # Negative values get their own "must be non-negative" message.
+        return None
     limit = max_generator_to_connection_ratio * connection_capacity_mw
     if generator_capacity_mw <= limit + 1e-9 * max(1.0, abs(limit)):
         return None
     if max_generator_to_connection_ratio == 1.0:
         return "generator capacity cannot exceed connection capacity"
+    # Enough digits that e.g. 50.00001 MW is visibly above a 50 MW limit.
     return (
         "generator capacity cannot exceed "
         f"{max_generator_to_connection_ratio:g} x connection capacity "
-        f"({generator_capacity_mw:g} MW > {limit:g} MW)"
+        f"({generator_capacity_mw:.10g} MW > {limit:.10g} MW); "
+        f"excess {generator_capacity_mw - limit:.3g} MW"
     )
 
 
@@ -150,7 +219,10 @@ def read_submission_identity(path: str | Path) -> tuple[str | None, str | None]:
     full submission fails validation.
     """
     raw = Path(path).read_bytes()
-    text = raw.decode("utf-8-sig")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("submission must be UTF-8 CSV") from None
     reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
     try:
         if reader.fieldnames is None:
@@ -211,11 +283,9 @@ def _canonical_number(row: Mapping[str, str | None], name: str, row_number: int)
     if not value:
         raise ValueError(f"row {row_number}: {name} is required")
     try:
-        number = float(value)
-    except ValueError:
-        raise ValueError(f"row {row_number}: {name} must be a finite decimal") from None
-    if not math.isfinite(number):
-        raise ValueError(f"row {row_number}: {name} must be finite")
+        number = parse_decimal(value)
+    except ValueError as exc:
+        raise ValueError(f"row {row_number}: {name} {exc}") from None
     if number < 0:
         raise ValueError(f"row {row_number}: {name} must be non-negative")
     return number
@@ -236,8 +306,8 @@ def read_student_csv(
     """Read the canonical one-row-per-site student CSV.
 
     ``max_generator_to_connection_ratio`` caps each site's private generator
-    at that fraction of its connection capacity (1.0 for the half-year
-    rules, 0.5 for the ten-year release).
+    at that fraction of its connection capacity (0.5 in the released rules;
+    the default 1.0 applies no extra cap).
 
     The canonical contract has exactly seven columns and does not contain a
     submission ID or hourly rows. ``horizon`` is optional and only controls
@@ -290,9 +360,15 @@ def read_student_csv(
                 default_generator_cost_per_mwh=default_generator_cost_per_mwh,
                 require_complete_horizon=require_complete_horizon,
             )
-        raise ValueError(f"{_CANONICAL_HEADER_MESSAGE}; {_CANONICAL_EXAMPLE}")
+        raise ValueError(
+            f"{_CANONICAL_HEADER_MESSAGE} (this is the retired hourly format); "
+            f"{_CANONICAL_EXAMPLE}"
+        )
     if fieldnames != CANONICAL_CSV_COLUMNS:
-        raise ValueError(f"{_CANONICAL_HEADER_MESSAGE}; {_CANONICAL_EXAMPLE}")
+        raise ValueError(
+            f"{_CANONICAL_HEADER_MESSAGE} ({header_mismatch_detail(fieldnames)}); "
+            f"{_CANONICAL_EXAMPLE}"
+        )
 
     team_id: str | None = None
     sites: list[SitePlan] = []
@@ -319,6 +395,11 @@ def read_student_csv(
         generator_capacity = _canonical_number(row, "generator_capacity_mw", row_number)
         storage_power = _canonical_number(row, "storage_power_mw", row_number)
         storage_energy = _canonical_number(row, "storage_energy_mwh", row_number)
+        site_message = site_capacity_issue(
+            connection_capacity, generator_capacity, storage_power, storage_energy
+        )
+        if site_message:
+            raise ValueError(f"row {row_number}: {site_message}")
         message = generator_cap_violation(
             generator_capacity, connection_capacity, max_generator_to_connection_ratio
         )

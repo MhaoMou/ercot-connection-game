@@ -62,10 +62,11 @@ full-horizon benchmark rows are published here.
 
 ## Exact follow-up procedure
 
-*Historical note:* this procedure targeted the retired hourly package
-`activsg2000_scenarios_v1`. The canonical six-hour package
-`activsg2000_scenarios_v2_6h` already records `validation_status: passed` for
-all six blocks, and the pilot gate and full-horizon command below now use it.
+*Historical note:* this procedure targeted the hourly source package
+`activsg2000_scenarios_v1`, which is built locally and not distributed. The
+released representative-day package `activsg2000_representative_v1` already
+records `validation_status: passed` for all 120 periods, and the pilot gate and
+full-horizon command below use it.
 
 After installing `highspy`, validate every released scenario block successfully
 before running the benchmark:
@@ -195,12 +196,12 @@ the 1-, 24-, 168-, and full-horizon stages:
 
 ```bash
 PYTHONPATH=.:src python3 tools/benchmarks/benchmark_hosting_capacity.py \
-  --artifact-dir data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun \
+  --artifact-dir data/processed/activsg2000_representative_v1 \
   --solver-backend highs \
   --solver-threads 1 \
   --workers 1 \
   --full-horizon \
-  --output-dir results/hosting_capacity_benchmark_2028_jan_jun
+  --output-dir results/hosting_capacity_benchmark_representative
 ```
 
 The follow-up results should be reported only from the resulting stage rows;

@@ -150,6 +150,14 @@ class DCOPFUnresolved(RuntimeError):
     """Raised when HiGHS cannot resolve the DCOPF model status."""
 
 
+def _is_wall_time_failure(exc: BaseException, deadline: float | None) -> bool:
+    """Whether an unresolved solve was caused by the wall-clock budget."""
+    message = str(exc)
+    if "wall-time" in message or "kTimeLimit" in message or "TIME_LIMIT" in message:
+        return True
+    return deadline is not None and time.perf_counter() >= deadline
+
+
 _TERMINAL_SOC_POLICIES = frozenset({"minimum_half", "exact_half"})
 
 
@@ -611,6 +619,41 @@ def _highs():
             "DCOPF requires the optional project dependency 'highspy'; install the project dependencies first"
         ) from exc
     return Highs, HighsModelStatus, HighsVarType, kHighsInf
+
+
+def _run_highs(highs) -> None:
+    """``highs.run()`` with a retry for numerically unresolved LPs.
+
+    HiGHS presolve can stop with ``kUnknown`` (or ``kUnboundedOrInfeasible``)
+    on near-degenerate LPs at the feasibility boundary, which the fair
+    projection would otherwise read as "infeasible".  Such a solve is
+    repeated from scratch without presolve, then with the primal simplex.
+    A solve that ends optimal, infeasible, empty or at a limit the first
+    time is left untouched, so ordinary results do not change.
+    """
+    _Highs, HighsModelStatus, _HighsVarType, _highs_inf = _highs()
+    settled = {
+        getattr(HighsModelStatus, name, None)
+        for name in ("kOptimal", "kInfeasible", "kModelEmpty", "kTimeLimit", "kIterationLimit", "kInterrupt")
+    }
+    highs.run()
+    if highs.getModelStatus() in settled:
+        return
+
+    def option(name: str):
+        value = highs.getOptionValue(name)
+        return value[1] if isinstance(value, tuple) else value
+
+    for name, value in (("presolve", "off"), ("simplex_strategy", 4)):
+        previous = option(name)
+        highs.setOptionValue(name, value)
+        try:
+            highs.clearSolver()
+            highs.run()
+        finally:
+            highs.setOptionValue(name, previous)
+        if highs.getModelStatus() in settled:
+            return
 
 
 # Cost of one MW of balance violation in the elastic recourse used by the
@@ -1159,7 +1202,7 @@ class ReusableDCOPFModel:
             rhs = demand_values[bus_id] - injections.get(bus_id, 0.0)
             self._highs.changeRowBounds(self._balance_row_indices[bus_id], rhs, rhs)
 
-        self._highs.run()
+        _run_highs(self._highs)
         model_status = self._highs.getModelStatus()
         _Highs, HighsModelStatus, _HighsVarType, _highs_inf = _highs()
         if model_status == getattr(HighsModelStatus, "kInfeasible", None):
@@ -1688,7 +1731,7 @@ def solve_dcopf(
             add_coefficient(coefficients, angle_columns[branch.to_bus_id], -susceptance_mw_per_rad / angle_scale)
         highs.addRow(-branch.thermal_limit_mw, branch.thermal_limit_mw, len(coefficients), list(coefficients), list(coefficients.values()))
 
-    highs.run()
+    _run_highs(highs)
     model_status = highs.getModelStatus()
     if model_status == getattr(HighsModelStatus, "kModelEmpty", None):
         balance_rhs = tuple(bus.demand_mw - injections.get(bus.bus_id, 0.0) for bus in buses)
@@ -1733,6 +1776,106 @@ def solve_dcopf(
         flow_mw_by_branch=flows,
         balance_dual_by_bus=balance_duals,
     )
+
+
+def minimum_demand_adjustment(
+    *,
+    buses: tuple[Bus, ...],
+    generators: tuple[Generator, ...],
+    branches: tuple[Branch, ...],
+    adjustable_bus_ids: Sequence[str],
+    fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+    base_mva: float = 1.0,
+    presolve: bool = True,
+) -> dict[str, float] | None:
+    """Return the smallest demand change at ``adjustable_bus_ids`` that is feasible.
+
+    Phase-one LP of the fixed-load DCOPF: every adjustable bus gets a demand
+    reduction column (at most its demand) and a demand increase column, and
+    the LP minimizes their total MW (generator costs are ignored).  The
+    result maps each bus with a non-zero change to the signed change in MW
+    (negative = less demand).  ``{}`` means the demand is feasible as given;
+    ``None`` means no change at those buses restores feasibility (or the
+    solver could not decide).
+    """
+    Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
+    bus_by_id, reference = _validate(buses, generators, branches)
+    adjustable = tuple(dict.fromkeys(str(bus_id) for bus_id in adjustable_bus_ids))
+    if set(adjustable) - set(bus_by_id):
+        raise ValueError("adjustable bus references an unknown bus")
+    injections = fixed_injection_mw_by_bus or {}
+    if set(injections) - set(bus_by_id):
+        raise ValueError("fixed injection references an unknown bus")
+    angle_scale = 1000.0
+    highs = Highs()
+    highs.setOptionValue("output_flag", False)
+    highs.setOptionValue("presolve", "on" if presolve else "off")
+    highs.setOptionValue("parallel", "off")
+    generator_columns = {
+        generator.generator_id: highs.addVariable(
+            lb=generator.p_min_mw, ub=generator.p_max_mw, obj=0.0
+        )
+        for generator in generators
+    }
+    angle_columns = {
+        bus.bus_id: highs.addVariable(lb=-highs_inf, ub=highs_inf, obj=0.0)
+        for bus in buses
+        if bus.bus_id != reference
+    }
+    reduce_columns = {
+        bus_id: highs.addVariable(lb=0.0, ub=max(0.0, bus_by_id[bus_id].demand_mw), obj=1.0)
+        for bus_id in adjustable
+    }
+    raise_columns = {
+        bus_id: highs.addVariable(lb=0.0, ub=highs_inf, obj=1.0) for bus_id in adjustable
+    }
+    generators_by_bus, branches_by_bus = _cached_network_index(branches, generators)
+
+    def add(coefficients: dict[int, float], variable: object, value: float) -> None:
+        index = int(variable.index)
+        coefficients[index] = coefficients.get(index, 0.0) + value
+
+    for bus in buses:
+        coefficients: dict[int, float] = {}
+        for generator in generators_by_bus.get(bus.bus_id, ()):
+            add(coefficients, generator_columns[generator.generator_id], 1.0)
+        for branch in branches_by_bus.get(bus.bus_id, ()):
+            susceptance = branch.susceptance_pu * base_mva / angle_scale
+            own, other = (
+                (branch.from_bus_id, branch.to_bus_id)
+                if branch.from_bus_id == bus.bus_id
+                else (branch.to_bus_id, branch.from_bus_id)
+            )
+            if own != reference:
+                add(coefficients, angle_columns[own], -susceptance)
+            if other != reference:
+                add(coefficients, angle_columns[other], susceptance)
+        if bus.bus_id in reduce_columns:
+            add(coefficients, reduce_columns[bus.bus_id], 1.0)
+            add(coefficients, raise_columns[bus.bus_id], -1.0)
+        rhs = bus.demand_mw - injections.get(bus.bus_id, 0.0)
+        highs.addRow(rhs, rhs, len(coefficients), list(coefficients), list(coefficients.values()))
+    for branch in branches:
+        coefficients = {}
+        susceptance = branch.susceptance_pu * base_mva / angle_scale
+        if branch.from_bus_id != reference:
+            add(coefficients, angle_columns[branch.from_bus_id], susceptance)
+        if branch.to_bus_id != reference:
+            add(coefficients, angle_columns[branch.to_bus_id], -susceptance)
+        highs.addRow(
+            -branch.thermal_limit_mw, branch.thermal_limit_mw,
+            len(coefficients), list(coefficients), list(coefficients.values()),
+        )
+    _run_highs(highs)
+    if highs.getModelStatus() != HighsModelStatus.kOptimal:
+        return None
+    values = list(highs.getSolution().col_value)
+    changes: dict[str, float] = {}
+    for bus_id in adjustable:
+        change = float(values[int(raise_columns[bus_id].index)]) - float(values[int(reduce_columns[bus_id].index)])
+        if change != 0.0:
+            changes[bus_id] = change
+    return changes
 
 
 class _ReusableHorizonModelState:
@@ -1854,7 +1997,7 @@ class _ReusableHorizonModelState:
         solver_started = time.perf_counter()
         if wall_time_limit_seconds is not None:
             self._highs.setOptionValue("time_limit", float(wall_time_limit_seconds))
-        self._highs.run()
+        _run_highs(self._highs)
         solver_run_s = time.perf_counter() - solver_started
         model_status = self._highs.getModelStatus()
         if model_status == getattr(self._highs_model_status, "kInfeasible", None):
@@ -2343,7 +2486,7 @@ def solve_dcopf_horizon(
 
     if wall_time_limit_seconds is not None:
         highs.setOptionValue("time_limit", float(wall_time_limit_seconds))
-    highs.run()
+    _run_highs(highs)
     model_status = highs.getModelStatus()
     if model_status == getattr(HighsModelStatus, "kInfeasible", None):
         raise DCOPFInfeasible(f"DCOPF horizon physically infeasible: {model_status}")
@@ -2747,6 +2890,7 @@ def solve_dcopf_horizon_benders(
     master.setOptionValue("parallel", "on" if solver_threads > 1 else "off")
     if solver_threads > 1:
         master.setOptionValue("threads", solver_threads)
+    current_bounds = list(feasible_bounds)
     power_columns = [master.addVariable(
         lb=feasible_bounds[index][0], ub=feasible_bounds[index][1],
         obj=0.0, name=f"storage-power:{index}") for index in range(horizon)]
@@ -2811,7 +2955,7 @@ def solve_dcopf_horizon_benders(
         check_deadline("master/recourse iteration", _iteration)
         if deadline is not None:
             master.setOptionValue("time_limit", max(0.001, deadline - time.perf_counter()))
-        master.run()
+        _run_highs(master)
         status = master.getModelStatus()
         if status == getattr(HighsModelStatus, "kInfeasible", None):
             raise DCOPFInfeasible("Benders master became infeasible")
@@ -2821,17 +2965,27 @@ def solve_dcopf_horizon_benders(
         solution_cols = list(solution.col_value)  # one copy; attribute access copies the vector
         solution_duals = list(solution.row_dual)
         points = [float(solution_cols[int(column.index)]) for column in power_columns]
-        def summary_or_infeasible(index: int) -> DCOPFRecourseSummary | DCOPFInfeasible:
+        def summary_or_infeasible(
+            index: int,
+        ) -> DCOPFRecourseSummary | DCOPFInfeasible | DCOPFUnresolved:
             try:
                 return solve_recourse_summary(index, points[index])
             except DCOPFInfeasible as exc:
+                return exc
+            except DCOPFUnresolved as exc:
+                # HiGHS may report kUnknown for an infeasible candidate (e.g.
+                # full-power charging in the tightest hour).  Treat it like an
+                # infeasibility certificate and tighten that hour's bounds;
+                # only an out-of-time solve is a genuine failure.
+                if _is_wall_time_failure(exc, deadline):
+                    raise
                 return exc
 
         results_or_errors = map_periods(summary_or_infeasible)
         check_deadline("recourse batch", _iteration)
         infeasible_periods = [
             index for index, value in enumerate(results_or_errors)
-            if isinstance(value, DCOPFInfeasible)
+            if isinstance(value, (DCOPFInfeasible, DCOPFUnresolved))
         ]
         if infeasible_periods:
             if tighten_feasible_bounds:
@@ -2840,9 +2994,32 @@ def solve_dcopf_horizon_benders(
                     "hourly recourse remained infeasible after feasible-bound tightening: "
                     + ", ".join(map(str, infeasible_periods))
                 )
+            changed = False
             for index in infeasible_periods:
                 lower, upper = feasible_interval(index)
-                master.changeColBounds(int(power_columns[index].index), lower, upper)
+                old_lower, old_upper = current_bounds[index]
+                new_bounds = (max(old_lower, lower), min(old_upper, upper))
+                if new_bounds[0] > new_bounds[1] + tolerance:
+                    close_executor()
+                    raise DCOPFInfeasible(
+                        f"no valid storage injection interval at period {index}"
+                    )
+                if new_bounds != (old_lower, old_upper):
+                    current_bounds[index] = new_bounds
+                    master.changeColBounds(int(power_columns[index].index), *new_bounds)
+                    changed = True
+            if not changed:
+                close_executor()
+                error = results_or_errors[infeasible_periods[0]]
+                if isinstance(error, DCOPFUnresolved):
+                    raise DCOPFUnresolved(
+                        "hourly recourse unresolved inside the valid storage interval: "
+                        + ", ".join(map(str, infeasible_periods))
+                    ) from error
+                raise DCOPFInfeasible(
+                    "hourly recourse remained infeasible after valid storage bound tightening: "
+                    + ", ".join(map(str, infeasible_periods))
+                )
             continue
         results = [value for value in results_or_errors if isinstance(value, DCOPFRecourseSummary)]
         actual_objective = sum(result.objective_cost for result in results)
@@ -3227,7 +3404,7 @@ def _solve_dcopf_horizon_benders_multi(
             iterations += 1
             if deadline is not None:
                 master.setOptionValue("time_limit", max(0.001, deadline - time.perf_counter()))
-            master.run()
+            _run_highs(master)
             status = master.getModelStatus()
             if status == getattr(HighsModelStatus, "kInfeasible", None):
                 raise DCOPFInfeasible("Benders master became infeasible")
@@ -3260,6 +3437,12 @@ def _solve_dcopf_horizon_benders_multi(
                     return result
                 except DCOPFInfeasible as exc:
                     return exc
+                except DCOPFUnresolved as exc:
+                    # kUnknown on an infeasible candidate: tighten bounds
+                    # below instead of aborting the whole horizon solve.
+                    if _is_wall_time_failure(exc, deadline):
+                        raise
+                    return DCOPFInfeasible(f"recourse unresolved, treated as infeasible: {exc}")
 
             candidate_started = time.perf_counter()
             candidate_results = map_periods(solve_candidate)
@@ -3741,7 +3924,7 @@ def _solve_dcopf_horizon_benders_budgeted(
             iterations += 1
             if deadline is not None:
                 master.setOptionValue("time_limit", max(0.001, deadline - time.perf_counter()))
-            master.run()
+            _run_highs(master)
             status = master.getModelStatus()
             if status != HighsModelStatus.kOptimal:
                 raise DCOPFUnresolved(f"Benders master unresolved: {status}")

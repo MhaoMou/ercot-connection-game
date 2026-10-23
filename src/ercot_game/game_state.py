@@ -1,9 +1,7 @@
 """Round sequencing and persistence boundary for the classroom game.
 
-A state follows one schedule of three weeks x two submissions: the released
-representative-day schedule (``week-N-submission-M`` round keys) or the
-retired half-year schedule (``2027_jan_jun`` ...).  A fresh state adopts the
-schedule of the first round it advances to.
+A state follows the released schedule of three weeks x two submissions
+(``week-N-submission-M`` round keys).
 """
 
 from __future__ import annotations
@@ -13,14 +11,7 @@ import math
 from typing import Any, Iterable, Mapping
 
 from .asset_state import AssetLedger
-from .calendars import (
-    HALF_YEAR_SCHEDULE_ID,
-    REPRESENTATIVE_SCHEDULE_ID,
-    SCHEDULES,
-    round_sequence,
-    schedule_id_for,
-    weekly_match_for,
-)
+from .calendars import ROUND_SEQUENCE, weekly_match_for
 from .models import TeamPlan
 
 
@@ -28,8 +19,9 @@ class RoundTransitionError(ValueError):
     """Raised when a game state transition is invalid."""
 
 
-RELEASED_ROUND_SEQUENCE = round_sequence(REPRESENTATIVE_SCHEDULE_ID)
-HALF_YEAR_ROUND_SEQUENCE = round_sequence(HALF_YEAR_SCHEDULE_ID)
+RELEASED_ROUND_SEQUENCE = ROUND_SEQUENCE
+# The only schedule; older state files may record it as ``schedule_id``.
+SCHEDULE_ID = "representative"
 
 
 @dataclass(frozen=True)
@@ -37,15 +29,13 @@ class GameState:
     """Immutable state for three two-submission weekly classroom matches.
 
     ``carried_base_load_mw_by_bus`` holds the hourly net grid withdrawal of
-    the current week's Submission 1 sites (representative schedule only); it
-    becomes base load in Submission 2 and is cleared at the next week.
+    the current week's Submission 1 sites; it becomes base load in Submission 2 and is cleared at the next week.
     """
 
     state_version: int = 1
     current_round_key: str | None = None
     completed_rounds: tuple[str, ...] = ()
     asset_ledger: AssetLedger = field(default_factory=AssetLedger.empty)
-    schedule_id: str | None = None
     carried_base_load_mw_by_bus: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -55,13 +45,6 @@ class GameState:
             raise RoundTransitionError(
                 f"unsupported game-state version: {self.state_version!r}"
             )
-        if self.schedule_id is None and completed:
-            try:
-                object.__setattr__(self, "schedule_id", schedule_id_for(completed[0]))
-            except ValueError:
-                raise RoundTransitionError("completed rounds must form a contiguous released prefix") from None
-        if self.schedule_id is not None and self.schedule_id not in SCHEDULES:
-            raise RoundTransitionError(f"unknown classroom schedule: {self.schedule_id!r}")
         if completed != self.round_sequence[: len(completed)]:
             raise RoundTransitionError("completed rounds must form a contiguous released prefix")
         carried = {}
@@ -78,13 +61,13 @@ class GameState:
             )
 
     @classmethod
-    def new(cls, schedule_id: str | None = None) -> "GameState":
-        return cls(schedule_id=schedule_id)
+    def new(cls) -> "GameState":
+        return cls()
 
     @property
     def round_sequence(self) -> tuple[str, ...]:
-        """Round keys of this state's schedule (the released one by default)."""
-        return round_sequence(self.schedule_id or REPRESENTATIVE_SCHEDULE_ID)
+        """Round keys of the released schedule in play order."""
+        return RELEASED_ROUND_SEQUENCE
 
     @property
     def next_round_key(self) -> str | None:
@@ -138,10 +121,9 @@ class GameState:
         return weekly_match_for(self.next_round_key).feedback_only
 
     def advance(self, round_key: str, plans: Iterable[TeamPlan]) -> "GameState":
-        """Commit one half-year's team plans and advance exactly one round."""
+        """Commit one submission's team plans and advance exactly one round."""
         _validate_round_key(round_key)
-        schedule_id = self.schedule_id or schedule_id_for(round_key)
-        sequence = round_sequence(schedule_id)
+        sequence = RELEASED_ROUND_SEQUENCE
         index = len(self.completed_rounds)
         expected = sequence[index] if index < len(sequence) else None
         if expected is None:
@@ -172,7 +154,6 @@ class GameState:
             current_round_key=round_key,
             completed_rounds=completed,
             asset_ledger=ledger,
-            schedule_id=schedule_id,
             carried_base_load_mw_by_bus=carried,
         )
 
@@ -186,8 +167,6 @@ class GameState:
             "completed_rounds": list(self.completed_rounds),
             "asset_ledger": self.asset_ledger.to_dict(),
         }
-        if self.schedule_id is not None:
-            payload["schedule_id"] = self.schedule_id
         if self.carried_base_load_mw_by_bus:
             payload["carried_base_load_mw_by_bus"] = {
                 bus_id: list(values)
@@ -205,6 +184,8 @@ class GameState:
         ledger_payload = payload.get("asset_ledger")
         if not isinstance(ledger_payload, Mapping):
             raise RoundTransitionError("asset_ledger must be an object")
+        if payload.get("schedule_id", SCHEDULE_ID) != SCHEDULE_ID:
+            raise RoundTransitionError(f"unknown classroom schedule: {payload.get('schedule_id')!r}")
         carried = payload.get("carried_base_load_mw_by_bus", {})
         if not isinstance(carried, Mapping):
             raise RoundTransitionError("carried_base_load_mw_by_bus must be an object")
@@ -213,7 +194,6 @@ class GameState:
             current_round_key=payload.get("current_round_key"),
             completed_rounds=tuple(completed),
             asset_ledger=AssetLedger.from_dict(ledger_payload),
-            schedule_id=payload.get("schedule_id"),
             carried_base_load_mw_by_bus=carried,
         )
         serialized_metadata = {
@@ -230,10 +210,7 @@ class GameState:
 
 
 def _validate_round_key(round_key: str) -> None:
-    if not isinstance(round_key, str) or (
-        round_key not in RELEASED_ROUND_SEQUENCE and round_key not in HALF_YEAR_ROUND_SEQUENCE
-    ):
+    if not isinstance(round_key, str) or round_key not in RELEASED_ROUND_SEQUENCE:
         raise RoundTransitionError(
-            "round_key must identify a released submission (week-N-submission-M) "
-            "or a released half-year in 2027, 2028, or 2029"
+            "round_key must identify a released submission (week-N-submission-M)"
         )

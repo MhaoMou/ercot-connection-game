@@ -3,7 +3,7 @@ import xml.dom.minidom
 
 from ercot_game.grid_map import (
     MapBranch,
-    aggregate_connection_by_bus,
+    served_load_by_bus,
     branch_loading,
     compute_layout,
     main,
@@ -26,19 +26,46 @@ def _block(tmp_path):
     return block
 
 
-def _submissions(tmp_path):
-    folder = tmp_path / "subs"
+WITHDRAWAL_HEADER = (
+    "period_index,team_id,site_id,bus_id,load_mw,generation_mw,"
+    "storage_discharge_mw,storage_charge_mw,net_withdrawal_mw\n"
+)
+
+
+def _evaluation(tmp_path, name="eval", rows=None):
+    """An evaluator output: only scored (feasible) teams' sites, at served MW."""
+    folder = tmp_path / name
     folder.mkdir()
-    (folder / "team-alpha.csv").write_text(HEADER + "team-alpha,site-x,2,40,0,0,0\nteam-alpha,site-y,3,10,0,0,0\n", encoding="utf-8")
-    (folder / "team-beta.csv").write_text(HEADER + "team-beta,site-z,2,25,10,5,20\n", encoding="utf-8")
-    (folder / "team-bad.csv").write_text(HEADER + "team-bad,site-q,2,-5,0,0,0\n", encoding="utf-8")
+    rows = rows or [
+        # team-alpha served at 0.5 of 40 + 10 MW; team-beta in full; team-gone
+        # was dropped by the minimum allocation (served 0 MW).
+        ("team-alpha", "site-x", "2", 20.0),
+        ("team-alpha", "site-y", "3", 5.0),
+        ("team-beta", "site-z", "2", 25.0),
+        ("team-gone", "site-w", "1", 0.0),
+    ]
+    lines = [
+        f"{period},{team},{site},{bus},{mw},0,0,0,{mw}\n"
+        for team, site, bus, mw in rows
+        for period in range(2)
+    ]
+    (folder / "site_net_withdrawal.csv").write_text(WITHDRAWAL_HEADER + "".join(lines), encoding="utf-8")
     return folder
 
 
-def test_connection_is_aggregated_per_bus_and_invalid_files_are_skipped(tmp_path):
-    totals, valid = aggregate_connection_by_bus([_submissions(tmp_path)], {"1", "2", "3"})
-    assert valid == 2
-    assert totals == {"2": 65.0, "3": 10.0}
+def test_served_load_is_aggregated_per_bus_and_dropped_teams_add_nothing(tmp_path):
+    totals, sites = served_load_by_bus([_evaluation(tmp_path)])
+    assert sites == 3
+    assert totals == {"2": 45.0, "3": 5.0}
+
+
+def test_submission_two_map_adds_submission_one_sites_but_not_rejected_files(tmp_path):
+    # A rejected Submission 2 file (e.g. a reused Submission 1 site ID) is not
+    # in the evaluator output, so only scored sites of both outputs appear.
+    s1 = _evaluation(tmp_path, "s1")
+    s2 = _evaluation(tmp_path, "s2", rows=[("team-beta", "site-new", "3", 7.5)])
+    totals, _ = served_load_by_bus([s1, s2])
+    assert totals == {"2": 45.0, "3": 12.5}
 
 
 def test_branch_loading_reports_peak_ratio_and_hours_at_limit(tmp_path):
@@ -67,15 +94,15 @@ def test_svg_is_valid_interactive_and_hides_team_identity(tmp_path):
     layout = tmp_path / "layout.json"
     assert main([
         "--artifact-dir", str(block),
-        "--submissions-dir", str(_submissions(tmp_path)),
+        "--evaluation-dir", str(_evaluation(tmp_path)),
         "--layout", str(layout),
         "--title", "Week 2 Submission 1",
         "--output", str(output),
     ]) == 0
     svg = output.read_text(encoding="utf-8")
     xml.dom.minidom.parseString(svg)
-    assert "team-alpha" not in svg and "team-beta" not in svg and "site-" not in svg
-    assert "all teams): 65 MW" in svg
+    assert "team-" not in svg and "site-" not in svg
+    assert "all teams): 45.0 MW" in svg
     assert "<title>" in svg and "<script>" in svg
     assert "b3" not in svg  # out-of-service branch is not drawn
     assert json.loads(layout.read_text(encoding="utf-8"))["positions"].keys() == {"1", "2", "3"}
@@ -91,17 +118,16 @@ def test_render_without_dispatch_draws_neutral_lines():
     assert "#c9ced6" in svg
 
 
-def test_loading_legend_reports_periods_for_multi_hour_steps():
+def test_loading_legend_reports_hours():
     svg = render_svg(
         positions={"1": (0.0, 0.0), "2": (1.0, 0.5)},
         branches=(MapBranch("b1", "1", "2", 10.0),),
         connection_by_bus={},
         loading_by_branch={"b1": (1.0, 3)},
-        hours=728,
-        time_step_hours=6.0,
+        hours=120,
     )
-    assert "Peak line loading over 728 periods of 6 h" in svg
-    assert "at or near limit in 3 of 728 periods" in svg
+    assert "Peak line loading over 120 h" in svg
+    assert "at or near limit in 3 of 120 h" in svg
 
 
 def test_geographic_layout_draws_background_outline_and_note(tmp_path):

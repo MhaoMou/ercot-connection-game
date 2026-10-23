@@ -1,4 +1,4 @@
-"""Durable storage for the versioned multi-year :class:`GameState`."""
+"""Durable storage for the versioned classroom :class:`GameState`."""
 
 from __future__ import annotations
 

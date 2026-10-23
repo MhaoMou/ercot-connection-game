@@ -5,8 +5,9 @@ based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
 workflow uses the checked-in representative-day package
 (`data/processed/activsg2000_representative_v1`): 5 representative days x 24
 hourly periods = 120 periods, weighted to stand for the next ten years. All 120
-periods have passed the release DCOPF validation; the hourly package remains a
-derivation/reference input.
+periods have passed the release DCOPF validation. The hourly ACTIVSg2000 source
+package from which the days were drawn is a local derivation input and is not
+distributed or needed to play.
 
 ## Current production pipeline
 
@@ -82,12 +83,10 @@ python -m pip install -e .
 ```bash
 ercot-game-check-csv \
   --file path/to/team.csv \
-  --artifact-dir data/processed/activsg2000_representative_v1 \
-  --release representative
+  --artifact-dir data/processed/activsg2000_representative_v1
 ```
 
-`--release representative` (the default game) enforces the 0.5 x connection
-generator cap.
+The checker enforces the release's 0.5 x connection generator cap.
 
 The active canonical header is exactly seven columns, with one data row per
 site:
@@ -100,8 +99,7 @@ team-blue,site-south,1002,15,0,0,0
 
 Canonical submissions contain no hourly `period`/`load_mw` rows and no
 `submission_id`, `generator_id`, or `storage_id` columns. `bus_id` values come
-from the package's `bus.csv`; capacities use MW/MWh. `--year`, `--round`, and
-`--horizon` belong only to the retired half-year release.
+from the package's `bus.csv`; capacities use MW/MWh.
 
 For Python callers, `CANONICAL_CSV_COLUMNS` is the named active constant.
 `CSV_COLUMNS` and `BUS_CSV_COLUMNS` remain deprecated compatibility aliases to
@@ -146,8 +144,7 @@ submissions from one manifest.
 
 Generator status, PMIN, PMAX, and marginal costs come from the dataset; because
 ACTIVSg2000 does not provide technology labels or hourly availability data, the
-release uses static generator limits. The `--year`/`--round` flags select the
-retired half-year six-hour release only.
+release uses static generator limits.
 See `docs/ACTIVSG2000_SCENARIO_PACKAGE.md`.
 
 For practice, the IEEE 14-bus demo uses the same flow with
@@ -171,9 +168,16 @@ for the complete CSV, dispatch, projection, scoring, and privacy contract.
 ## Tests
 
 ```bash
+pip install -e ".[test]"   # once, installs pytest
 PYTHONPATH=.:src pytest -q
 ```
 
 The active test suite covers the production ACTIVSg2000 CSV/DCOPF/scoring path. The
 previous browser/practice product is preserved only under `archive/legacy/` and
 is not packaged, launched, or used as the current game implementation.
+
+## License
+
+The source code is released under the [MIT License](LICENSE). The documentation
+and course materials (the tutorial, slides, and files under `docs/`) are
+released under [CC BY 4.0](LICENSE-docs.md).

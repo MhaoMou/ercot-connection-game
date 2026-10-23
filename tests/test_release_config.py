@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -12,11 +11,8 @@ from ercot_game.release_config import (
     CANONICAL_PREVIEW_STRIDE,
     CANONICAL_STORAGE_BOUNDARY_MODE,
     CANONICAL_TIME_STEP_HOURS,
-    LEGACY_TIME_STEP_HOURS,
-    canonical_artifact_dir,
     canonical_release_artifact_dir,
     canonical_release_rules_path,
-    canonical_rules_path,
     load_release_config,
     week_energy_cost_enabled,
 )
@@ -30,7 +26,6 @@ def test_canonical_release_is_the_hourly_representative_day_package() -> None:
     assert CANONICAL_STORAGE_BOUNDARY_MODE == "daily_exact_cycle"
     assert CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO == 0.5
     assert CANONICAL_PREVIEW_STRIDE == 1
-    assert LEGACY_TIME_STEP_HOURS == 6
     manifest = require_validated_block(canonical_release_artifact_dir())
     assert manifest["package_version"] == REPRESENTATIVE_PACKAGE_VERSION
     assert manifest["horizon"] == CANONICAL_HORIZON
@@ -60,11 +55,3 @@ def test_release_json_matches_the_week_schedule_and_energy_switch() -> None:
     with pytest.raises(ValueError):
         week_energy_cost_enabled(4)
 
-
-def test_retired_half_year_paths_are_block_specific(tmp_path: Path) -> None:
-    assert canonical_artifact_dir(2028, "jan_jun", root=tmp_path) == (
-        tmp_path / "data/processed/activsg2000_scenarios_v2_6h/2028/jan_jun"
-    )
-    assert canonical_rules_path("jul_dec", root=tmp_path) == (
-        tmp_path / "data/teaching/dispatch_scoring_rules_jul_dec_6h_v1.json"
-    )

@@ -22,21 +22,8 @@ from .csv_submission import (
     read_submission_identity,
 )
 from .asset_state import AssetLedger, AssetStateError
-from .calendars import SUPPORTED_YEARS, half_year_calendar
 from .models import TeamPlan
 from .models import ConnectionPlan
-from .economic_profiles import (
-    HourlyEconomicProfiles,
-    load_economic_profiles,
-    load_economic_profiles_artifact,
-)
-
-
-_RELEASED_HALF_YEAR_HORIZONS = frozenset(
-    half_year_calendar(year, round_name).horizon
-    for year in SUPPORTED_YEARS
-    for round_name in ("jan_jun", "jul_dec")
-)
 
 if TYPE_CHECKING:
     from tools.activsg2000.dcopf import DCOPFInfeasible, DCOPFUnresolved
@@ -138,9 +125,8 @@ class BatchScoringRules:
     storage_capital_cost_per_mw: float = 0.0
     storage_capital_cost_per_mwh: float = 0.0
     storage_boundary_mode: str = "half_year_terminal_floor"
-    economic_profiles: HourlyEconomicProfiles | None = None
     # Optional per-period weight (hours) of every energy-based term.  Empty
-    # means every period weighs ``time_step_hours`` (the half-year rules).
+    # means every period weighs ``time_step_hours``.
     # The ten-year rules use time_step_hours x day weight x annuity factor.
     period_weight_hours: tuple[float, ...] = ()
     # Divides weighted MWh back to MWh per represented year for reporting.
@@ -195,8 +181,6 @@ class BatchScoringRules:
             raise ValueError(
                 "storage_boundary_mode must be 'half_year_terminal_floor' or 'daily_exact_cycle'"
             )
-        if self.economic_profiles is not None and not isinstance(self.economic_profiles, HourlyEconomicProfiles):
-            raise ValueError("economic_profiles must be an HourlyEconomicProfiles instance")
 
     def weight_for(self, period_index: int) -> float:
         """Hours that one MW in ``period_index`` counts for in the score."""
@@ -344,31 +328,8 @@ def load_scoring_rules(
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("scoring rules must be a JSON object")
-    economic_profiles = None
-    economic_manifest = (
-        Path(artifact_dir) / "economic_profile_manifest.json"
-        if artifact_dir is not None
-        else None
-    )
-    if economic_manifest is not None and (
-        economic_manifest.is_file()
-        or horizon in _RELEASED_HALF_YEAR_HORIZONS
-    ):
-        economic_profiles = load_economic_profiles_artifact(
-            artifact_dir,
-            expected_horizon=horizon,
-        )
-    if isinstance(payload.get("economic_profiles"), Mapping):
-        inline_profiles = load_economic_profiles(payload["economic_profiles"])
-        if economic_profiles is not None and inline_profiles != economic_profiles:
-            raise ValueError("inline economic profiles conflict with the production artifact")
-        economic_profiles = inline_profiles
-    if economic_profiles is not None:
-        it_values: tuple[float, ...] = ()
-        energy_prices: tuple[float, ...] = ()
-    else:
-        it_values = tuple(float(value) for value in payload.get("it_value_per_mwh", ()))
-        energy_prices = tuple(float(value) for value in payload.get("energy_price_per_mwh", ()))
+    it_values = tuple(float(value) for value in payload.get("it_value_per_mwh", ()))
+    energy_prices = tuple(float(value) for value in payload.get("energy_price_per_mwh", ()))
     return BatchScoringRules(
         rules_version=str(payload["rules_version"]),
         it_value_per_mwh=it_values,
@@ -382,7 +343,6 @@ def load_scoring_rules(
         storage_capital_cost_per_mw=float(payload.get("storage_capital_cost_per_mw", 0.0)),
         storage_capital_cost_per_mwh=float(payload.get("storage_capital_cost_per_mwh", 0.0)),
         storage_boundary_mode=str(payload.get("storage_boundary_mode", "half_year_terminal_floor")),
-        economic_profiles=economic_profiles,
         period_weight_hours=tuple(float(value) for value in payload.get("period_weight_hours", ())),
         present_value_factor=float(payload.get("present_value_annuity_factor", 1.0)),
         max_generator_to_connection_ratio=float(
@@ -556,6 +516,8 @@ def _collect_evaluation_inputs(
 ) -> BatchCollection:
     if isinstance(csv_paths, (str, Path)):
         root = Path(csv_paths)
+        if not root.exists():
+            raise ValueError(f"submissions directory not found: {root}")
         if root.is_dir():
             return collect_csv_submissions(
                 root,
@@ -596,11 +558,11 @@ def _score_team(
     submission_number: int | None = None,
     energy_cost_enabled: bool | None = None,
 ) -> TeamScore:
-    """Score one team; ``energy_cost_enabled=None`` keeps the half-year rule.
+    """Score one team.
 
-    The half-year release charged grid purchases from Submission 2 on; the
-    ten-year release sets the switch per week independently of the
-    submission number.
+    The game sets ``energy_cost_enabled`` per week, independently of the
+    submission number.  ``None`` (direct API callers only) charges grid
+    purchases in every submission except Submission 1.
     """
     if submission_number not in (None, 1, 2):
         raise ValueError("submission_number must be 1, 2, or None")
@@ -615,8 +577,7 @@ def _score_team(
     for period_index, period in periods_by_index.items():
         load = period.submitted_load_mw_by_team[team_id]
         generation = sum(period.generator_dispatch_mw_by_team[team_id].values())
-        profiles = rules.economic_profiles
-        value = profiles.it_value_for(period_index) if profiles is not None else rules.it_value_per_mwh[period_index]
+        value = rules.it_value_per_mwh[period_index]
         weight = rules.weight_for(period_index)
         served += load * weight / rules.present_value_factor
         it_value += load * value * weight
@@ -628,8 +589,6 @@ def _score_team(
             def settlement_price(bus_id: str) -> float:
                 if bus_id in lmp_by_bus:
                     return max(0.0, float(lmp_by_bus[bus_id]))
-                if profiles is not None:
-                    return profiles.price_for_bus(bus_id, period_index)
                 if period_index >= len(rules.energy_price_per_mwh):
                     raise ValueError(
                         "Submission 2 requires a dispatch LMP for every grid purchase "
@@ -650,8 +609,6 @@ def _score_team(
                 if plan.connections and lmp_by_bus:
                     fallback_bus = plan.connections[0].bus_id
                     price = settlement_price(fallback_bus)
-                elif profiles is not None:
-                    price = profiles.price_for_bus(sorted(profiles.bus_ids)[0], period_index)
                 else:
                     price = rules.energy_price_per_mwh[period_index]
                 energy_cost += grid_purchase * price * weight
@@ -791,10 +748,7 @@ def _validate_rules(
         raise ValueError("period_indices must not contain duplicates")
     if any(index >= horizon for index in period_indices):
         raise ValueError("period_indices must be less than horizon")
-    if rules.economic_profiles is not None:
-        if max(period_indices) >= rules.economic_profiles.horizon_hours:
-            raise ValueError("economic profile must cover the selected period indices")
-    elif max(period_indices) >= len(rules.it_value_per_mwh):
+    if max(period_indices) >= len(rules.it_value_per_mwh):
         raise ValueError("scoring value vector must cover the selected period indices")
     elif (
         energy_cost_enabled is None
@@ -813,11 +767,6 @@ def _validate_rules(
                 "generator_daily_energy_hours requires the evaluated periods to "
                 "form whole 24-hour days"
             )
-
-
-def _default_source_period_offset(horizon: int) -> int:
-    """Return the source-row offset for the two supported half-year horizons."""
-    return 4368 if horizon == 4416 else 0
 
 
 def _validate_period_mapping(
@@ -1065,6 +1014,8 @@ def _fair_continuous_projection(
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
     generator_daily_energy_hours: float | None = None,
+    projection_workers: int = 1,
+    full_request_infeasible: bool = False,
 ) -> FairProjectionResult | None:
     """Project valid plans with the uniform (max-min) rule on requested MW.
 
@@ -1083,9 +1034,20 @@ def _fair_continuous_projection(
     level, so the minimum is what removes oversized requests.  Feasibility
     comes from the fixed-load DCOPF adapter, assumed downward closed; each
     level is found by bisection to ``_FAIR_PROJECTION_TOLERANCE_MW``.
+
+    With ``projection_workers`` > 1 the independent feasibility checks (the
+    per-team probes, and the next levels of the bisection tree evaluated
+    speculatively) run in that many worker processes.  Every check is the
+    same serial dispatch as with one worker and the search consumes the
+    answers in the serial order, so the projection is identical.  Only
+    feasibility flags are cached; the dispatch of the final allocation is
+    recomputed once.  ``full_request_infeasible`` records that the caller's
+    joint dispatch of the unscaled plans already failed.
     """
     if projection_iterations <= 0:
         raise ValueError("projection_iterations must be positive")
+    if not isinstance(projection_workers, int) or isinstance(projection_workers, bool) or projection_workers <= 0:
+        raise ValueError("projection_workers must be a positive integer")
     if not math.isfinite(time_step_hours) or time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
     if not plans or not (Path(artifact_dir) / "bus.csv").is_file():
@@ -1104,43 +1066,143 @@ def _fair_continuous_projection(
         )
         for plan in plans
     }
-    cache: dict[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]] | None] = {}
+    dispatch_options = dict(
+        source_period_indices=source_period_indices,
+        time_step_hours=time_step_hours,
+        stop_on_infeasible=True,
+        storage_solver=storage_solver,
+        storage_parallel_workers=storage_parallel_workers,
+        storage_solver_threads=storage_solver_threads,
+        storage_solver_backend=storage_solver_backend,
+        storage_boundary_mode=storage_boundary_mode,
+        storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+        storage_max_iterations=storage_max_iterations,
+        storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
+        generator_daily_energy_hours=generator_daily_energy_hours,
+    )
+    # Feasibility flags only: a full 120-period dispatch of the 2000-bus
+    # network is large, and the search needs just one of them at the end.
+    cache: dict[tuple[float, ...], bool] = {}
+    last_feasible: dict[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]]] = {}
 
-    def evaluate(alphas: Sequence[float]):
-        normalized = tuple(round(min(1.0, max(0.0, float(alpha))), 12) for alpha in alphas)
-        if normalized in cache:
-            return cache[normalized]
+    def normalize(alphas: Sequence[float]) -> tuple[float, ...]:
+        return tuple(round(min(1.0, max(0.0, float(alpha))), 12) for alpha in alphas)
+
+    if full_request_infeasible:
+        cache[normalize([1.0] * len(plans))] = False
+
+    def dispatch_at(normalized: tuple[float, ...]):
         projected_plans = tuple(
             _scaled_plan(plan, normalized[index]) for index, plan in enumerate(plans)
         )
         try:
             dispatch = _dispatch_plans(
-                artifact_dir,
-                projected_plans,
-                period_indices,
-                source_period_indices=source_period_indices,
-                time_step_hours=time_step_hours,
-                stop_on_infeasible=True,
-                storage_solver=storage_solver,
-                storage_parallel_workers=storage_parallel_workers,
-                storage_solver_threads=storage_solver_threads,
-                storage_solver_backend=storage_solver_backend,
-                storage_boundary_mode=storage_boundary_mode,
-                storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
-                storage_max_iterations=storage_max_iterations,
-                storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
-                generator_daily_energy_hours=generator_daily_energy_hours,
+                artifact_dir, projected_plans, period_indices, **dispatch_options
             )
         except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
-            result = None
-        else:
-            result = (dispatch, projected_plans)
-        cache[normalized] = result
+            return None
+        return dispatch, projected_plans
+
+    pool = None
+    if projection_workers > 1:
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+
+        # Spawned (not forked) workers: no solver environment or license
+        # handle of this process is shared with them.
+        pool = ProcessPoolExecutor(
+            max_workers=projection_workers,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+
+    def evaluate_many(vectors: Sequence[Sequence[float]]) -> None:
+        """Fill the cache for ``vectors`` (in parallel when a pool exists)."""
+        pending = list(dict.fromkeys(normalize(vector) for vector in vectors))
+        pending = [vector for vector in pending if vector not in cache]
+        if not pending:
+            return
+        if pool is None or len(pending) == 1:
+            for vector in pending:
+                feasible(vector)
+            return
+        payloads = [
+            (str(artifact_dir), plans, vector, period_indices, dispatch_options)
+            for vector in pending
+        ]
+        for vector, answer in zip(pending, pool.map(_projection_feasibility_worker, payloads)):
+            cache[vector] = answer
+
+    def feasible(alphas: Sequence[float]) -> bool:
+        normalized = normalize(alphas)
+        if normalized not in cache:
+            result = dispatch_at(normalized)
+            cache[normalized] = result is not None
+            if result is not None:
+                last_feasible.clear()
+                last_feasible[normalized] = result
+        return cache[normalized]
+
+    def evaluate(alphas: Sequence[float]):
+        """Return ``(dispatch, projected_plans)`` or ``None`` when infeasible."""
+        normalized = normalize(alphas)
+        if normalized in last_feasible:
+            return last_feasible[normalized]
+        if cache.get(normalized) is False:
+            return None
+        result = dispatch_at(normalized)
+        cache[normalized] = result is not None
+        if result is not None:
+            last_feasible.clear()
+            last_feasible[normalized] = result
         return result
 
+    try:
+        return _fair_projection_search(
+            plans=plans,
+            team_ids=team_ids,
+            request_capacity=request_capacity,
+            requested_loads=requested_loads,
+            projection_iterations=projection_iterations,
+            feasible=feasible,
+            evaluate=evaluate,
+            evaluate_many=evaluate_many,
+            is_known=lambda alphas: normalize(alphas) in cache,
+            speculation_depth=(
+                0 if pool is None else max(1, int(math.log2(projection_workers + 1)))
+            ),
+        )
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
+
+
+def _projection_feasibility_worker(payload) -> bool:
+    """Process-pool task: is the projection vector dispatchable?"""
+    artifact_dir, plans, vector, period_indices, dispatch_options = payload
+    projected_plans = tuple(_scaled_plan(plan, vector[index]) for index, plan in enumerate(plans))
+    try:
+        _dispatch_plans(artifact_dir, projected_plans, period_indices, **dispatch_options)
+    except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
+        return False
+    return True
+
+
+def _fair_projection_search(
+    *,
+    plans: tuple[TeamPlan, ...],
+    team_ids: tuple[str, ...],
+    request_capacity: Mapping[str, float],
+    requested_loads: Mapping[str, float],
+    projection_iterations: int,
+    feasible,
+    evaluate,
+    evaluate_many,
+    is_known,
+    speculation_depth: int,
+) -> FairProjectionResult | None:
+    """Water-filling search of :func:`_fair_continuous_projection`."""
     zero = tuple(0.0 for _ in team_ids)
-    best_result = evaluate(zero)
-    if best_result is None:
+    if not feasible(zero):
         return None
 
     bisection_iterations = max(projection_iterations, 64)
@@ -1152,10 +1214,25 @@ def _fair_continuous_projection(
     # Levels are normalized by the largest request, so level 1 serves everyone.
     tolerance = tolerance_mw / max_request if max_request > 0.0 else 1.0
 
+    def speculative_midpoints(low: float, high: float) -> list[float]:
+        """Midpoints of the next ``speculation_depth`` bisection levels."""
+        points: list[float] = []
+        frontier = [(low, high)]
+        for _depth in range(speculation_depth):
+            following = []
+            for left, right in frontier:
+                if right - left <= tolerance:
+                    continue
+                midpoint = (left + right) / 2.0
+                points.append(midpoint)
+                following += [(left, midpoint), (midpoint, right)]
+            frontier = following
+        return points
+
     def water_fill(eligible: set[int]):
         alphas = [0.0] * len(team_ids)
         level = 0.0
-        result = best_result
+        result_vector = zero
         active = {index for index in eligible if request_capacity[team_ids[index]] > 0.0}
 
         def raised(target_level: float, indices) -> tuple[float, ...]:
@@ -1167,31 +1244,40 @@ def _fair_continuous_projection(
 
         while active:
             top = max(request_capacity[team_ids[index]] for index in active) / max_request
-            top_result = evaluate(raised(top, active))
-            if top_result is not None:
-                level, result = top, top_result
+            if speculation_depth:
+                evaluate_many(
+                    [raised(top, active)]
+                    + [raised(point, active) for point in speculative_midpoints(level, top)]
+                )
+            if feasible(raised(top, active)):
+                level, result_vector = top, raised(top, active)
             else:
                 low, high = level, top
                 for _ in range(bisection_iterations):
                     if high - low <= tolerance:
                         break
                     midpoint = (low + high) / 2.0
-                    midpoint_result = evaluate(raised(midpoint, active))
-                    if midpoint_result is None:
-                        high = midpoint
+                    if speculation_depth and not is_known(raised(midpoint, active)):
+                        evaluate_many(
+                            [raised(point, active) for point in speculative_midpoints(low, high)]
+                        )
+                    if feasible(raised(midpoint, active)):
+                        low, result_vector = midpoint, raised(midpoint, active)
                     else:
-                        low, result = midpoint, midpoint_result
+                        high = midpoint
                 level = low
             alphas = list(raised(level, active))
             active = {index for index in active if alphas[index] < 1.0}
             if not active:
                 break
             probe = min(1.0, level + 2.0 * tolerance)
+            if speculation_depth:
+                evaluate_many([raised(probe, (index,)) for index in sorted(active)])
             blocked = set()
             reaches_request = []
             for index in sorted(active):
                 trial = raised(probe, (index,))
-                if evaluate(trial) is None:
+                if not feasible(trial):
                     blocked.add(index)
                 elif trial[index] >= 1.0:
                     reaches_request.append(index)
@@ -1202,9 +1288,8 @@ def _fair_continuous_projection(
             for index in reaches_request:
                 vector = list(alphas)
                 vector[index] = 1.0
-                vector_result = evaluate(vector)
-                if vector_result is not None:
-                    alphas, result = vector, vector_result
+                if feasible(vector):
+                    alphas, result_vector = vector, tuple(vector)
                     filled.add(index)
             if not blocked and not filled:
                 # Only a non-convex oracle gets here: no single team is
@@ -1212,12 +1297,12 @@ def _fair_continuous_projection(
                 # then drops teams in a fixed order.
                 break
             active -= blocked | filled
-        return alphas, level, result
+        return alphas, level, result_vector
 
     eligible = set(range(len(team_ids)))
     dropped: list[str] = []
     while True:
-        alphas, level, best_result = water_fill(eligible)
+        alphas, level, result_vector = water_fill(eligible)
         short = [
             index
             for index in eligible
@@ -1233,7 +1318,9 @@ def _fair_continuous_projection(
         dropped.append(team_ids[removed])
 
     best_vector = tuple(alphas)
-    best_result = evaluate(best_vector) or best_result
+    best_result = evaluate(best_vector) or evaluate(result_vector)
+    if best_result is None:
+        return None
     total_tolerance = max(
         _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
         sum(requested_loads.values()) * _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
@@ -1326,6 +1413,11 @@ def _dispatch_plans(
     effective_workers = workers if storage_parallel_workers is None else storage_parallel_workers
     if effective_workers != 1:
         optional["workers"] = effective_workers
+        if storage_parallel_workers is None:
+            # Hourly periods are independent and parallel-safe; Benders
+            # recourse threads warm-start models in a scheduling-dependent
+            # order, so keep them serial for reproducible scores.
+            optional["storage_recourse_workers"] = 1
     if stop_on_infeasible:
         optional["stop_on_infeasible"] = True
     if storage_solver != "benders":
@@ -1513,8 +1605,8 @@ def evaluate_csv_batch(
     newly built connection MW; direct callers default to all plan connections.
 
     ``energy_cost_enabled`` charges grid purchases at the dispatch LMP when
-    true and never when false; ``None`` keeps the half-year rule (charged
-    except in Submission 1).  ``reserved_site_ids_by_team`` rejects files
+    true and never when false; ``None`` (direct API callers only) charges
+    them in every submission except Submission 1.  ``reserved_site_ids_by_team`` rejects files
     that reuse a team's Submission 1 site IDs (Submission 2 lists new sites
     only; Submission 1 sites are already in the artifact's base load).
     """
@@ -1583,11 +1675,7 @@ def evaluate_csv_batch(
         energy_cost_enabled=energy_cost_enabled,
     )
     if source_period_indices is None:
-        offset = (
-            _default_source_period_offset(horizon)
-            if source_period_offset is None
-            else source_period_offset
-        )
+        offset = 0 if source_period_offset is None else source_period_offset
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             raise ValueError("source_period_offset must be a non-negative integer")
         selected_source_periods = tuple(index + offset for index in selected_periods)
@@ -1602,14 +1690,6 @@ def evaluate_csv_batch(
     # Team-built generator IDs are evaluator-derived canonical keys and are
     # priced by the common classroom curve, not by the public generator catalog.
     generator_cost_by_id = None
-    if rules.economic_profiles is not None:
-        if rules.economic_profiles.horizon_hours != horizon:
-            raise ValueError(
-                "economic profile horizon must match the evaluation horizon"
-            )
-        profile_bus_ids = rules.economic_profiles.bus_ids
-        if profile_bus_ids != frozenset(bus_ids):
-            raise ValueError("economic profile bus set must match the production bus catalog")
     collection = _collect_evaluation_inputs(
         csv_paths,
         region_to_source_bus=region_to_source_bus,
@@ -1624,7 +1704,7 @@ def evaluate_csv_batch(
     accepted = tuple(collection.accepted)
     evaluation_plans = _evaluation_plans(accepted, plan_overrides)
     # CSV parsing already enforced the cap; recheck plan overrides when the
-    # rules declare the ten-year cap (legacy half-year overrides never did).
+    # rules declare a cap below 1.
     if rules.max_generator_to_connection_ratio < 1.0:
         for plan in evaluation_plans:
             check_generator_cap(plan, rules.max_generator_to_connection_ratio)
@@ -1712,6 +1792,8 @@ def evaluate_csv_batch(
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
+                projection_workers=dispatch_workers,
+                full_request_infeasible=True,
             )
             if projection is not None:
                 dispatch = projection.dispatch
@@ -2085,19 +2167,6 @@ def evaluate_csv_batch(
                 if rules.generator_daily_energy_hours is not None
                 else {}
             ),
-            **(
-                {
-                    "economic_profile": {
-                        "profile_version": rules.economic_profiles.profile_version,
-                        "horizon_hours": rules.economic_profiles.horizon_hours,
-                        "currency_year": rules.economic_profiles.currency_year,
-                        "price_source": rules.economic_profiles.price_source,
-                        "bus_count": len(rules.economic_profiles.bus_ids),
-                    }
-                }
-                if rules.economic_profiles is not None
-                else {}
-            ),
         },
         accepted_submissions=accepted,
         input_sha256_by_submission=input_hashes_by_submission,
@@ -2123,6 +2192,8 @@ _LEADERBOARD_FIELDS = (
     "storage_capital_cost",
     "competition_scope",
     "failure_reason",
+    "service_fraction",
+    "dropped",
 )
 _SUBMISSION_MANIFEST_FIELDS = (
     "submission_key",
@@ -2134,6 +2205,34 @@ _SUBMISSION_MANIFEST_FIELDS = (
     "failure_reason",
     "identity_is_fallback",
 )
+
+
+def _service_fraction(
+    score: TeamScore,
+    diagnostics: ProjectionDiagnostics | None,
+) -> float | None:
+    """Share of the requested load served (1.0 unless projected), else None."""
+    if not score.valid or not score.feasible:
+        return None
+    if diagnostics is None:
+        return 1.0
+    return float(diagnostics.service_fraction_by_team.get(score.team_id, 1.0))
+
+
+def _leaderboard_row(
+    score: TeamScore,
+    diagnostics: ProjectionDiagnostics | None,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        field: getattr(score, field)
+        for field in _LEADERBOARD_FIELDS
+        if field not in {"service_fraction", "dropped"}
+    }
+    fraction = _service_fraction(score, diagnostics)
+    row["service_fraction"] = "" if fraction is None else f"{fraction:.6g}"
+    # A dropped team scored but was served nothing (minimum allocation rule).
+    row["dropped"] = "" if fraction is None else fraction <= 0.0
+    return row
 
 
 def _canonical_json_bytes(payload: Any) -> bytes:
@@ -2652,7 +2751,7 @@ def write_batch_outputs(
     generated_paths: list[Path] = [root / "leaderboard.csv", root / "submission_manifest.csv"]
 
     leaderboard_rows = [
-        {field: getattr(score, field) for field in _LEADERBOARD_FIELDS}
+        _leaderboard_row(score, evaluation.projection_diagnostics)
         for score in evaluation.team_scores
     ]
     with (root / "leaderboard.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -2882,12 +2981,18 @@ def write_classroom_outputs(
     evaluator_version: str,
     period_indices: tuple[int, ...],
     source_period_indices: tuple[int, ...] | None = None,
-) -> None:
+    team_folder_key: bytes | None = None,
+) -> dict[str, str]:
     """Write aggregate classroom artifacts and isolated team summaries.
 
     This writer intentionally does not call or reuse the raw audit serializer.
     Every shared field is scalar or aggregate-only, and every team file is
     built from one ``TeamScore`` plus that team's scalar diagnostics.
+
+    Team folders are named ``team-<HMAC-SHA256(team_folder_key, team_id)>``
+    (first 16 hex digits), so a team ID alone does not locate a folder; the
+    key must stay instructor-private.  Without a key the unsalted SHA-256 of
+    the team ID is used (legacy behavior).  Returns ``{team_id: folder}``.
     """
     if not period_indices:
         raise ValueError("period_indices must be non-empty")
@@ -2933,8 +3038,10 @@ def write_classroom_outputs(
     _write_canonical_json(shared_paths[0], shared_summary)
     _write_canonical_json(shared_paths[1], {"periods": aggregate_periods})
 
+    folders: dict[str, str] = {}
     for score in scores:
-        team_dir = teams_dir / f"team-{hashlib.sha256(score.team_id.encode('utf-8')).hexdigest()[:16]}"
+        folders[score.team_id] = classroom_team_folder(score.team_id, team_folder_key)
+        team_dir = teams_dir / folders[score.team_id]
         team_dir.mkdir(parents=True, exist_ok=True)
         _write_canonical_json(
             team_dir / "summary.json",
@@ -2956,6 +3063,20 @@ def write_classroom_outputs(
     )
     output_hashes = _output_hashes(root, generated_paths)
     _write_canonical_json(shared_dir / "output_sha256.json", output_hashes)
+    return folders
+
+
+def classroom_team_folder(team_id: str, key: bytes | None = None) -> str:
+    """Private folder name of one team (salted with ``key`` when given)."""
+    import hmac
+
+    data = team_id.encode("utf-8")
+    digest = (
+        hashlib.sha256(data).hexdigest()
+        if key is None
+        else hmac.new(key, data, hashlib.sha256).hexdigest()
+    )
+    return f"team-{digest[:16]}"
 
 
 def _classroom_aggregate_period(period: Mapping[str, Any]) -> dict[str, Any]:

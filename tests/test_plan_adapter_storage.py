@@ -253,7 +253,7 @@ def test_materialized_duplicate_labels_pass_real_plan_adapter_boundary(monkeypat
         ),
     )
     materialized = AssetLedger.empty().register_plan(
-        plan, round_key="2027_jan_jun"
+        plan, round_key="week-1-submission-1"
     ).materialize_plan(plan, horizon=1)
     seen = []
 

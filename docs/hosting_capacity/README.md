@@ -200,6 +200,10 @@ Use `--write-long-form` when a row-oriented CSV is needed for inspection. The
 artifact directory must be a validated prepared block; a missing, invalid, or
 unverified manifest is rejected before the matrix run.
 
+The pilot commands below call `python3` and the macOS form `/usr/bin/time -l`.
+Run them with the Python of the environment where the package is installed
+(`python3` must resolve to it), and use `/usr/bin/time -v` on Linux.
+
 ## Task 9 release pilot gate
 
 Before any full-horizon run, all three pilots below must pass and the operator
@@ -324,12 +328,14 @@ The pilot gate above is mandatory. Do not launch this command until all three
 pilots pass and explicit operator approval is recorded.
 
 With the default all-bus selection this requests 2,000 candidate buses x 120
-one-hour periods = 240,000 independent `H_{s,t}` LPs. On a server with Gurobi
-and 32 workers it took about 19 minutes; on a laptop (Apple M1 Pro) with
-HiGHS and `--workers 6` it takes an estimated 22 minutes (measured on 12,000
-points). The result is `hosting_capacity_mw.npy` with axes
-`[period_index, bus_id]`, bus columns in the string-sorted order recorded in
-`ordering.bus_ids` of the metadata. The command is resumable.
+one-hour periods = 240,000 independent `H_{s,t}` LPs. On a server (AMD Ryzen
+Threadripper PRO 7985WX, 64 cores / 128 threads, 512 GB RAM, NVIDIA RTX 6000
+Ada 48 GB GPU, Ubuntu 22.04; the LP solvers use only the CPU) with Gurobi and
+32 workers it took about 19 minutes; on a laptop (Apple M1 Pro) with HiGHS and
+`--workers 6` it takes an estimated 22 minutes (measured on 12,000 points). The
+result is `hosting_capacity_mw.npy` with axes `[period_index, bus_id]`, bus
+columns in the string-sorted order recorded in `ordering.bus_ids` of the
+metadata. The command is resumable.
 
 ## 13. Benchmark interpretation
 

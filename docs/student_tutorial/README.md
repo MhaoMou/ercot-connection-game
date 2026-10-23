@@ -4,13 +4,14 @@ This directory contains the student tutorial for the ACTIVSg2000 data-center
 connection game (`main.tex`, built to `main.pdf`), its figures, and seven
 small companion notebooks.
 
-The game uses six-hour operating periods and the `daily_exact_cycle` storage
-boundary. A half-year is the planning horizon: for example, 4,368
-January--June 2028 source hours become 728 game periods, and 4,416
-July--December source hours become 736 game periods. The student CSV is a
-site-level plan; it does not contain one row per period. The numbers in the
-tutorial come from the scoring-rules files in `data/teaching/` and the
-scenario package in `data/processed/activsg2000_scenarios_v2_6h/`.
+The game plans the next ten years on five representative days of 24 one-hour
+periods (120 periods in all) with the `daily_exact_cycle` storage boundary.
+Each representative day is weighted by the number of calendar days it stands
+for, so the 120 hours make up one year, and the yearly result is discounted
+over ten years. The student CSV is a site-level plan; it does not contain one
+row per period. The numbers in the tutorial come from
+`data/teaching/dispatch_scoring_rules_representative_v1.json` and the
+scenario package in `data/processed/activsg2000_representative_v1/`.
 
 ## Using the tutorial
 

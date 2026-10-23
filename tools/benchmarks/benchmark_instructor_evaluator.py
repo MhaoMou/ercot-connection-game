@@ -32,7 +32,13 @@ def main() -> int:
     parser.add_argument("--submissions-dir", type=Path, required=True)
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--rules", type=Path, required=True)
-    parser.add_argument("--horizons", type=_parse_ints, default=(24, 168, 720))
+    parser.add_argument(
+        "--horizons",
+        type=_parse_ints,
+        default=(24, 72, 120),
+        help="leading period counts to evaluate (at most the artifact horizon)",
+    )
+    parser.add_argument("--week", type=int, choices=(1, 2, 3), default=3, help="game week (sets the energy charge)")
     parser.add_argument("--workers", type=_parse_ints, default=(2, 4, 6, 8))
     parser.add_argument("--solver-backends", default="highs")
     parser.add_argument("--output-root", type=Path, required=True)
@@ -59,8 +65,8 @@ def main() -> int:
                     str(args.artifact_dir),
                     "--rules",
                     str(args.rules),
-                    "--horizon",
-                    "4368",
+                    "--week",
+                    str(args.week),
                     "--period-indices",
                     ",".join(str(index) for index in range(horizon)),
                     "--workers",

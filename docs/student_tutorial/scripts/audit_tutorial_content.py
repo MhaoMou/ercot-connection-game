@@ -204,14 +204,13 @@ def _check_content_contract(root: Path, texts: list[tuple[str, str]], errors: li
     combined = "\n".join(text for _, text in texts)
     if "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,storage_power_mw,storage_energy_mwh" not in combined:
         errors.append("tutorial does not show the exact seven-column canonical CSV header")
-    if "six-hour" not in combined.casefold() or "half-year" not in combined.casefold():
-        errors.append("tutorial must explicitly describe the six-hour half-year release")
-    if "4,368" not in combined or "4,416" not in combined:
-        errors.append("tutorial must include current 4,368 and 4,416 hour semantics")
-    if not re.search(r"4,368.{0,120}(?:jan(?:uary)?[-– ]*jun(?:e)?|2028)", combined, re.I | re.S) and not re.search(r"(?:jan(?:uary)?[-– ]*jun(?:e)?|2028).{0,120}4,368", combined, re.I | re.S):
-        errors.append("tutorial must identify 4,368 as the 2028 January--June horizon")
-    if not re.search(r"4,416.{0,120}(?:jul(?:y)?[-– ]*dec(?:ember)?|second half)", combined, re.I | re.S) and not re.search(r"(?:jul(?:y)?[-– ]*dec(?:ember)?|second half).{0,120}4,416", combined, re.I | re.S):
-        errors.append("tutorial must identify 4,416 as the July--December horizon")
+    lower_combined = combined.casefold()
+    if "representative day" not in lower_combined:
+        errors.append("tutorial must explicitly describe the representative-day release")
+    if not re.search(r"\b120\b.{0,80}(?:period|hour)", combined, re.I | re.S):
+        errors.append("tutorial must state the 120-period (hourly) horizon")
+    if "activsg2000_representative_v1" not in combined:
+        errors.append("tutorial must name the released representative-day package")
     lower = combined.casefold()
     if "ai" not in lower or "privacy" not in lower or "do not upload" not in lower:
         errors.append("tutorial must provide explicit AI-use and privacy guidance")

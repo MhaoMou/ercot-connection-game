@@ -15,7 +15,7 @@ def _state() -> GameState:
         connections=(ConnectionPlan("site-1", "b0001", 40.0, (1.0,)),),
         generators=(GeneratorPlan("gen-1", "site-1", 10.0, 16.0),),
     )
-    return GameState.new().advance("2027_jan_jun", (plan,))
+    return GameState.new().advance("week-1-submission-1", (plan,))
 
 
 def test_save_load_round_trip(tmp_path) -> None:

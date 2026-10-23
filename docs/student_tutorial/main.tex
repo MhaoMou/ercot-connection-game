@@ -493,6 +493,15 @@ the base load. A site added in Submission 2 earns the same ten-year value as
 one built in Submission 1, but it competes only for the room that is left.
 \end{keybox}
 
+\begin{warningbox}[Submission 2 can cost more than it earns]
+Submission 1 may leave little or no room on the grid. A Submission 2 site that
+would be served less than half of its request is served nothing, but it
+\alert{still pays its full site cost}, so a Submission 2 score can be billions
+of dollars below zero. Submitting no new sites scores exactly zero. Before you
+submit, recompute hosting capacity on the Submission 2 data your instructor
+releases (\cref{sec:hc}) and preview your plan on it (\cref{sec:preview}).
+\end{warningbox}
+
 \begin{figure}[htbp]
   \centering
   \input{figures/pipeline.tex}
@@ -878,8 +887,10 @@ submissions. [...]
 (\$6,500/MWh). Follow Part I.
 \end{aibox}
 \begin{warningbox}[Check it yourself]
-The agent noticed that two documents disagree and said which one it trusted,
-which is exactly what you want. But it left out a tool you will need,
+When this session was recorded, the README still described an earlier version
+of the game; it has since been updated. The agent noticed that two documents
+disagreed and said which one it trusted, which is exactly what you want. But it
+left out a tool you will need,
 \code{ercot-game-hosting-capacity}. Compare its summary with
 \nameref{asg:rules} and \nameref{asg:scoring} rather than trusting a summary.
 \end{warningbox}
@@ -1201,7 +1212,7 @@ Column & Rule\\
 \code{site_id} & Your own label for the site, unique within the file.\\
 \code{bus_id} & Must exist in the block's \code{bus.csv}.\\
 \code{connection_capacity_mw} & $C \ge 0$, in MW.\\
-\code{generator_capacity_mw} & $0 \le G \le C$, in MW.\\
+\code{generator_capacity_mw} & $0 \le G \le 0.5\,C$, in MW.\\
 \code{storage_power_mw} & $P \ge 0$, in MW.\\
 \code{storage_energy_mwh} & $B = 4P$, in MWh (both zero means no battery).\\
 \bottomrule
@@ -1242,7 +1253,6 @@ team-blue,site-north,9999999,10,0,0,0
 \begin{lstlisting}
 INVALID: bad.csv
 - row 2: connection_capacity_mw must be non-negative
-- row 2: generator capacity cannot exceed 0.5 x connection capacity (20 MW > -2.5 MW)
 - row 2: storage energy must equal four times storage power
 - row 3: one CSV may contain only one team_id
 - row 4: unknown scenario bus 9999999
@@ -1282,7 +1292,9 @@ The preview uses the representative data and the ten-year rules by default.
 to leave it out. For Submission 2, add \code{--artifact-dir} with the
 Submission 2 data your instructor releases after Submission 1: the
 representative data with every team's Submission 1 load already in the base
-load. Every CSV in the folder is dispatched together, so keep one candidate per
+load. (To try your own Submission 1 result instead, pass
+\code{--base-load-from} with a Submission 1 output folder; a Submission 2
+preview without either is refused.) Every CSV in the folder is dispatched together, so keep one candidate per
 folder.
 
 The preview differs from the official evaluator in two ways:
@@ -1295,7 +1307,7 @@ The preview differs from the official evaluator in two ways:
 \midrule
 Operating periods solved & All 120 representative hours & All 120 representative hours\\
 Storage & Not dispatched (idle), but its capital is charged & Dispatched within each representative day; half full at the start and end of each day\\
-Other teams & Only the CSVs you put in the folder & All teams, with fair projection if needed\\
+Other teams & Only the CSVs you put in the folder; if they exceed the grid, the same fair projection as the evaluator & All teams, with fair projection if needed\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -1308,7 +1320,10 @@ The output JSON has \msg{"mode": "student_preview"} and \msg{"exact": false},
 plus one entry per team in \code{team_scores} with \code{score},
 \code{served_load_mwh}, \code{it_value}, \code{energy_cost},
 \code{generator_operating_cost}, \code{generator_capital_cost},
-\code{storage_capital_cost}, \code{site_cost}, and \code{feasible}.
+\code{storage_capital_cost}, \code{site_cost}, \code{feasible},
+\code{service_fraction}, and \code{dropped}. If your plan does not fit the
+grid in some hour, the preview scales it back with the evaluator's fair
+projection, prints a NOTE, and records the details under \code{projection}.
 \code{served_load_mwh} is per represented year: compare it with
 $C \times 8{,}760$ to see how much of your load was served.
 
@@ -1437,7 +1452,7 @@ A large (100\MW) & 2,426 / 1,394 & 1,363 / 1,333\\
     of about \$55M. Even the small team pays for the large team's crowding.
 \end{itemize}
 
-There is no plan that is best whatever the other team does.\footnote{That means, for this two-player game, there is no \alert{dominant strategy} for any of the player.} If B goes small,
+There is no plan that is best whatever the other team does.\footnote{That means, for this two-player game, there is no \alert{dominant strategy} for either player.} If B goes small,
 A should go large (3,172 beats 1,826); if B goes large, A should go small
 (1,826 beats 1,820, and in Week 3, 1,421 beats 1,363). The same holds for B. In
 both weeks the game has two stable outcomes, (large, small) and (small,
@@ -1448,6 +1463,7 @@ share of a shared bottleneck is not rewarded; the grid's spare capacity goes
 to whoever does not crowd it; and your best plan depends on what you expect the
 others to do.
 
+\enlargethispage{3pt}% the two-team footnote overflows this page by about 2pt
 \subsection{Run controlled experiments}
 Change one thing at a time and record every run:
 
@@ -1494,9 +1510,11 @@ Message & What to do\\
 \msg{... must be a finite decimal} & Use a plain number: no units, no blanks, no text.\\
 \msg{generator capacity cannot exceed 0.5 x connection capacity} & Lower $G$ to at most $0.5\,C$, or raise $C$.\\
 \msg{storage energy must equal four times storage power} & Set $B = 4P$, or both to 0.\\
-\msg{CONFIGURATION ERROR: ...} & The command is wrong, not your file. For example, \code{--year} and \code{--round} must be given together.\\
+\msg{CONFIGURATION ERROR: ...} & The command is wrong, not your file. For example, \code{--artifact-dir} must point to an existing scenario folder.\\
 \msg{scenario block validation_status is not passed} & The preview is pointing at an unreleased block. Use a block your instructor has released.\\
-\msg{no valid CSV submissions were found} & The preview folder is empty or its CSV fails the checker. Run the checker first.\\
+\msg{no valid CSV submissions were found} & The preview folder is empty or every CSV failed; the lines above it give each file's reason. Run the checker first.\\
+\msg{connection_capacity_mw is 0, so ...} & Set $C > 0$, or drop $G$ and $P$.\\
+\msg{empty site: every capacity is 0} & Remove the row.\\
 \msg{command not found: ercot-game-...} & Activate the virtual environment and rerun the install step in \cref{sec:setup}.\\
 \msg{No module named 'highspy'} & Rerun the install step; the solver is a required dependency.\\
 \bottomrule
@@ -1518,7 +1536,7 @@ first three lines of my CSV are: [paste]. What is wrong and how do I fix it?
   \item The same \code{team_id} is used on every row, and every \code{site_id}
     is unique.
   \item Every \code{bus_id} exists in the block you are submitting for.
-  \item $G \le C$, and storage is either $(0,0)$ or $B = 4P$.
+  \item $G \le 0.5\,C$, and storage is either $(0,0)$ or $B = 4P$.
   \item For Submission 2, every Submission 1 row is unchanged.
   \item The checker prints \code{VALID} for the exact file you will upload.
   \item You can explain why you chose each bus and capacity.
@@ -2415,11 +2433,11 @@ of the allocation rule instead.
 
 \alert{A simplified game for analysis.} From here on each team builds
 \alert{one} site at bus $k_i$ with request $r_i \ge 0$ MW, and no generator or
-battery. Two assumptions keep the algebra clean:
+battery (Corollary~2 extends the results to several sites). Two
+assumptions keep the algebra clean:
 \begin{description}[leftmargin=1.5em,style=nextline]
   \item[A1. Downward closed.] If a load vector is feasible, so is any smaller
-    one. The evaluator's search for service fractions assumes the same; on a
-    general network a counterflow can break it.
+    one. The evaluator's search for service fractions assumes the same.
   \item[A2. Constant value per MW.] The LMP term is small, not only next to
     $v$ but next to the \emph{margin} $V - \kappa$ that a served MW earns over
     its site cost, so we drop it: with $s_i = \alpha_i r_i$ the MW served,
@@ -2427,94 +2445,215 @@ battery. Two assumptions keep the algebra clean:
       u_i = V s_i - \kappa\, r_i,\qquad V = v \textstyle\sum_t \omega_t > \kappa > 0 .
     \]
 \end{description}
-Assumption (A2) compares energy with the margin, not with $v$. In the game a
-served MW earns $V = \$61.5$M against $\kappa = \$25$M, a margin of
-\$36.5M. An average LMP of \$30/MWh costs \$1.8M of it, but an LMP of
-\$200/MWh at a congested bus costs \$12.3M, a third. In Weeks 1 and 2
-there is no energy cost and (A2) holds exactly.
-\Cref{app:equilibrium-experiments} shows what happens in Week 3.
+
+\alert{Are the assumptions reasonable?} (A2) holds exactly in Weeks 1 and 2,
+which have no energy cost. In Week 3 it is an approximation: a served MW earns
+$V = \$61.5$M against $\kappa = \$25$M, a margin of \$36.5M; an average LMP of
+\$30/MWh costs \$1.8M of it, but \$200/MWh at a congested bus costs \$12.3M,
+a third. Proposition~2 below bounds what this changes.
+
+(A1) can fail on a meshed network: a new load at one bus can push flow
+\emph{against} a line that a load at another bus overloads (a
+\alert{counterflow}), so removing the first load can make the second
+infeasible. It holds whenever all new loads push the binding limits the same
+way, for example when the binding limit is the system's spare generation, or
+an import limit into a load pocket, which is the typical situation for a data
+center. More importantly, it is what a careful operator would impose anyway. A
+connection study cannot rely on relief from another applicant's load, because
+that load may be smaller than requested, arrive later, or ramp down. Treating
+such counterflow as \alert{non-firm} means requiring the plan to stay feasible
+when any subset of the new loads shrinks, and the set of plans that pass this
+test is downward closed by construction. Under that policy, (A1) is not an
+assumption about the network but a property of the study.
 
 The teams' served MW must lie in the \alert{team region}
 $\widetilde{\mathcal H} = \{ s \in \mathbb R^n_{\ge 0} : \sum_i s_i e_{k_i} \in \mathcal H\}$,
-which is again convex, compact, and downward closed. The rule of
-\cref{app:projection} raises a common level, lets unblocked teams keep rising,
-and drops a team served below half of its request. Let
-$w \in \widetilde{\mathcal H}$ be the \alert{max-min fair point} of
-$\widetilde{\mathcal H}$: the point that the first two steps (common level,
-then water-filling) reach when every team asks for more than it can get. At
-$w$ every team is blocked: $w + \varepsilon e_i \notin \widetilde{\mathcal H}$
-for all $i$ and $\varepsilon > 0$. (With the minimum allocation switched on,
-everyone asking for an unlimited amount gets nothing, because everyone is served
-less than half; $w$ is defined without that step.)
+which is again convex, compact, and downward closed. Because it is a downward
+closed polytope in the nonnegative orthant, it can be written as
+$\widetilde{\mathcal H} = \{ s \ge 0 : a_c^{\top} s \le b_c,\ c = 1,\dots,m\}$
+with nonnegative coefficients $a_c \ge 0$: each constraint $c$ is a limit that
+the teams' loads share, such as a line or the spare generation.
+
+\alert{The allocation rule.} For requests $r$, the rule of
+\cref{app:projection} raises a common level $t$ and serves
+$\min(r_i, t)$; a team that is \alert{blocked} (it lies in a tight constraint
+$c$ with $a_{c,i} > 0$) stops, and the others keep rising (water-filling).
+Write $U(r)$ for the result. Finally, a team served below half of its request
+is dropped and the rest is recomputed. Let $w$ be the \alert{max-min fair
+point} of $\widetilde{\mathcal H}$: the result of water-filling when every
+team asks for more than it can get. It is computed in stages. In stage 1 all
+teams rise together to the largest level $t_1$ with $t_1 \mathbf 1 \in
+\widetilde{\mathcal H}$; the teams in a constraint that is then tight form the
+set $B_1$ and stop at $t_1$. In stage 2 the remaining teams rise together to
+the largest feasible level $t_2 > t_1$, and so on. At $w$ every team is
+blocked, and $w$ is the unique lexicographically optimal (``leximin'') point of
+$\widetilde{\mathcal H}$: the one whose smallest entry is as large as
+possible, then the second smallest, and so on. In network flows this point is
+known as the lexicographically optimal flow~\cite{megiddo1974optimal}, and with
+a single limit it is Sprumont's \alert{uniform rule}~\cite{sprumont1991division}.
+(With the minimum allocation switched on, everyone asking for an unlimited
+amount gets nothing, because everyone is served less than half; $w$ is defined
+without that step.)
+
+Two properties of water-filling are used below. Both follow from (A1): with
+less load from the others, every level that was feasible before stays
+feasible.
+\begin{description}[leftmargin=1.5em,style=nextline]
+  \item[P1. Asking for what you get changes nothing.] If team $i$ lowers its
+    request from $r_i$ to $U_i(r)$, every team, $i$ included, is served as
+    before: team $i$ stops at the same moment, so the path of the others is
+    unchanged.
+  \item[P2. Fewer or smaller rivals never hurt.] If other teams lower their
+    requests or drop out, every remaining team is served at least as much as
+    before.
+\end{description}
 
 \subsection{Equilibria with fixed sites}
 
-\begin{keybox}[{Proposition 1 (one shared limit)}]
-If $\widetilde{\mathcal H} = \{ s \ge 0 : \sum_i s_i \le H \}$, the game has
-exactly one pure Nash equilibrium: $r_i^* = H/n$ for every team.
+\begin{keybox}[{Theorem 1 (fixed buses, any number of teams)}]
+Under (A1)--(A2), for any number of teams $n$, the requests $r^* = w$ form the
+\alert{unique} pure Nash equilibrium. At this equilibrium every team is served
+in full: the combined plan fits the grid, and neither the projection nor the
+minimum allocation is used.
 \end{keybox}
-\emph{Proof.} At $r^*$, lowering a request lowers service one for one and
-loses $(V-\kappa)$ per MW. Raising it leaves the common level at $H/n$, so
-service is unchanged while the site cost rises (and a large enough raise is
-dropped). So $r^*$ is an equilibrium. Conversely, let $r$ be an equilibrium.
-(i) No team is cut: a team served $s_i < r_i$ could request exactly $s_i$, keep
-the same common level and service, and save $\kappa (r_i - s_i)$. So
-$\sum_i r_i \le H$, and every team is fully served. (ii) $\sum_i r_i = H$:
-otherwise any team could add the spare MW and gain $V - \kappa$ per MW.
-(iii) All requests are equal: if $r_i < r_j$, then at level $t = r_i$ the
-total $\sum_l \min(r_l, t) < H$, so after a small raise $\delta$ the common
-level still exceeds $r_i + \delta$ and team $i$ is served
-$r_i + \delta$, a gain of $(V-\kappa)\delta > 0$. Hence $r = r^*$. $\square$
-
-\begin{keybox}[{Proposition 2 (network, fixed buses)}]
-Under (A1)--(A2), $r^* = w$ is a pure Nash equilibrium. At this equilibrium
-every team is served in full: the combined plan fits the grid, and neither the
-projection nor the minimum allocation is used.
-\end{keybox}
-\emph{Proof.} Fix team $i$ and let every other team request $w_j$. If team $i$
-requests $r_i' \ge w_i$, the common level and the water-filling follow exactly
-the path that defines $w$, because each other team stops at $w_j$ either way;
-team $i$ therefore stops where it is blocked, at $w_i$, and pays
+\emph{Proof.} \textbf{$w$ is an equilibrium.} Fix team $i$ and let every other
+team request $w_j$. If team $i$ requests $r_i' \ge w_i$, water-filling follows
+exactly the path that defines $w$, because each other team stops at $w_j$
+either way; team $i$ therefore stops where it is blocked, at $w_i$, and pays
 for $r_i' \ge w_i$ (or is dropped if $w_i < r_i'/2$). If it requests
 $r_i' < w_i$, it is served $r_i'$ and earns $(V-\kappa) r_i' < (V-\kappa) w_i$.
-No deviation helps. $\square$
+No deviation helps.
 
-\begin{keybox}[{Proposition 3 (two teams: uniqueness)}]
-For $n = 2$, under (A1)--(A2), $w$ is the only pure Nash equilibrium.
+\textbf{No other equilibrium.} Let $r$ be an equilibrium.
+
+(i) \emph{Nobody is cut.} A dropped team earns $-\kappa r_i < 0$ and would
+rather request nothing. A team served $s_i < r_i$ could request exactly $s_i$:
+by P1 it is served the same and saves $\kappa(r_i - s_i)$. So every team is
+served in full, $U(r) = r$, and $r \in \widetilde{\mathcal H}$.
+
+(ii) \emph{Every request is at least $t_1$.} Suppose $r_i < t_1$, and let team
+$i$ request $t_1$ instead. For every level $t \le t_1$ the vector of
+$\min(r'_j, t)$ lies below $t_1 \mathbf 1$, which is feasible, so by (A1) the
+common level reaches $t_1$ and team $i$ is served $t_1$ in full (it is never
+dropped, and by P2 a rival dropping only helps it). Its payoff rises by
+$(V - \kappa)(t_1 - r_i) > 0$, a contradiction.
+
+(iii) \emph{Teams in $B_1$ request exactly $t_1$.} Each $j \in B_1$ lies in a
+constraint $c$ that is tight at $t_1 \mathbf 1$ and has $a_{c,j} > 0$, so
+$a_c^{\top} (t_1\mathbf 1) = b_c$. By (i) and (ii), $a_c^{\top} r \le b_c$ and
+$r \ge t_1 \mathbf 1$. Since $a_c \ge 0$, this forces $r_l = t_1$ for every
+team $l$ with $a_{c,l} > 0$, in particular for $j$.
+
+(iv) \emph{Repeat for the later stages.} With the teams of $B_1$ at $t_1$, the
+argument of (ii) applies to the vector that is $t_1$ on $B_1$ and $t_2$
+elsewhere, which is feasible: a team outside $B_1$ with $r_i < t_2$ could ask
+for $t_2$ and be served in full. Step (iii) then fixes the teams of $B_2$ at
+$t_2$, and so on through all stages. Hence $r = w$. $\square$
+
+\begin{keybox}[{Corollary 1 (one shared limit)}]
+If $\widetilde{\mathcal H} = \{ s \ge 0 : \sum_i s_i \le H \}$, the unique
+pure equilibrium is $r_i^* = H/n$ for every team.
 \end{keybox}
-\emph{Proof.} Let $r$ be an equilibrium. As in Proposition 1, no team is cut,
-so $r \in \widetilde{\mathcal H}$. Suppose $r_1 < w_1$. If also $r_2 < w_2$,
-then $r$ lies strictly below the feasible point $w$ in both coordinates, so
-team 1 can add load alone and gain. If $r_2 \ge w_2$, let team 1 request
-$w_1$: the common level and the water-filling now reach exactly $w$ (team 2
-stops where it is blocked, at $w_2$, as in Proposition 2), so team 1 is served
-$w_1 > r_1$ and gains $(V-\kappa)(w_1 - r_1)$. Either way $r$ is not an
-equilibrium, so $r_1 \ge w_1$ and likewise $r_2 \ge w_2$. Since
-$r \in \widetilde{\mathcal H}$ and both teams are blocked at $w$, this forces
-$r = w$. $\square$
+This special case is a known result about rationing scarce capacity: when a
+supplier rations orders with the uniform rule, retailers order exactly what
+they need and the equilibrium is unique, while under proportional rationing
+they inflate their orders and an equilibrium may fail to
+exist~\cite{cachon1999equilibrium}. Theorem 1 carries the uniform-rule result
+from one shared limit to the many coupled limits of a power network. Related
+work generalizes the uniform rule to networks of suppliers and demanders and
+shows that it remains strategy-proof there~\cite{bochet2012balancing}; that
+setting has private preferences reported to a mechanism, while ours has
+requests that are costly commitments, so neither result implies the other.
 
-\alert{For three or more teams, we conjecture that $w$ is still the unique pure
-equilibrium.} \cref{app:equilibrium-experiments} tests this numerically.
+\begin{keybox}[{Corollary 2 (several sites per team)}]
+Suppose team $i$ splits its request over several buses in fixed proportions
+$m_i \ge 0$ (MW at each bus per MW requested), and the evaluator scales all of
+a team's sites by one fraction $\alpha_i$, as the game does. Then Theorem 1
+holds with the team region
+$\widetilde{\mathcal H} = \{ s \ge 0 : \sum_i s_i\, m_i \in \mathcal H\}$, which is
+again convex and downward closed.
+\end{keybox}
 
-\paragraph{What the propositions say.}
+\subsection{How much does fairness cost?}
+
+The equilibrium is not always the plan a central planner would choose. The
+planner maximizes total served load,
+$\max\{\mathbf 1^{\top} s : s \in \widetilde{\mathcal H}\}$, while the rule
+insists on equal MW. Because every team is served $w$ at equilibrium, the
+\alert{price of anarchy}
+$\mathrm{PoA} = \max_{s \in \widetilde{\mathcal H}} \mathbf 1^{\top} s \,/\, \mathbf 1^{\top} w$
+is exactly the cost of max-min fairness, which is well studied.
+
+\begin{keybox}[{Proposition 1 (efficiency of the equilibrium)}]
+\begin{enumerate}[leftmargin=*]
+  \item \emph{One shared limit with different loadings.} If
+    $\widetilde{\mathcal H} = \{ s \ge 0 : a^{\top} s \le b \}$ with $a > 0$,
+    where $a_i$ is how much one MW at team $i$'s bus loads the limit, then
+    \[
+      \mathrm{PoA} = \frac{\sum_i a_i}{n \min_i a_i} \;\le\; \frac{\max_i a_i}{\min_i a_i}.
+    \]
+  \item \emph{Any team region.} If every team could host the same amount
+    alone, the share of total load lost to fairness is at most
+    $1 - 4n/(n+1)^2$, and this is tight~\cite{bertsimas2011price}; for three
+    teams that is 25\%, so $\mathrm{PoA} \le 4/3$. The same paper bounds the
+    case of unequal single-bus hosting capacities.
+\end{enumerate}
+\end{keybox}
+\emph{Proof of 1.} Each team is served $w_i = b / \sum_j a_j$, so
+$\mathbf 1^{\top} w = n b/\sum_j a_j$. The planner puts all load where it
+loads the limit least, serving $b/\min_i a_i$. Dividing gives the formula, and
+$\sum_i a_i \le n \max_i a_i$ gives the bound. $\square$
+
+In words, \alert{the efficiency loss comes from the spread in how strongly the
+sites load the shared limit}. When every bus loads it equally (as with the
+system's spare generation) the equal-MW equilibrium is also efficient; when
+one site loads a line five times as much as another, the equilibrium can serve
+far less than the planner.
+
+\subsection{Energy prices: an approximate equilibrium}
+
+Without (A2), a team's payoff also pays for energy. Write $\Omega =
+\sum_t \omega_t$ for the ten-year weighted hours and $\ell_i(r)$ for the
+average LMP that team $i$ pays per MWh at requests $r$.
+
+\begin{keybox}[{Proposition 2 (Week 3)}]
+Under (A1), suppose that when team $i$ alone changes its request, its average
+price stays in $[\ell_i^{\min}, \ell_i^{\max}]$, and that a served MW still pays
+for itself, $V - \kappa > \Omega\,\ell_i^{\max}$. Then no team can gain more
+than
+\[
+  \varepsilon_i = \Omega\,\big(\ell_i^{\max} - \ell_i^{\min}\big)\, w_i
+\]
+by deviating from $w$: $w$ is an \alert{$\varepsilon$-equilibrium}.
+\end{keybox}
+\emph{Proof.} Asking for more than $w_i$ serves no more load (as in
+Theorem 1), so the dispatch, and with it the energy cost, does not change, and
+the extra request only adds site cost. Asking for $r_i' < w_i$ changes the
+payoff by
+$-(V-\kappa)(w_i - r_i') + \Omega\big(\ell_i(w) w_i - \ell_i(r') r_i'\big)
+\le -(V - \kappa - \Omega\ell_i^{\max})(w_i - r_i') + \Omega(\ell_i^{\max} - \ell_i^{\min}) r_i'$,
+which is at most $\varepsilon_i$ because the first term is negative. $\square$
+
+The bound is loose: it allows the whole price spread to apply to the whole
+load. Relative to a team's payoff it is about $(\ell^{\max} -
+\ell^{\min})$ divided by the margin per MWh, \$36.5M$/\Omega \approx
+\$590$/MWh, so a \$50/MWh spread allows at most about 8\%.
+\Cref{app:equilibrium-experiments} finds far smaller gains in practice.
+
+\paragraph{What the results say.}
 \begin{itemize}[leftmargin=*]
   \item \alert{Existence and uniqueness.} With fixed sites and continuous
-    requests, a pure equilibrium exists, and it is unique for one shared
-    limit and for two teams on any network.
+    requests, the equilibrium exists and is unique for any number of teams,
+    and for teams with several sites in fixed proportions.
   \item \alert{Equal shares.} The equilibrium is max-min fair: teams behind
     the same bottleneck end up with the same MW, whatever they would have liked.
   \item \alert{No projection at equilibrium.} Rational teams request exactly
     what they will be served. The minimum allocation never binds at equilibrium;
     it acts \emph{off} equilibrium, by making oversized requests worse than
     their honest counterparts.
-  \item \alert{Efficiency.} The equilibrium is not always the plan a central
-    planner would choose. The planner maximizes total served load,
-    $\max\{\mathbf 1^{\top} s : s \in \widetilde{\mathcal H}\}$. With one shared
-    limit the two coincide (total $H$). On a network, a MW at one bus may use
-    more of a bottleneck than a MW at another, so the planner may favour one
-    team while the rule insists on equal MW. The ratio
-    $\mathrm{PoA} = \max_{s \in \widetilde{\mathcal H}} \mathbf 1^{\top} s \,/\, \mathbf 1^{\top} w \ge 1$
-    is the \alert{price of anarchy}.
+  \item \alert{Fair is not efficient.} The loss is governed by the spread in
+    how strongly sites load the shared limits, and it is bounded by the price
+    of max-min fairness.
   \item \alert{Discrete choices create more equilibria.} With only a few
     allowed sizes, $w$ may not be available, and several profiles can be
     equilibria. The two-team example of \cref{sec:twoteam} is exactly this: with
@@ -2525,14 +2664,63 @@ equilibrium.} \cref{app:equilibrium-experiments} tests this numerically.
 \subsection{Choosing the bus}
 
 When teams also choose buses, the strategy set combines a discrete choice
-($x_i$) with a continuous one ($r_i$). If we restrict requests to a finite grid,
-for example multiples of 10\MW, the game becomes \alert{finite}, and Nash's
-theorem guarantees an equilibrium in \alert{mixed} strategies, where teams
-randomize over plans~\cite{nash1950equilibrium}. Nothing guarantees a
+($x_i$) with a continuous one ($r_i$). By Theorem 1, once the buses are chosen,
+the requests settle at the max-min point of the region those buses define, so
+we can study a reduced game in which team $i$ picks a bus $k_i$ and earns
+$(V - \kappa)\, w_i(k_1, \dots, k_n)$.
+
+\begin{keybox}[{Proposition 3 (one shared limit)}]
+Suppose that, whatever buses the teams choose, a single constraint binds,
+loading bus $k$ by $a_k > 0$ per MW. Then every team earns
+$(V-\kappa)\, b / \sum_j a_{k_j}$, the same amount. The reduced game is a
+game of identical interests, so it has a pure equilibrium, and the best one
+puts every team at a bus with the smallest $a_k$.
+\end{keybox}
+\emph{Proof.} By Theorem 1 every team is served $w_i = b/\sum_j a_{k_j}$. All
+teams share the same payoff, so $-\sum_j a_{k_j}$ is an exact potential, and a
+profile that minimizes it is a pure equilibrium. $\square$
+
+This explains the experiments below, where the binding limit is the system's
+spare generation, every bus loads it equally, and teams crowd the roomiest
+buses. With several limits that bind for different placements, the reduced
+game is no longer one of identical interests. If the requests are restricted to
+a finite grid, for example multiples of 10\MW, the game is \alert{finite}, and
+Nash's theorem guarantees an equilibrium in \alert{mixed} strategies, where
+teams randomize over plans~\cite{nash1950equilibrium}. Nothing guarantees a
 \alert{pure} equilibrium: the network couples buses in uneven ways, so the game
 is not a congestion game in Rosenthal's sense~\cite{rosenthal1973class}, and
 best-response dynamics (each team in turn switching to its best plan) may cycle.
-Whether they do on a real network is an empirical question.
+We conjecture that a pure equilibrium still exists when the binding limits are
+nested, as with import limits into load pockets inside larger pockets.
+
+\subsection{What this means for connecting large loads}
+
+\begin{itemize}[leftmargin=*]
+  \item \alert{The allocation formula shapes the requests.} ERCOT has not
+    published how it splits capacity among loads studied in a
+    batch~\cite{ercot2026batch}. The results above, and the rationing
+    literature~\cite{cachon1999equilibrium}, say this choice matters. An
+    equal-MW rule backed by a commitment (financial security, or site cost in
+    the game) leads applicants to request exactly their share. A pro-rata rule,
+    which scales everyone by the same fraction, rewards inflated requests,
+    because a larger request earns a larger share; this is the speculative
+    over-subscription that clogs interconnection queues. Without a commitment
+    cost, over-requesting is free under either rule. Allocation by bids, as in
+    Kelly's proportional mechanism, has its own bounded efficiency
+    loss~\cite{johari2004efficiency}.
+  \item \alert{Fairness has a measurable price.} Equal MW is easy to explain
+    and to predict, but it can leave capacity unused when sites load the
+    bottleneck unequally. Weighting allocations by shift factors would recover
+    some of it, at the cost of favoring well-placed sites.
+  \item \alert{Minimum allocations deter, they do not allocate.} The 50\% rule
+    never binds at equilibrium. With discrete sizes, though, it creates
+    chicken games with several equilibria, which argues for operators to
+    publish hosting-capacity regions or run iterative batches so that
+    applicants can coordinate.
+  \item \alert{Firm studies make the game well behaved.} Treating counterflow
+    from other new loads as non-firm is not only conservative; it gives (A1)
+    and with it a unique, predictable outcome.
+\end{itemize}
 
 \subsection{Computing equilibria on the IEEE 14-bus demo}\label{app:equilibrium-experiments}
 
@@ -2551,7 +2739,7 @@ Two numbers set the scale. A MW served in every hour earns
 generation is 772.4\MW{} against a peak load of 301.7\MW, so the whole network
 can host at most 470.7\MW{} of new load without private generators.
 
-\paragraph{Fixed buses: testing Propositions 2 and 3.} For three placements we
+\paragraph{Fixed buses: testing Theorem 1.} For three placements we
 computed $w$ exactly from an LP model of $\widetilde{\mathcal H}$, checked every
 team's best response to $w$ on a fine grid, ran best-response dynamics from 12
 starts, and solved the planner's problem $\max \mathbf 1^{\top} s$ over
@@ -2582,7 +2770,9 @@ Buses & $w$ (MW) & planner (MW) & PoA (MW) & $w$ is an equilibrium?\\
     $\widetilde{\mathcal H}$ and $w$ lies on it, so the price of anarchy is 1.
     With buses 9, 13, and 14 it is not: a MW at bus 9 uses less of the shared
     bottleneck, so the planner serves 120.9\MW{} where the equilibrium serves
-    97.6\MW, 24\% more.
+    97.6\MW, 24\% more. Proposition~1 explains why: the three buses load the shared
+    limit unequally. For comparison, with equal single-bus hosting
+    capacities the worst case for three teams is $\mathrm{PoA} = 4/3$~\cite{bertsimas2011price}.
   \item \alert{Energy prices barely move the equilibrium.} With energy at the
     LMP, the teams at the congested buses 13 and 14 pay on average \$37--71
     per MWh at $w$, about \$2--4M per MW over ten years, small next to the
@@ -2656,7 +2846,7 @@ converged in three or four rounds in all twelve runs, without cycling. Every
 run ended at the same exact grid equilibrium: three teams at bus 1 with
 160\MW{} each, or four teams at bus 1 with 120\MW{} each. In both cases the
 teams split the network's 470.7\MW{} of spare capacity equally, as
-Proposition 1 predicts for one shared limit. The 50\% minimum allocation never
+Corollary 1 predicts for one shared limit. The 50\% minimum allocation never
 binds at an equilibrium; with four teams it binds briefly along several
 paths, when a team overshoots and is dropped (\cref{fig:ne-dynamics}).
 
@@ -2748,8 +2938,9 @@ log so everyone works from the same files and you can always return to the
 exact plan you submitted. Keep the repository private: your plan is your
 competitive information.
 \begin{lstlisting}[language=bash]
-git init team-blue && cd team-blue
-git add plans/ scripts/ runlog.csv
+# illustrative: create a private repository on GitHub first, then
+git clone git@github.com:<you>/team-blue.git && cd team-blue
+git add runs/ scripts/ runlog.csv
 git commit -m "Week 2 Submission 1: plan-a, 2 sites"
 git push      # to a private repository shared only with your team
 \end{lstlisting}
@@ -2758,9 +2949,9 @@ git push      # to a private repository shared only with your team
 in a folder together, so give each candidate its own folder:
 \begin{lstlisting}
 runs/
-  2028-jan_jun/plan-a/plan.csv
-  2028-jan_jun/plan-a.json        <- preview output
-  2028-jan_jun/plan-b/plan.csv
+  week2-sub1/plan-a/plan.csv
+  week2-sub1/plan-a.json        <- preview output
+  week2-sub1/plan-b/plan.csv
 runlog.csv
 \end{lstlisting}
 Large preview outputs need not be committed; the CSV and the command are enough

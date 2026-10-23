@@ -58,7 +58,7 @@ def test_validator_rejects_legacy_header_by_default_with_example(tmp_path):
     path = tmp_path / "legacy.csv"
     path.write_text(
         "team_id,submission_id,period,site_id,load_mw,generator_id,generator_capacity_mw,storage_id,storage_power_mw,storage_energy_mwh\n"
-        "team-a,half-year-1,1,3002041,40,,,,,\n",
+        "team-a,submission-1,1,3002041,40,,,,,\n",
         encoding="utf-8",
     )
 
@@ -80,7 +80,9 @@ def test_validator_collects_catalog_and_capacity_errors(tmp_path):
     messages = "\n".join(issue.message for issue in report.issues)
     assert "unknown scenario bus UNKNOWN" in messages
     assert "connection_capacity_mw must be non-negative" in messages
-    assert "generator capacity cannot exceed connection capacity" in messages
+    # A negative connection gets only the non-negativity message, not a
+    # confusing generator-cap message against a negative limit.
+    assert "generator capacity cannot exceed" not in messages
     assert "storage energy must equal four times storage power" in messages
 
 

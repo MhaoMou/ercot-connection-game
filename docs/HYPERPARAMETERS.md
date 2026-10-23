@@ -110,14 +110,12 @@ The checker is [`scripts/check_submission.py`](../scripts/check_submission.py):
 ```bash
 PYTHONPATH=src python scripts/check_submission.py \
   --file team-blue.csv \
-  --artifact-dir data/processed/activsg2000_representative_v1 \
-  --release representative
+  --artifact-dir data/processed/activsg2000_representative_v1
 ```
 
 Use `--artifact-dir` when the checker should validate `bus_id` against the
-released package catalog; `--release representative` applies the 0.5 x
-connection generator cap. `--year`, `--round`, and `--horizon` belong only to
-the retired half-year release. The evaluator remains authoritative.
+released package catalog; the checker always applies the release's 0.5 x
+connection generator cap. The evaluator remains authoritative.
 
 | CSV field | Units | Origin | Rule |
 |---|---|---|---|
@@ -246,13 +244,16 @@ cross-team dispatch JSON.
 ## Validation and benchmark limitations
 
 - The representative package (`activsg2000_representative_v1`) records
-  `validation_status: passed` for all 120 periods. The retired six-hour
-  half-year package (`activsg2000_scenarios_v2_6h`) and hourly package
-  (`activsg2000_scenarios_v1`) and their rule files are historical and are not
-  used by the current game.
+  `validation_status: passed` for all 120 periods. The hourly source package
+  (`activsg2000_scenarios_v1`) is only the builder's local input; it is not
+  distributed and not used by the game.
 - The student preview (`ercot-game-preview`, default `--preview-stride 1` on
-  the representative release) leaves storage idle. It can help students
-  iterate, but instructor evaluation uses the full package and release config.
+  the representative release) leaves storage idle. A plan above the hosting
+  capacity of some hour is scaled by the evaluator's fair projection (the JSON
+  reports each team's `service_fraction`) instead of failing; a Submission 2
+  preview needs `--base-load-from <Submission 1 output dir>` as the evaluator
+  does. It can help students iterate, but instructor evaluation uses the full
+  package and release config.
 - Hosting capacity on the full package (`ercot-game-hosting-capacity`) is
   2,000 buses x 120 periods = 240,000 LPs, about 19 minutes with Gurobi
   (32 workers) on a server.

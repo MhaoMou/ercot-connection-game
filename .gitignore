@@ -67,7 +67,7 @@ results/hosting_capacity_*/
 results/hosting_capacity_benchmark_*/
 
 # Kept locally but not published: material that is not part of the current
-# six-hour, daily-storage-cycle classroom game (removed from the repo 2026-10).
+# representative-day classroom game (removed from the repo 2026-10).
 docs/student_manual/
 docs/instructor_manual/
 docs/TASK_10_FINAL_AUDIT_REPORT.md
@@ -114,3 +114,10 @@ docs/guest_lecture/*.bbl
 docs/guest_lecture/*.blg
 docs/guest_lecture/*.run.xml
 docs/guest_lecture/*.synctex.gz
+
+# Manuscript drafts (kept local)
+paper/
+
+# Student and instructor run outputs
+runs/
+results/

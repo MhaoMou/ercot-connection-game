@@ -1,33 +1,25 @@
-"""Transactional coordination of one evaluated multi-year game round."""
+"""Transactional coordination of the classroom game's weekly submissions."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-import inspect
-import math
 from pathlib import Path
 from typing import Any
 
 from .batch_evaluation import (
     BatchEvaluation,
     BatchScoringRules,
-    CapitalCostScope,
     TeamScore,
     _collect_evaluation_inputs,
     evaluate_csv_batch,
-)
-from .asset_state import (
-    AssetStateError,
-    canonical_asset_key,
-    canonical_asset_keys_for_plan,
 )
 from .base_load import (
     materialize_base_load_artifact,
     net_withdrawal_by_bus,
     site_net_withdrawal_rows,
 )
-from .calendars import round_sequence, schedule_id_for, weekly_match_for
+from .calendars import weekly_match_for
 from .csv_submission import load_bus_ids
 from .game_state import RELEASED_ROUND_SEQUENCE, GameState
 from .game_state_store import GameStateStore
@@ -40,13 +32,6 @@ class RoundCoordinatorError(RuntimeError):
 
 PlanLoader = Callable[..., Sequence[TeamPlan]]
 Evaluator = Callable[..., BatchEvaluation]
-_STAGE6_EVALUATOR_KWARGS = (
-    "plan_overrides",
-    "capital_cost_scope",
-    "site_cost_connection_count_by_team",
-    "site_cost_connection_capacity_mw_by_team",
-    "submission_number",
-)
 
 
 def _default_plan_loader(
@@ -91,16 +76,12 @@ def _state_for_round(state: GameState, round_key: str) -> GameState:
     )
 
 
-def _load_state(state_path: str | Path, round_key: str) -> GameState:
+def _load_state(state_path: str | Path) -> GameState:
     store = GameStateStore(state_path)
     try:
-        state = store.load() if Path(state_path).exists() else GameState.new()
+        return store.load() if Path(state_path).exists() else GameState.new()
     except FileNotFoundError:
-        state = GameState.new()
-    if not state.completed_rounds and state.schedule_id is None:
-        # A fresh state follows the schedule of its first round.
-        state = replace(state, schedule_id=schedule_id_for(round_key))
-    return state
+        return GameState.new()
 
 
 def evaluate_round(
@@ -123,17 +104,17 @@ def evaluate_round(
     validate/register current plans, evaluate, then save the advanced state.
     Any exception before the final save leaves the previous file untouched.
 
-    In the representative-day schedule the week sets the energy charge, and
-    Submission 2 is evaluated on a derived artifact (written to
-    ``base_load_artifact_dir``, by default next to the state file) whose base
-    load includes the hourly net withdrawal of every Submission 1 site.
+    The week sets the energy charge, and Submission 2 is evaluated on a
+    derived artifact (written to ``base_load_artifact_dir``, by default next
+    to the state file) whose base load includes the hourly net withdrawal of
+    every Submission 1 site.
     """
     store = GameStateStore(state_path)
     try:
         match = weekly_match_for(round_key)
     except ValueError as exc:
         raise RoundCoordinatorError(str(exc)) from exc
-    loaded_state = _load_state(state_path, round_key)
+    loaded_state = _load_state(state_path)
     expected_round = loaded_state.next_round_key
     if expected_round != round_key:
         if (
@@ -157,164 +138,33 @@ def evaluate_round(
         and match.round_keys[1] == round_key
     )
     prior_state = _state_for_round(loaded_state, round_key)
-    if match.energy_cost_enabled is not None:
-        return _evaluate_representative_round(
-            store=store,
-            state_path=state_path,
-            round_key=round_key,
-            match=match,
-            prior_state=prior_state,
-            submissions=submissions,
-            artifact_dir=artifact_dir,
-            horizon=horizon,
-            rules=rules,
-            plan_loader=plan_loader,
-            evaluator=evaluator,
-            evaluator_kwargs=evaluator_kwargs,
-            base_load_artifact_dir=base_load_artifact_dir,
-            ledger_reset=ledger_reset,
-            preserves_prior_submission=preserves_prior_submission,
-        )
-
-    loader = plan_loader or _default_plan_loader
-    plans = tuple(
-        loader(
-            submissions,
-            artifact_dir=artifact_dir,
-            horizon=horizon,
-            rules=rules,
-        )
-    )
-    materialized_plans: dict[str, TeamPlan] = {}
-    new_generator_ids: dict[str, frozenset[str]] = {}
-    new_storage_ids: dict[str, frozenset[str]] = {}
-    new_site_capacity_mw: dict[str, float] = {}
-    new_site_counts: dict[str, int] = {}
-    for plan in plans:
-        # Materialize before dispatch so custom loaders cannot bypass the
-        # Task 1 state/schema boundary with a raw site-only TeamPlan.
-        materialized_plans[plan.team_id] = prior_state.asset_ledger.materialize_plan(
-            plan,
-            horizon=horizon,
-        )
-        materialized = materialized_plans[plan.team_id]
-        prior_team = prior_state.asset_ledger.teams.get(plan.team_id)
-        prior_generator_keys = (
-            frozenset(asset.asset_key for asset in prior_team.generators.values())
-            if prior_team is not None
-            else frozenset()
-        )
-        prior_storage_keys = (
-            frozenset(asset.asset_key for asset in prior_team.storages.values())
-            if prior_team is not None
-            else frozenset()
-        )
-        prior_site_ids = frozenset(prior_team.sites) if prior_team is not None else frozenset()
-        # Capital cost (site, generator, storage) is charged once, in the
-        # submission where the asset is first built.  Within a weekly match,
-        # Submission 2 is charged only for sites/assets that are new relative
-        # to the carried-forward Submission 1 ledger; the ledger reset at a
-        # weekly boundary makes every asset new again in the next week.
-        if plan.connections:
-            current_new_site_capacity_mw = sum(
-                connection.capacity_mw
-                for connection in plan.connections
-                if connection.connection_id not in prior_site_ids
-            )
-            current_new_site_count = sum(
-                connection.connection_id not in prior_site_ids
-                for connection in plan.connections
-            )
-        else:
-            current_new_site_capacity_mw = sum(
-                site.connection_capacity_mw
-                for site in plan.sites
-                if site.site_id not in prior_site_ids
-            )
-            current_new_site_count = sum(
-                site.site_id not in prior_site_ids for site in plan.sites
-            )
-        new_site_capacity_mw[plan.team_id] = float(current_new_site_capacity_mw)
-        new_site_counts[plan.team_id] = int(current_new_site_count)
-        materialized_generator_ids = {
-            canonical_asset_key(plan.team_id, generator.connection_id, "generator"): generator.generator_id
-            for generator in materialized.generators
-        }
-        materialized_storage_ids = {
-            canonical_asset_key(plan.team_id, storage.connection_id, "storage"): storage.storage_id
-            for storage in materialized.storages
-        }
-        declared_generator_keys = canonical_asset_keys_for_plan(plan, kind="generator")
-        declared_storage_keys = canonical_asset_keys_for_plan(plan, kind="storage")
-        new_generators = frozenset(
-            materialized_generator_ids[asset_key]
-            for asset_key in declared_generator_keys
-            if asset_key not in prior_generator_keys
-        )
-        new_storages = frozenset(
-            materialized_storage_ids[asset_key]
-            for asset_key in declared_storage_keys
-            if asset_key not in prior_storage_keys
-        )
-        if new_generators:
-            new_generator_ids[plan.team_id] = new_generators
-        if new_storages:
-            new_storage_ids[plan.team_id] = new_storages
-
-    kwargs = dict(evaluator_kwargs or {})
-    if any(name in kwargs for name in _STAGE6_EVALUATOR_KWARGS):
-        raise RoundCoordinatorError(
-            "evaluate_round owns the Stage 6 integration kwargs"
-        )
-    optional_kwargs = {
-        "plan_overrides": materialized_plans,
-        "capital_cost_scope": CapitalCostScope(
-            generator_ids_by_team=new_generator_ids,
-            storage_ids_by_team=new_storage_ids,
-        ),
-        "site_cost_connection_count_by_team": new_site_counts,
-        "site_cost_connection_capacity_mw_by_team": new_site_capacity_mw,
-        "submission_number": weekly_match_for(round_key).round_keys.index(round_key) + 1,
-    }
-    stage6_kwargs = _require_stage6_evaluator(evaluator, optional_kwargs)
-    advanced_state = prior_state.advance(round_key, plans)
-    kwargs.update(stage6_kwargs)
-    evaluation = evaluator(
-        submissions,
+    return _evaluate_submission(
+        store=store,
+        state_path=state_path,
+        round_key=round_key,
+        match=match,
+        prior_state=prior_state,
+        submissions=submissions,
         artifact_dir=artifact_dir,
         horizon=horizon,
         rules=rules,
-        **kwargs,
-    )
-    # Rejected files are isolated by the existing batch evaluator.  They must
-    # not prevent valid teams from receiving a result or having their accepted
-    # assets committed; only the accepted plans returned by the plan loader
-    # enter the ledger.
-    if not _has_period_collection(evaluation):
-        raise RoundCoordinatorError(
-            "evaluation did not return a usable dispatch result; state was not committed"
-        )
-    _validate_projection_team_isolation(evaluation, materialized_plans)
-    updated_state = _record_final_storage_soc(advanced_state, materialized_plans, evaluation)
-    store.save(updated_state)
-    return RoundEvaluationResult(
-        round_key=round_key,
-        evaluation=evaluation,
-        prior_state=prior_state,
-        state=updated_state,
+        plan_loader=plan_loader,
+        evaluator=evaluator,
+        evaluator_kwargs=evaluator_kwargs,
+        base_load_artifact_dir=base_load_artifact_dir,
         ledger_reset=ledger_reset,
         preserves_prior_submission=preserves_prior_submission,
     )
 
 
-_REPRESENTATIVE_EVALUATOR_KWARGS = (
+_OWNED_EVALUATOR_KWARGS = (
     "submission_number",
     "energy_cost_enabled",
     "reserved_site_ids_by_team",
 )
 
 
-def _evaluate_representative_round(
+def _evaluate_submission(
     *,
     store: GameStateStore,
     state_path: str | Path,
@@ -332,7 +182,7 @@ def _evaluate_representative_round(
     ledger_reset: bool,
     preserves_prior_submission: bool,
 ) -> "RoundEvaluationResult":
-    """Evaluate one submission of the representative-day schedule.
+    """Evaluate one submission of the classroom schedule.
 
     Submission 1 sites are fixed base load in Submission 2: they are not
     re-dispatched or re-scored, and a Submission 2 file may list only new
@@ -380,7 +230,7 @@ def _evaluate_representative_round(
                 ) from exc
 
     kwargs = dict(evaluator_kwargs or {})
-    if any(name in kwargs for name in _REPRESENTATIVE_EVALUATOR_KWARGS):
+    if any(name in kwargs for name in _OWNED_EVALUATOR_KWARGS):
         raise RoundCoordinatorError("evaluate_round owns the submission and energy kwargs")
     kwargs.update(
         submission_number=submission_number,
@@ -417,7 +267,7 @@ def _evaluate_representative_round(
 
 @dataclass(frozen=True)
 class ClassroomRoundInput:
-    """Inputs for one half-year in the released classroom schedule."""
+    """Inputs for one submission in the released classroom schedule."""
 
     round_key: str
     submissions: Sequence[str | Path] | str | Path
@@ -494,18 +344,14 @@ def evaluate_classroom(
     round_inputs = tuple(rounds)
     if not round_inputs or len(round_inputs) > len(RELEASED_ROUND_SEQUENCE):
         raise RoundCoordinatorError("classroom rounds must contain a non-empty released schedule prefix")
-    try:
-        sequence = round_sequence(schedule_id_for(round_inputs[0].round_key))
-    except ValueError:
-        sequence = RELEASED_ROUND_SEQUENCE
-    expected_rounds = sequence[: len(round_inputs)]
+    expected_rounds = RELEASED_ROUND_SEQUENCE[: len(round_inputs)]
     actual_rounds = tuple(item.round_key for item in round_inputs)
     if actual_rounds != expected_rounds:
         raise RoundCoordinatorError(
             "classroom rounds must be a contiguous prefix of the released six-round schedule"
         )
 
-    loaded_state = _load_state(state_path, round_inputs[0].round_key)
+    loaded_state = _load_state(state_path)
 
     pending_inputs = round_inputs[len(loaded_state.completed_rounds):]
     if not pending_inputs:
@@ -687,117 +533,6 @@ def _has_period_collection(evaluation: Any) -> bool:
     except (TypeError, ValueError):
         return False
     return period_count > 0
-
-
-def _record_final_storage_soc(
-    state: GameState,
-    materialized_plans: Mapping[str, TeamPlan],
-    evaluation: Any,
-) -> GameState:
-    """Validate and persist final SOC only after a usable round evaluation."""
-    storages_by_team = {
-        team_id: tuple(plan.storages)
-        for team_id, plan in materialized_plans.items()
-        if plan.storages
-    }
-    if not storages_by_team:
-        return state
-
-    dispatch = evaluation.dispatch
-    try:
-        dispatched_team_ids = frozenset(dispatch.team_ids)
-    except AttributeError:
-        # Lightweight evaluator doubles from earlier stages do not expose the
-        # BatchDispatchResult team set, so retain the original strict behavior.
-        expected_storages_by_team = storages_by_team
-    else:
-        expected_storages_by_team = {
-            team_id: storages
-            for team_id, storages in storages_by_team.items()
-            if team_id in dispatched_team_ids
-        }
-
-    if not expected_storages_by_team:
-        return state
-
-    periods = dispatch.periods
-    final_period = periods[-1]
-    reported = getattr(final_period, "storage_soc_mwh_by_team", None)
-    if not isinstance(reported, Mapping):
-        raise RoundCoordinatorError(
-            "missing final storage state of charge; state was not committed"
-        )
-
-    soc_by_team: dict[str, dict[str, float]] = {}
-    for team_id, storages in expected_storages_by_team.items():
-        values = reported.get(team_id)
-        if not isinstance(values, Mapping):
-            raise RoundCoordinatorError(
-                f"missing final storage state of charge for team {team_id}; state was not committed"
-            )
-        team_soc: dict[str, float] = {}
-        for storage in storages:
-            if storage.storage_id not in values:
-                raise RoundCoordinatorError(
-                    f"missing final storage state of charge for {team_id}/{storage.storage_id}; "
-                    "state was not committed"
-                )
-            value = values[storage.storage_id]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise RoundCoordinatorError(
-                    f"malformed final storage state of charge for {team_id}/{storage.storage_id}; "
-                    "state was not committed"
-                )
-            if value < storage.energy_mwh * 0.5:
-                raise RoundCoordinatorError(
-                    f"final storage state of charge for {team_id}/{storage.storage_id} "
-                    "must be at least half of energy capacity; state was not committed"
-                )
-            if value > storage.energy_mwh:
-                raise RoundCoordinatorError(
-                    f"final storage state of charge for {team_id}/{storage.storage_id} "
-                    "exceeds energy capacity; state was not committed"
-                )
-            team_soc[storage.storage_id] = float(value)
-        soc_by_team[team_id] = team_soc
-
-    try:
-        ledger = state.asset_ledger.update_storage_soc(soc_by_team)
-    except AssetStateError as exc:
-        raise RoundCoordinatorError(
-            f"could not persist final storage state of charge; state was not committed: {exc}"
-        ) from exc
-    return replace(state, asset_ledger=ledger)
-
-
-def _require_stage6_evaluator(
-    evaluator: Evaluator,
-    stage6_kwargs: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Require an evaluator that can receive every Stage 6 integration input."""
-    try:
-        signature = inspect.signature(evaluator)
-    except (TypeError, ValueError):
-        raise RoundCoordinatorError(
-            "evaluate_round requires a Stage 6-aware evaluator with an inspectable signature"
-        ) from None
-    parameters = signature.parameters.values()
-    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters):
-        return dict(stage6_kwargs)
-    unsupported = [
-        name
-        for name in _STAGE6_EVALUATOR_KWARGS
-        if name not in signature.parameters
-        or signature.parameters[name].kind is inspect.Parameter.POSITIONAL_ONLY
-    ]
-    if unsupported:
-        raise RoundCoordinatorError(
-            "evaluate_round requires a Stage 6-aware evaluator accepting: "
-            + ", ".join(_STAGE6_EVALUATOR_KWARGS)
-            + "; unsupported: "
-            + ", ".join(unsupported)
-        )
-    return dict(stage6_kwargs)
 
 
 class RoundEvaluationResult:

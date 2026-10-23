@@ -144,6 +144,8 @@ def write_site_net_withdrawal(rows: Sequence[Mapping[str, Any]], path: str | Pat
 def read_site_net_withdrawal(path: str | Path) -> list[dict[str, Any]]:
     """Read a Submission 1 ``site_net_withdrawal.csv`` (file or output directory)."""
     source = Path(path)
+    if not source.exists():
+        raise ValueError(f"Submission 1 output directory not found: {source}")
     if source.is_dir():
         source = source / SITE_NET_WITHDRAWAL_FILE
     if not source.is_file():
@@ -192,6 +194,27 @@ def net_withdrawal_by_bus(rows: Iterable[Mapping[str, Any]], horizon: int) -> di
     return result
 
 
+# A period of the derived artifact that the strict single-period DCOPF does
+# not solve (HiGHS kInfeasible/kUnknown) is accepted only when a demand change
+# of at most this many MW in total, at the buses that carry Submission 1
+# withdrawal, makes it solve.  Submission 1 projects teams to the edge of
+# feasibility, so the carried withdrawal can sit within solver tolerance
+# (about 1e-7 MW) of the boundary; anything larger is a real infeasibility.
+BASE_LOAD_VALIDATION_TOLERANCE_MW = 1.0e-3
+# Extra margin applied away from the boundary when an adjustment is needed,
+# so that the strict re-solve (and the Submission 2 evaluation) is not again
+# decided by solver tolerances.
+_BASE_LOAD_ADJUSTMENT_MARGIN_MW = 1.0e-6
+
+
+class BaseLoadValidationError(ValueError):
+    """The derived Submission 2 base load is not DCOPF-feasible."""
+
+    def __init__(self, message: str, periods: Sequence[int]) -> None:
+        super().__init__(message)
+        self.periods = tuple(periods)
+
+
 def materialize_base_load_artifact(
     source_artifact: str | Path,
     withdrawal_mw_by_bus: Mapping[str, Sequence[float]],
@@ -199,16 +222,25 @@ def materialize_base_load_artifact(
     *,
     provenance: Mapping[str, Any] | None = None,
     validate: bool = True,
+    tolerance_mw: float = BASE_LOAD_VALIDATION_TOLERANCE_MW,
+    workers: int = 1,
 ) -> dict[str, Any]:
     """Write a scenario artifact whose demand is base demand plus withdrawal.
 
     The source must be a ``demand_bus.csv`` artifact (the representative
     package).  A bus whose total would turn negative (a Submission 1 site
     exporting more than the bus base load) is floored at zero and the floored
-    energy is recorded in the manifest.  With ``validate`` every period is
-    solved with the single-period DCOPF before the manifest is ``passed``;
-    the Submission 1 dispatch already proved feasibility, so a failure here
-    indicates an inconsistent input.
+    energy is recorded in the manifest.
+
+    With ``validate`` every period is solved with the strict single-period
+    DCOPF.  A period that does not solve is re-checked with a phase-one LP
+    that finds the smallest demand change at the withdrawal buses restoring
+    feasibility: if that change totals at most ``tolerance_mw`` it is applied
+    (moved ``_BASE_LOAD_ADJUSTMENT_MARGIN_MW`` further from the boundary),
+    the period is re-solved strictly, and every change is recorded under
+    ``validation.tolerance_adjustments``.  Otherwise the manifest is left
+    ``failed`` (never ``pending``) and :class:`BaseLoadValidationError`
+    names the offending periods.
     """
     from .scenario_package import require_validated_block
 
@@ -254,12 +286,8 @@ def materialize_base_load_artifact(
                 total = 0.0
             values.append(f"{total:.{_DEMAND_DECIMALS}f}")
         rows.append([raw[0], *values])
-    with (output / "demand_bus.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
-        writer.writerow(header)
-        writer.writerows(rows)
+    _write_demand(output, header, rows)
 
-    files = [name for name in (*_STATIC_FILES, *_OPTIONAL_FILES, "demand_bus.csv") if (output / name).is_file()]
     manifest = {
         key: value
         for key, value in source_manifest.items()
@@ -280,34 +308,198 @@ def materialize_base_load_artifact(
                 "floored_points": floored,
                 **dict(provenance or {}),
             },
-            "network": {
-                "files": files,
-                "sha256": {name: sha256_file(output / name) for name in files},
-            },
         }
     )
+    _set_network_hashes(output, manifest)
     _write_manifest(output, manifest)
-    if validate:
-        from tools.activsg2000.dcopf import clear_prepared_artifact_cache, solve_prepared_period
-
-        clear_prepared_artifact_cache()
-        for period_index in range(horizon):
-            result = solve_prepared_period(output, period_index=period_index)
-            if result.status != "optimal":
-                raise ValueError(
-                    f"Submission 2 base load is not DCOPF-feasible in period {period_index}: {result.status}"
-                )
-        manifest["validation"] = {
-            "method": "single-period DCOPF of every period with the carried base load",
-            "passed_period_count": horizon,
-        }
-    else:
+    if not validate:
         manifest["validation"] = {
             "method": "not re-solved; the Submission 1 joint dispatch was feasible with this withdrawal",
         }
+        manifest["validation_status"] = "passed"
+        _write_manifest(output, manifest)
+        return manifest
+
+    try:
+        adjustments, failures = _validate_base_load(
+            output, horizon, sorted(withdrawal_mw_by_bus), tolerance_mw=tolerance_mw, workers=workers
+        )
+    except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
+        manifest["validation_status"] = "failed"
+        manifest["validation"] = {"method": _VALIDATION_METHOD, "error": str(exc)}
+        _write_manifest(output, manifest)
+        raise
+    if adjustments and not failures:
+        column = {bus_id: index for index, bus_id in enumerate(bus_columns, start=1)}
+        for item in adjustments:
+            rows[item["period_index"]][column[item["bus_id"]]] = f"{item['adjusted_demand_mw']:.{_DEMAND_DECIMALS}f}"
+        _write_demand(output, header, rows)
+        _set_network_hashes(output, manifest)
+        _write_manifest(output, manifest)
+        # Re-solve the adjusted periods strictly.
+        recheck, _ = _validate_base_load(
+            output,
+            horizon,
+            (),
+            tolerance_mw=0.0,
+            workers=workers,
+            periods=sorted({item["period_index"] for item in adjustments}),
+        )
+        failures = [
+            {"period_index": item["period_index"], "reason": "still unsolved after the tolerance adjustment"}
+            for item in recheck
+        ] + failures
+    validation: dict[str, Any] = {
+        "method": _VALIDATION_METHOD,
+        "tolerance_mw": tolerance_mw,
+        "passed_period_count": horizon - len({item["period_index"] for item in failures}),
+        "tolerance_adjustments": [
+            {key: item[key] for key in ("period_index", "bus_id", "change_mw", "solver_status")}
+            for item in adjustments
+        ],
+        "tolerance_adjusted_period_count": len({item["period_index"] for item in adjustments}),
+        "tolerance_adjusted_total_mw": round(sum(abs(item["change_mw"]) for item in adjustments), 9),
+    }
+    if failures:
+        validation["failed_periods"] = failures
+        manifest["validation"] = validation
+        manifest["validation_status"] = "failed"
+        _write_manifest(output, manifest)
+        periods = sorted({item["period_index"] for item in failures})
+        details = "; ".join(
+            f"period {item['period_index']}: {item['reason']}" for item in failures[:10]
+        )
+        raise BaseLoadValidationError(
+            "Submission 2 base-load validation failed: the Submission 1 withdrawal is not "
+            f"DCOPF-feasible in periods {periods} ({details}); see {output / 'manifest.json'}",
+            periods,
+        )
+    manifest["validation"] = validation
     manifest["validation_status"] = "passed"
     _write_manifest(output, manifest)
     return manifest
+
+
+_VALIDATION_METHOD = (
+    "strict single-period DCOPF of every period with the carried base load; a period that "
+    "does not solve is accepted only after a demand change within tolerance_mw at the "
+    "withdrawal buses"
+)
+
+
+def _validate_period(
+    output: Path,
+    period_index: int,
+    adjustable_bus_ids: Sequence[str],
+    tolerance_mw: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Return ``(adjustments, failure)`` for one period of the derived artifact."""
+    from tools.activsg2000.dcopf import (
+        DCOPFInfeasible,
+        DCOPFUnresolved,
+        _prepared_period_inputs,
+        load_prepared_artifact,
+        minimum_demand_adjustment,
+        solve_dcopf,
+    )
+
+    artifact = load_prepared_artifact(str(output.resolve()))
+    buses, generators, branches, fixed = _prepared_period_inputs(
+        output, artifact, period_index=period_index, validate_artifact=False
+    )
+    try:
+        solve_dcopf(
+            buses=buses,
+            generators=generators,
+            branches=branches,
+            fixed_injection_mw_by_bus=fixed,
+            base_mva=100.0,
+        )
+        return [], None
+    except (DCOPFInfeasible, DCOPFUnresolved) as exc:
+        status = str(exc).rsplit(" ", 1)[-1]
+    if not adjustable_bus_ids or tolerance_mw <= 0.0:
+        return [], {"period_index": period_index, "reason": status}
+    changes = minimum_demand_adjustment(
+        buses=buses,
+        generators=generators,
+        branches=branches,
+        adjustable_bus_ids=adjustable_bus_ids,
+        fixed_injection_mw_by_bus=fixed,
+        base_mva=100.0,
+    )
+    if changes is None:
+        return [], {"period_index": period_index, "reason": f"{status}; no demand change at the withdrawal buses restores feasibility"}
+    total = sum(abs(value) for value in changes.values())
+    if total > tolerance_mw:
+        return [], {
+            "period_index": period_index,
+            "reason": f"{status}; needs {total:.6g} MW of demand change (> {tolerance_mw:g} MW tolerance)",
+        }
+    demand = {bus.bus_id: bus.demand_mw for bus in buses}
+    adjustments = []
+    scale = 10**_DEMAND_DECIMALS
+    for bus_id, change in sorted(changes.items()):
+        if change < 0.0:
+            adjusted = math.floor((demand[bus_id] + change - _BASE_LOAD_ADJUSTMENT_MARGIN_MW) * scale) / scale
+        else:
+            adjusted = math.ceil((demand[bus_id] + change + _BASE_LOAD_ADJUSTMENT_MARGIN_MW) * scale) / scale
+        adjusted = max(0.0, adjusted)
+        adjustments.append(
+            {
+                "period_index": period_index,
+                "bus_id": bus_id,
+                "change_mw": round(adjusted - demand[bus_id], 9),
+                "adjusted_demand_mw": adjusted,
+                "solver_status": status,
+            }
+        )
+    return adjustments, None
+
+
+def _validate_base_load(
+    output: Path,
+    horizon: int,
+    adjustable_bus_ids: Sequence[str],
+    *,
+    tolerance_mw: float,
+    workers: int = 1,
+    periods: Sequence[int] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from tools.activsg2000.dcopf import clear_prepared_artifact_cache
+
+    clear_prepared_artifact_cache()
+    indices = list(range(horizon)) if periods is None else list(periods)
+    if workers > 1 and len(indices) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            results = list(
+                executor.map(
+                    lambda index: _validate_period(output, index, adjustable_bus_ids, tolerance_mw),
+                    indices,
+                )
+            )
+    else:
+        results = [_validate_period(output, index, adjustable_bus_ids, tolerance_mw) for index in indices]
+    adjustments = [item for period_adjustments, _ in results for item in period_adjustments]
+    failures = [failure for _, failure in results if failure is not None]
+    return adjustments, failures
+
+
+def _write_demand(output: Path, header: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
+    with (output / "demand_bus.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(header)
+        writer.writerows(rows)
+
+
+def _set_network_hashes(output: Path, manifest: dict[str, Any]) -> None:
+    files = [name for name in (*_STATIC_FILES, *_OPTIONAL_FILES, "demand_bus.csv") if (output / name).is_file()]
+    manifest["network"] = {
+        "files": files,
+        "sha256": {name: sha256_file(output / name) for name in files},
+    }
 
 
 def _write_manifest(output: Path, manifest: Mapping[str, Any]) -> None:

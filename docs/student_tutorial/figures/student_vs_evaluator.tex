@@ -11,8 +11,8 @@
     link/.style={thick, draw=ink}}
   \node[grid] (net) at (0,0) {{\bfseries ACTIVSg2000}\\{\bfseries network}\\[3pt]hourly DCOPF with all teams' sites};
   \node[circle, draw=blue!65!black, fill=white, thick, minimum size=10mm, align=center] (bus) at (5.0,0) {bus $k$};
-  \node[gen] (g) at (10.2,0) {{\bfseries Private generator}\\$0\le g_t\le G$, \$80/150/250 per MWh};
-  \node[load, above=3mm of g] (it) {{\bfseries IT load} $\alpha C$\\earns \$6,500 per MWh served};
+  \node[gen] (g) at (10.2,0) {{\bfseries Private generator}\\$0\le g_t\le G$, $\le 2G$ MWh/day\\\$80/150/250 per MWh};
+  \node[load, above=3mm of g] (it) {{\bfseries IT load} $\alpha C$\\earns \$1,000 per MWh served};
   \node[store, below=3mm of g] (s) {{\bfseries Storage} $-P\le p_t\le P$\\$B=4P$, no operating cost};
   \begin{scope}[on background layer]
     \node[draw=orange!70!black, dashed, rounded corners=4pt, fit=(it)(g)(s), inner sep=5pt,

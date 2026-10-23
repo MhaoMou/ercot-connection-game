@@ -12,6 +12,8 @@ class ScenarioPackageError(ValueError):
     """Raised when a scenario package is incomplete or unvalidated."""
 
 
+# Hourly source package (activsg2000-scenarios-v1, not distributed): six
+# half-year blocks from which the representative days are drawn.
 EXPECTED_HORIZONS = {
     "2027-jan_jun": 4344,
     "2027-jul_dec": 4416,
@@ -21,11 +23,6 @@ EXPECTED_HORIZONS = {
     "2029-jul_dec": 4416,
 }
 
-AGGREGATED_TIME_STEP_HOURS = 6
-AGGREGATED_EXPECTED_HORIZONS = {
-    block: horizon // AGGREGATED_TIME_STEP_HOURS
-    for block, horizon in EXPECTED_HORIZONS.items()
-}
 # The ten-year game package: five representative days of 24 one-hour periods,
 # materialized in demand_bus.csv.
 REPRESENTATIVE_PACKAGE_VERSION = "activsg2000-representative-v1"
@@ -41,7 +38,6 @@ REPRESENTATIVE_PACKAGE_VERSIONS = frozenset({REPRESENTATIVE_PACKAGE_VERSION, IEE
 SUPPORTED_PACKAGE_VERSIONS = frozenset(
     {
         "activsg2000-scenarios-v1",
-        "activsg2000-scenarios-v2-6h",
         IEEE14_DEMO_PACKAGE_VERSION,
         REPRESENTATIVE_PACKAGE_VERSION,
     }
@@ -58,8 +54,6 @@ def expected_horizons_for_manifest(payload: dict[str, Any]) -> dict[str, int]:
     version = payload.get("package_version")
     if version == "activsg2000-scenarios-v1":
         return EXPECTED_HORIZONS
-    if version == "activsg2000-scenarios-v2-6h":
-        return AGGREGATED_EXPECTED_HORIZONS
     if version in _SINGLE_BLOCK_PACKAGES:
         return _SINGLE_BLOCK_PACKAGES[version][0]
     raise ScenarioPackageError("unsupported scenario package_version")
@@ -89,13 +83,11 @@ def load_scenario_manifest(root: str | Path, *, require_validated: bool = True) 
     if not isinstance(blocks, dict) or set(blocks) != set(expected_horizons):
         if payload.get("package_version") in REPRESENTATIVE_PACKAGE_VERSIONS:
             raise ScenarioPackageError("representative manifest must contain exactly the representative block")
-        raise ScenarioPackageError("scenario manifest must contain all six half-year blocks")
+        raise ScenarioPackageError("scenario manifest must contain all six source blocks")
     for block, horizon in expected_horizons.items():
         entry = blocks.get(block)
         if not isinstance(entry, dict) or entry.get("horizon") != horizon:
             raise ScenarioPackageError(f"invalid horizon for scenario block {block}")
-        if payload.get("package_version") == "activsg2000-scenarios-v2-6h" and entry.get("time_step_hours") != AGGREGATED_TIME_STEP_HOURS:
-            raise ScenarioPackageError(f"invalid time_step_hours for scenario block {block}")
         single_block = _SINGLE_BLOCK_PACKAGES.get(payload.get("package_version"))
         if single_block is not None and entry.get("time_step_hours") != single_block[1]:
             raise ScenarioPackageError(f"invalid time_step_hours for scenario block {block}")

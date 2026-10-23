@@ -6,8 +6,7 @@ The file name is historical: the released game has no calendar years and no
 multi-year asset state. Every submission uses the same representative-day
 package (`data/processed/activsg2000_representative_v1`, 120 hourly periods
 standing for the next ten years), and the only thing that carries over is
-Submission 1 load, inside one week, as Submission 2 base load. The retired
-half-year asset ledger is described at the end.
+Submission 1 load, inside one week, as Submission 2 base load.
 
 ## Three weekly matches
 
@@ -110,17 +109,12 @@ team's own scalar result is written under a hashed private directory. Exact
 competitor sites, asset capacities, raw dispatch periods, and full failure
 diagnostics remain instructor-private.
 
-## Retired half-year asset ledger (legacy)
+## Weekly site ledger
 
-The code still supports the retired half-year schedule (round keys
-`2027_jan_jun` ... `2029_jul_dec` on the six-hour `activsg2000_scenarios_v2_6h`
-package); a state adopts the schedule of its first round. On that schedule
-only, the coordinator keeps an `AssetLedger` within a week: Submission 1 sites
-and evaluator-assigned assets are materialized into Submission 2 (omitted
-sites become zero-load placeholders), are re-dispatched with them, and are not
-charged capital a second time (`CapitalCostScope`); an asset identity conflict
-raises `AssetStateError`. The ledger resets at each week. This path is kept
-for reproducibility and tests, not for the released game.
+The state's `AssetLedger` records the sites (and evaluator-assigned generator
+and storage IDs) each team declared in the current week's Submission 1. It is
+used only to reject Submission 2 files that reuse those site IDs; it stores no
+state of charge and is reset at each weekly boundary.
 
 The old long-form hourly CSV and submitted asset-label fixtures are retained
 only where tests explicitly exercise compatibility parsing. They are not part
