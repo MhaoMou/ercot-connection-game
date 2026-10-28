@@ -122,3 +122,6 @@ paper/
 # Student and instructor run outputs
 runs/
 results/
+
+# LaTeX editor temporary files
+*.synctex(busy)
