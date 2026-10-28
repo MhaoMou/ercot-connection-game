@@ -85,7 +85,7 @@ representative base.
 | `data/teaching/` | Scoring rules and release config (`dispatch_scoring_rules_representative_v1.json`, `game_release_representative_v1.json`) and the IEEE 14-bus practice demo (`ieee14_demo_representative/`) |
 | `scripts/` | CSV check (`check_submission.py`) |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
-| `docs/` | Student tutorial, guest lecture, hyperparameters, repository and evaluation guides, and data documentation |
+| `docs/` | Student tutorial, hyperparameters, repository and evaluation guides, and data documentation |
 | `examples/eight_team_round/` | Eight-team example round and grid map |
 
 ## Setup

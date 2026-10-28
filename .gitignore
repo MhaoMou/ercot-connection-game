@@ -110,11 +110,6 @@ tests/test_rl_gym_*.py
 tests/test_colab_benchmark_package.py
 
 # LaTeX build by-products
-docs/guest_lecture/main-blx.bib
-docs/guest_lecture/*.bbl
-docs/guest_lecture/*.blg
-docs/guest_lecture/*.run.xml
-docs/guest_lecture/*.synctex.gz
 
 # Manuscript drafts (kept local)
 paper/
@@ -142,10 +137,6 @@ tests/test_activsg2000_validation.py
 tests/test_data_builders.py
 tests/test_benchmark_hosting_capacity.py
 docs/MULTI_YEAR_ASSET_STATE.md
-docs/guest_lecture/data/*
-!docs/guest_lecture/data/numbers.tex
-docs/guest_lecture/scripts/
-docs/guest_lecture/demo/
 docs/student_tutorial/scripts/
 tests/test_student_tutorial_artifacts.py
 tests/test_student_tutorial_content.py
@@ -154,3 +145,6 @@ docs/student_tutorial/data/game_equilibrium/
 docs/student_tutorial/figures/ne_*.pdf
 docs/hosting_capacity/
 tests/test_hosting_capacity_documentation.py
+
+# Guest lecture (kept locally, not distributed)
+docs/guest_lecture/
