@@ -46,6 +46,7 @@ docs/student_tutorial/*.out
 docs/student_tutorial/*.synctex.gz
 docs/student_tutorial/*.toc
 docs/student_tutorial/*.pdf
+!docs/student_tutorial/main.pdf
 
 # Raw downloads and large source artifacts. Obtain raw datasets through the
 # documented provenance steps rather than committing local downloads.

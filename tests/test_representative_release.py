@@ -43,6 +43,11 @@ from tools.activsg2000.build_representative_package import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = REPO_ROOT / "data" / "processed" / "activsg2000_representative_v1"
 SOURCE = REPO_ROOT / "data" / "processed" / "activsg2000_scenarios_v1"
+# The hourly source package is not published; tests that rebuild the
+# representative package from it run only where it is present locally.
+requires_source = pytest.mark.skipif(
+    not SOURCE.is_dir(), reason="hourly source package activsg2000_scenarios_v1 is not published"
+)
 RULES = REPO_ROOT / "data" / "teaching" / "dispatch_scoring_rules_representative_v1.json"
 DEMO = REPO_ROOT / "data" / "teaching" / "ieee14_demo_representative"
 DEMO_RULES = REPO_ROOT / "data" / "teaching" / "dispatch_scoring_rules_ieee14_demo_representative_v1.json"
@@ -88,6 +93,7 @@ def test_representative_package_is_validated_with_five_weighted_days():
     assert len(rows[0]) == 2001
 
 
+@requires_source
 def test_representative_demand_matches_the_source_hourly_state():
     manifest = require_validated_block(PACKAGE)
     rows = _demand_rows(PACKAGE)
@@ -136,6 +142,7 @@ def test_peak_day_is_removed_from_its_cluster_and_weights_sum_to_365():
     assert sum(record["weight"] for record in records) == pytest.approx(39.0)
 
 
+@requires_source
 def test_builder_reproduces_the_committed_tables_byte_for_byte(tmp_path):
     from tools.activsg2000.build_representative_package import build_package
 

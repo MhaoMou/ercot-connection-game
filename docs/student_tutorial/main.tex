@@ -1,4 +1,4 @@
-\documentclass[12pt]{article}
+\documentclass[10pt]{article}
 
 % Keep the PDF trailer identifier stable across isolated reproducible builds.
 \ifdefined\pdftrailerid
@@ -1456,7 +1456,7 @@ There is no plan that is best whatever the other team does.\footnote{That means,
 A should go large (3,172 beats 1,826); if B goes large, A should go small
 (1,826 beats 1,820, and in Week 3, 1,421 beats 1,363). The same holds for B. In
 both weeks the game has two stable outcomes, (large, small) and (small,
-large): the Nash equilibria of this game (\cref{app:game}). It is \alert{a game
+large): the Nash equilibria of this game. It is \alert{a game
 of chicken}: each team wants to be the large one, but if both insist, both
 lose. Three lessons carry over to the real game: asking for more than your
 share of a shared bottleneck is not rewarded; the grid's spare capacity goes
@@ -1660,7 +1660,7 @@ Hosting capacity & The most new load a bus can take without making the grid infe
 Checker & \code{ercot-game-check-csv}; checks your file's format. & \cref{sec:csv}\\
 Preview & \code{ercot-game-preview}; an approximate score for your plan alone. & \cref{sec:preview}\\
 Evaluator & The instructor's official, exact scoring run with all teams. & \cref{sec:game}\\
-Nash equilibrium & A set of plans in which no team gains by changing its own. & \cref{app:game}\\
+Nash equilibrium & A set of plans in which no team gains by changing its own. & \cref{sec:twoteam}\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -1748,7 +1748,7 @@ by their individual hosting capacities: on the game grid at the peak hour, bus
 1002 hosts 123\MW{} alone but only 81\MW{} with 60\MW{} at its neighbor 1010.
 The fair projection in \cref{sec:projection} picks a point in $\mathcal H$ for
 all teams' sites, which is why your service depends on where everyone else
-builds, and \cref{app:equilibrium} studies the game played on $\mathcal H$.
+builds.
 
 \alert{With a private generator.} A site at bus $k$ with load $L$ and a
 private generator $0 \le g_t \le G$ shows the grid only its net
@@ -2277,8 +2277,7 @@ same argument applied to the remaining teams shows that the next level $t_2$ is
 the best possible second tier, and so on. On a compact, convex feasible set a
 max-min fair allocation exists and is unique, and water-filling computes it
 whenever lowering one team's share never makes a feasible allocation
-infeasible~\cite{radunovic2007unified}; this is assumption (A1) of
-\cref{app:equilibrium}. The same property guarantees that when the common level
+infeasible~\cite{radunovic2007unified}. The same property guarantees that when the common level
 stops, at least one active team is blocked on its own, which is why testing
 each team alone in step 2 is enough.
 
@@ -2314,8 +2313,7 @@ nothing~\cite{ercot2026batch}.
   \item \alert{Energy prices.} Strategy-proofness concerns \emph{service}. Your
     score also includes energy at the LMP, which depends on your own load. At a
     congested bus, asking slightly less can lower your price by more than the
-    service you give up, so truth-telling is no longer dominant
-    (\cref{app:equilibrium-experiments}).
+    service you give up, so truth-telling is no longer dominant.
   \item \alert{Several sites per team.} The fraction applies to your whole mix
     of sites. Changing the mix, for example inflating one site at a congested
     bus, changes the shape of $\mathcal S$ and can lower the common level for
@@ -2325,8 +2323,7 @@ nothing~\cite{ercot2026batch}.
     barely uses a bottleneck the same as a MW at a bus that uses it heavily.
     This is why, in the two-team example of \cref{sec:twoteam}, both large
     teams are cut to the same level, and why the total served can fall short of
-    what a planner would achieve (23\% in the three-team case of
-    \cref{app:equilibrium-experiments}). Kelly's proportional
+    what a planner would achieve. Kelly's proportional
     fairness~\cite{kelly1998rate}, which maximizes $\sum_i \log(\alpha_i r_i)$,
     is reported in the results as a diagnostic.
   \item \alert{Discrete sizes.} With only a few allowed sizes, the best request
@@ -2335,6 +2332,9 @@ nothing~\cite{ercot2026batch}.
 \end{itemize}
 
 % ---------------------------------------------------------------------------
+% Appendices D (A little game theory) and E (The connection game in depth)
+% are hidden from students for now; delete \iffalse and \fi to restore them.
+\iffalse
 \section{A little game theory}\label{app:game}
 
 A \alert{game} has players (the teams), strategies (each team's plan), and
@@ -2901,6 +2901,8 @@ few tight hours of a day.
     grids; they illustrate the theory rather than prove it.
 \end{itemize}
 
+
+\fi
 
 % ---------------------------------------------------------------------------
 \section{Where the numbers come from}\label{app:numbers}
