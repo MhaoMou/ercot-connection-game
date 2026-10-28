@@ -5,8 +5,11 @@ colored by the total MW *served* to all scored teams there (service fraction
 x connection capacity, from the evaluator output), so no individual team's
 plan is shown and rejected or dropped requests do not appear.  When dispatch results are supplied,
 each branch is colored by its peak loading (largest ``|flow| / limit`` over the
-evaluated hours).  Tooltips (``<title>`` elements) and a small pan/zoom script
-make the SVG interactive in any browser.
+evaluated hours).  Hovering a bus shows its name and how its load at the
+system peak hour splits into the existing base load and the new data-center
+load served to all teams together (never per team); hovering a line shows
+its end buses, limit, and loading.  A small script draws these hover boxes and
+adds pan and zoom, so the SVG is interactive in any browser.
 
 The scenario package has no bus coordinates, so the layout is a deterministic
 force-directed embedding of the network graph.  It is computed once and stored
@@ -138,10 +141,38 @@ def load_or_create_layout(
     return positions
 
 
+def load_bus_names(layout_path: str | Path) -> dict[str, str]:
+    """Bus names stored with a layout file (empty when the layout has none)."""
+    path = Path(layout_path)
+    if not path.is_file():
+        return {}
+    return {str(k): str(v) for k, v in json.loads(path.read_text(encoding="utf-8")).get("bus_names", {}).items()}
+
+
+def peak_hour_demand(artifact_dir: str | Path) -> tuple[dict[str, float], int | None]:
+    """Existing load per bus in the period with the highest total system load.
+
+    Reads ``demand_bus.csv`` (one row per period, one column per bus).  Returns
+    ``({bus_id: MW}, period)``, or ``({}, None)`` when the file is absent.
+    """
+    path = Path(artifact_dir) / "demand_bus.csv"
+    if not path.is_file():
+        return {}, None
+    best_total, best_row, best_period = None, None, None
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            period = int(row.pop("period"))
+            values = {bus: float(value) for bus, value in row.items()}
+            total = sum(values.values())
+            if best_total is None or total > best_total:
+                best_total, best_row, best_period = total, values, period
+    return best_row or {}, best_period
+
+
 def load_layout_background(layout_path: str | Path) -> tuple[list[list[tuple[float, float]]], str | None]:
     """Optional outline paths and layout kind stored with a layout file.
 
-    Geographic layouts (``tools/activsg2000/build_geo_layout.py``) carry a
+    Geographic layouts (``data/teaching/activsg2000_geo_layout_v1.json``) carry a
     ``background_paths`` outline, such as the Texas border, in the same unit
     coordinates as the bus positions.
     """
@@ -208,6 +239,95 @@ def branch_loading(
     return {branch_id: (peak[branch_id], near[branch_id]) for branch_id in limits}, hours
 
 
+def bus_prices(dispatch_dir: str | Path) -> tuple[dict[str, float], dict[str, float]]:
+    """Average and highest LMP per bus over the evaluated hours ($/MWh).
+
+    Reads ``balance_dual_by_bus`` from every ``period_*.json`` in ``dispatch_dir``.
+    Prices are system outputs and reveal nothing about any team's plan.
+    """
+    total: dict[str, float] = {}
+    peak: dict[str, float] = {}
+    hours = 0
+    for path in sorted(Path(dispatch_dir).glob("period_*.json")):
+        prices = json.loads(path.read_text(encoding="utf-8")).get("balance_dual_by_bus", {})
+        if not prices:
+            continue
+        hours += 1
+        for bus_id, value in prices.items():
+            value = float(value)
+            total[bus_id] = total.get(bus_id, 0.0) + value
+            peak[bus_id] = max(peak.get(bus_id, value), value)
+    if not hours:
+        return {}, {}
+    return {bus_id: value / hours for bus_id, value in total.items()}, peak
+
+
+def peak_flow_sign(dispatch_dir: str | Path, branches: Sequence[MapBranch]) -> dict[str, float]:
+    """Sign (+1 or -1) of each branch's flow in the hour of its largest |flow|."""
+    best: dict[str, float] = {}
+    for path in sorted(Path(dispatch_dir).glob("period_*.json")):
+        flows = json.loads(path.read_text(encoding="utf-8")).get("flow_mw_by_branch", {})
+        for branch in branches:
+            flow = float(flows.get(branch.branch_id, 0.0))
+            if abs(flow) > abs(best.get(branch.branch_id, 0.0)):
+                best[branch.branch_id] = flow
+    return {branch_id: (1.0 if flow >= 0 else -1.0) for branch_id, flow in best.items()}
+
+
+def binding_line_impacts(
+    artifact_dir: str | Path,
+    branch_ids: Sequence[str],
+    flow_sign: Mapping[str, float],
+    *,
+    threshold: float = 0.05,
+    top: int = 40,
+) -> dict[str, list[tuple[str, float]]]:
+    """Buses whose new load pushes each listed branch toward its limit.
+
+    Uses DC power-transfer distribution factors (PTDFs) relative to the
+    reference bus: one more MW of load at bus k, supplied from the reference
+    bus, changes the flow on branch l by ``-PTDF[l, k]``.  Multiplying by the
+    sign of the branch's peak flow gives how much of each MW adds to that flow.
+    Returns, per branch, the buses with at least ``threshold`` MW per MW
+    (strongest first, at most ``top``).
+    """
+    import numpy as np
+
+    root = Path(artifact_dir)
+    with (root / "bus.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    bus_ids = [row["bus_id"] for row in rows]
+    reference = next((row["bus_id"] for row in rows if row.get("type") == "3"), bus_ids[0])
+    index = {bus_id: i for i, bus_id in enumerate(bus_ids)}
+    with (root / "branch_limits.csv").open(newline="", encoding="utf-8") as handle:
+        lines = [row for row in csv.DictReader(handle) if row.get("status", "1") == "1"]
+    n = len(bus_ids)
+    bbus = np.zeros((n, n))
+    for row in lines:
+        i, j, b = index[row["from_bus_id"]], index[row["to_bus_id"]], 1.0 / float(row["reactance_pu"])
+        bbus[i, i] += b
+        bbus[j, j] += b
+        bbus[i, j] -= b
+        bbus[j, i] -= b
+    keep = [i for i in range(n) if bus_ids[i] != reference]
+    inverse = np.zeros((n, n))
+    inverse[np.ix_(keep, keep)] = np.linalg.inv(bbus[np.ix_(keep, keep)])
+    by_id = {row["branch_id"]: row for row in lines}
+    impacts: dict[str, list[tuple[str, float]]] = {}
+    for branch_id in branch_ids:
+        row = by_id.get(branch_id)
+        if row is None:
+            continue
+        i, j, b = index[row["from_bus_id"]], index[row["to_bus_id"]], 1.0 / float(row["reactance_pu"])
+        ptdf = b * (inverse[i, :] - inverse[j, :])
+        push = -ptdf * flow_sign.get(branch_id, 1.0)
+        order = np.argsort(-push)
+        impacts[branch_id] = [
+            (bus_ids[k], round(float(push[k]), 3)) for k in order[:top] if push[k] >= threshold
+        ]
+    return impacts
+
+
 def _mix(low: tuple[int, int, int], high: tuple[int, int, int], t: float) -> str:
     t = min(max(t, 0.0), 1.0)
     return "#%02x%02x%02x" % tuple(round(a + (b - a) * t) for a, b in zip(low, high))
@@ -215,6 +335,16 @@ def _mix(low: tuple[int, int, int], high: tuple[int, int, int], t: float) -> str
 
 def _bus_color(mw: float, max_mw: float) -> str:
     return _mix((254, 224, 139), (165, 0, 38), (mw / max_mw) ** 0.5 if max_mw > 0 else 0.0)
+
+
+def _price_color(price: float, low: float, high: float) -> str:
+    """Blue (cheap) through pale yellow to red (expensive)."""
+    if high <= low:
+        return "#fee08b"
+    t = min(max((price - low) / (high - low), 0.0), 1.0)
+    if t < 0.5:
+        return _mix((49, 130, 189), (254, 224, 139), t / 0.5)
+    return _mix((254, 224, 139), (165, 0, 38), (t - 0.5) / 0.5)
 
 
 def _line_style(loading: float | None) -> tuple[str, float]:
@@ -229,28 +359,159 @@ def _line_style(loading: float | None) -> tuple[str, float]:
     return "#c9ced6", 0.6
 
 
-_PAN_ZOOM_SCRIPT = """
+def _tip_attr(tip: str) -> str:
+    """Escape text for an attribute, keeping line breaks as &#10;."""
+    return escape(tip).replace("\n", "&#10;")
+
+
+_MAP_SCRIPT = """
 (function () {
   var svg = document.currentScript.ownerSVGElement || document.documentElement;
-  var view = svg.getElementById('view');
-  var scale = 1, x = 0, y = 0, drag = null;
-  function apply() { view.setAttribute('transform', 'translate(' + x + ',' + y + ') scale(' + scale + ')'); }
+  var NS = 'http://www.w3.org/2000/svg';
+  var view = svg.getElementById('view'), labels = svg.getElementById('labels');
+  var W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
+  var scale = 1, x = 0, y = 0, drag = null, moved = false;
+  var MIN = 1, MAX = 60, LABEL_SCALE = 4;
+  function toView(e) {
+    var r = svg.getBoundingClientRect();
+    return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height];
+  }
+  function apply() {
+    view.setAttribute('transform', 'translate(' + x + ',' + y + ') scale(' + scale + ')');
+    labels.setAttribute('display', scale >= LABEL_SCALE ? 'inline' : 'none');
+    labels.setAttribute('font-size', (11 / scale).toFixed(3));
+  }
+  function zoomAt(px, py, f) {
+    var s = Math.min(MAX, Math.max(MIN, scale * f));
+    f = s / scale;
+    x = px - (px - x) * f; y = py - (py - y) * f; scale = s; apply();
+  }
+  // Gentle zoom: the step follows how far the wheel or the two-finger pinch
+  // moved, so a small pinch zooms a little (one fixed step per event made
+  // trackpads jump).
   svg.addEventListener('wheel', function (e) {
     e.preventDefault();
-    var r = svg.getBoundingClientRect();
-    var px = (e.clientX - r.left) * svg.viewBox.baseVal.width / r.width;
-    var py = (e.clientY - r.top) * svg.viewBox.baseVal.height / r.height;
-    var f = e.deltaY < 0 ? 1.2 : 1 / 1.2;
-    x = px - (px - x) * f; y = py - (py - y) * f; scale *= f; apply();
+    var dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+    var p = toView(e);
+    zoomAt(p[0], p[1], Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
   }, {passive: false});
-  svg.addEventListener('mousedown', function (e) { drag = [e.clientX, e.clientY, x, y]; });
+  svg.addEventListener('mousedown', function (e) {
+    if (e.target.closest && e.target.closest('.ui')) return;
+    drag = [e.clientX, e.clientY, x, y]; moved = false;
+  });
   window.addEventListener('mouseup', function () { drag = null; });
   window.addEventListener('mousemove', function (e) {
     if (!drag) return;
-    var r = svg.getBoundingClientRect(), k = svg.viewBox.baseVal.width / r.width;
-    x = drag[2] + (e.clientX - drag[0]) * k; y = drag[3] + (e.clientY - drag[1]) * k; apply();
+    var r = svg.getBoundingClientRect(), k = W / r.width;
+    var dx = e.clientX - drag[0], dyy = e.clientY - drag[1];
+    if (Math.abs(dx) + Math.abs(dyy) > 3) moved = true;
+    x = drag[2] + dx * k; y = drag[3] + dyy * k; apply();
   });
-  svg.addEventListener('dblclick', function () { scale = 1; x = 0; y = 0; apply(); });
+  svg.addEventListener('dblclick', function (e) {
+    if (e.target.closest && e.target.closest('.ui')) return;
+    scale = 1; x = 0; y = 0; apply();
+  });
+
+  // Hover boxes.
+  var tip = svg.getElementById('tip'), box = tip.querySelector('rect'), text = tip.querySelector('text');
+  function show(p, lines) {
+    while (text.firstChild) text.removeChild(text.firstChild);
+    lines.forEach(function (line, i) {
+      var span = document.createElementNS(NS, 'tspan');
+      span.setAttribute('x', 12); span.setAttribute('dy', i ? '1.35em' : '1.15em');
+      if (i === 0) span.setAttribute('font-weight', 'bold');
+      span.textContent = line; text.appendChild(span);
+    });
+    var b = text.getBBox();
+    box.setAttribute('width', b.width + 24); box.setAttribute('height', b.height + 16);
+    tip.setAttribute('visibility', 'visible'); place(p);
+  }
+  function place(p) {
+    var w = +box.getAttribute('width'), h = +box.getAttribute('height');
+    var tx = p[0] + 16, ty = p[1] + 16;
+    if (tx + w > W) tx = p[0] - w - 16;
+    if (ty + h > H) ty = p[1] - h - 16;
+    tip.setAttribute('transform', 'translate(' + tx + ',' + ty + ')');
+  }
+  svg.addEventListener('mouseover', function (e) {
+    var t = e.target.getAttribute && e.target.getAttribute('data-tip');
+    if (t) show(toView(e), t.split('\\n'));
+  });
+  svg.addEventListener('mousemove', function (e) {
+    if (tip.getAttribute('visibility') === 'visible') place(toView(e));
+  });
+  svg.addEventListener('mouseout', function (e) {
+    if (e.target.getAttribute && e.target.getAttribute('data-tip')) tip.setAttribute('visibility', 'hidden');
+  });
+
+  // Layers: MW served or energy price.
+  var circles = Array.prototype.slice.call(svg.querySelectorAll('circle[data-id]'));
+  function setLayer(name) {
+    circles.forEach(function (c) {
+      c.setAttribute('fill', c.getAttribute('data-' + name + '-fill'));
+      c.setAttribute('r', c.getAttribute('data-' + name + '-r'));
+    });
+    ['load', 'price'].forEach(function (n) {
+      var legend = svg.getElementById('legend-' + n), button = svg.getElementById('button-' + n);
+      if (legend) legend.setAttribute('display', n === name ? 'inline' : 'none');
+      if (button) button.setAttribute('class', 'ui button' + (n === name ? ' active' : ''));
+    });
+  }
+  ['load', 'price'].forEach(function (n) {
+    var button = svg.getElementById('button-' + n);
+    if (button) button.addEventListener('click', function () { setLayer(n); });
+  });
+
+  // Binding lines: click to highlight the buses that push them.
+  var note = svg.getElementById('note');
+  function clearImpact() {
+    svg.querySelectorAll('.impact').forEach(function (c) { c.classList.remove('impact'); });
+    svg.querySelectorAll('.picked').forEach(function (l) { l.classList.remove('picked'); });
+    note.textContent = note.getAttribute('data-default');
+  }
+  svg.addEventListener('click', function (e) {
+    if (moved || (e.target.closest && e.target.closest('.ui'))) return;
+    var spec = e.target.getAttribute && e.target.getAttribute('data-impact');
+    clearImpact();
+    if (spec === null || spec === undefined) return;
+    e.target.classList.add('picked');
+    var items = spec ? spec.split(' ') : [];
+    items.forEach(function (item) {
+      var c = svg.querySelector('circle[data-id="' + item.split(':')[0] + '"]');
+      if (c) c.classList.add('impact');
+    });
+    note.textContent = items.length
+      ? 'Line ' + e.target.getAttribute('data-branch') + ': ' + items.length +
+        ' highlighted buses where 1 MW of new load adds at least 0.05 MW to its flow (approximate). Click elsewhere to clear.'
+      : 'Line ' + e.target.getAttribute('data-branch') + ': no bus adds 0.05 MW or more per MW of new load.';
+  });
+
+  // Search by bus number or name.
+  var input = svg.getElementById('search');
+  var status = svg.getElementById('search-status');
+  function find(query) {
+    query = query.trim().toUpperCase();
+    if (!query) return null;
+    var exact = svg.querySelector('circle[data-id="' + query + '"]');
+    if (exact) return exact;
+    for (var i = 0; i < circles.length; i++) {
+      if ((circles[i].getAttribute('data-name') || '').toUpperCase().indexOf(query) >= 0) return circles[i];
+    }
+    return null;
+  }
+  if (input) input.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var c = find(input.value);
+    svg.querySelectorAll('.found').forEach(function (f) { f.classList.remove('found'); });
+    if (!c) { status.textContent = 'no bus matches "' + input.value + '"'; return; }
+    status.textContent = '';
+    c.classList.add('found');
+    scale = 10;
+    var cx = +c.getAttribute('cx'), cy = +c.getAttribute('cy');
+    x = W / 2 - cx * scale; y = H * 0.55 - cy * scale; apply();
+    show([W / 2, H * 0.55], c.getAttribute('data-tip').split('\\n'));
+  });
+  apply();
 })();
 """
 
@@ -267,9 +528,15 @@ def render_svg(
     subtitle: str = "",
     background_paths: Sequence[Sequence[tuple[float, float]]] = (),
     layout_kind: str | None = None,
+    bus_names: Mapping[str, str] | None = None,
+    peak_load_by_bus: Mapping[str, float] | None = None,
+    peak_period: int | None = None,
+    average_price_by_bus: Mapping[str, float] | None = None,
+    peak_price_by_bus: Mapping[str, float] | None = None,
+    impacts_by_branch: Mapping[str, Sequence[tuple[str, float]]] | None = None,
 ) -> str:
     """Return a self-contained interactive SVG document."""
-    width, margin, panel = 1200, 40, 170
+    width, margin, panel = 1200, 40, 250
     plot = width - 2 * margin
     y_extent = max(
         [y for _, y in positions.values()] + [y for path in background_paths for _, y in path],
@@ -277,49 +544,110 @@ def render_svg(
     ) or 1.0
     height = round(panel + y_extent * plot + margin)
     base_load_by_bus = base_load_by_bus or {}
+    bus_names = bus_names or {}
+    peak_load_by_bus = peak_load_by_bus or {}
+    average_price_by_bus = average_price_by_bus or {}
+    peak_price_by_bus = peak_price_by_bus or {}
+    impacts_by_branch = impacts_by_branch or {}
+    has_prices = bool(average_price_by_bus)
+
+    def bus_label(bus_id: str) -> str:
+        name = bus_names.get(bus_id)
+        return f"{name} (bus {bus_id})" if name else f"Bus {bus_id}"
 
     def point(bus_id: str) -> tuple[float, float]:
         x, y = positions[bus_id]
         return margin + x * plot, panel + y * plot
 
     max_mw = max(connection_by_bus.values(), default=0.0)
+    prices = sorted(average_price_by_bus.values())
+    low_price = prices[int(0.02 * (len(prices) - 1))] if prices else 0.0
+    high_price = prices[int(0.98 * (len(prices) - 1))] if prices else 0.0
     layout_note = (
         "Approximate geographic layout (bus locations from the 2016 ACTIVSg2000 release)."
         if layout_kind == "approximate geographic"
         else "Schematic layout, not geographic."
     )
+    default_note = (
+        "Click a red (binding) line to highlight the buses whose new load pushes it toward its limit."
+        if impacts_by_branch
+        else ""
+    )
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
         f'width="{width}" height="{height}" font-family="Helvetica, Arial, sans-serif">',
-        "<style>.bus:hover,.site:hover{stroke:#111;stroke-width:2}"
-        ".line:hover{stroke:#0969da;stroke-width:4}text{fill:#24292f}</style>",
+        "<style>"
+        ".bus:hover,.site:hover{stroke:#111;stroke-width:2}"
+        ".line:hover{stroke:#0969da;stroke-width:4}.binding{cursor:pointer}"
+        "text{fill:#24292f}#tip text{fill:#ffffff}"
+        ".impact{stroke:#0969da !important;stroke-width:2.5 !important}"
+        ".picked{stroke:#0969da !important;stroke-width:5 !important}"
+        ".found{stroke:#0969da !important;stroke-width:3 !important}"
+        ".button{cursor:pointer}.button rect{fill:#f6f8fa;stroke:#8c959f}"
+        ".button.active rect{fill:#0969da;stroke:#0969da}.button.active text{fill:#ffffff}"
+        "#labels text{fill:#24292f;pointer-events:none}"
+        "</style>",
         f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
-        f'<text x="{margin}" y="38" font-size="24" font-weight="bold">{escape(title)}</text>',
+        f'<text x="{margin}" y="42" font-size="30" font-weight="bold">{escape(title)}</text>',
     ]
     if subtitle:
-        out.append(f'<text x="{margin}" y="64" font-size="14">{escape(subtitle)}</text>')
+        out.append(f'<text x="{margin}" y="72" font-size="18">{escape(subtitle)}</text>')
+    out.append(f'<text x="{margin}" y="98" font-size="15" fill="#57606a">{layout_note}</text>')
     out.append(
-        f'<text x="{margin}" y="86" font-size="12" fill="#57606a">{layout_note} '
-        "Bus color = MW served to all scored teams at that bus. "
-        "Hover for details; scroll to zoom, drag to pan, double-click to reset.</text>"
+        f'<text x="{margin}" y="118" font-size="15" fill="#57606a">'
+        "Hover a bus or line for details; scroll or pinch to zoom (bus numbers appear when zoomed in), "
+        "drag to pan, double-click to reset.</text>"
     )
-    # Legend: bus colors and line loading.
-    legend_y = 112
-    out.append(f'<text x="{margin}" y="{legend_y}" font-size="12" font-weight="bold">MW served to teams at bus</text>')
+    out.append(
+        f'<text id="note" x="{margin}" y="138" font-size="15" fill="#0969da" '
+        f'data-default="{escape(default_note)}">{escape(default_note)}</text>'
+    )
+    # Toolbar: layer buttons and search.
+    bar_y = 152
+    buttons = [("load", "MW served")] + ([("price", "Energy price (LMP)")] if has_prices else [])
+    bx = margin
+    for key, label in buttons:
+        bw = 30 + 9 * len(label)
+        active = " active" if key == "load" else ""
+        out.append(
+            f'<g id="button-{key}" class="ui button{active}"><rect x="{bx}" y="{bar_y}" width="{bw}" height="30" rx="6"/>'
+            f'<text x="{bx + bw / 2}" y="{bar_y + 20}" font-size="15" text-anchor="middle">{escape(label)}</text></g>'
+        )
+        bx += bw + 10
+    out.append(
+        f'<foreignObject class="ui" x="{width - margin - 360}" y="{bar_y}" width="360" height="32">'
+        '<input xmlns="http://www.w3.org/1999/xhtml" id="search" type="search" '
+        'placeholder="Find a bus by number or name, then press Enter" '
+        'style="width:100%;box-sizing:border-box;height:30px;font-size:14px;padding:0 8px;'
+        'border:1px solid #8c959f;border-radius:6px"/></foreignObject>'
+    )
+    out.append(f'<text id="search-status" x="{width - margin - 360}" y="{bar_y + 48}" font-size="13" fill="#cf222e"></text>')
+    # Legends.
+    legend_y = 205
+    out.append(f'<g id="legend-load"><text x="{margin}" y="{legend_y}" font-size="15" font-weight="bold">'
+               "New data-center load served at bus (all teams)</text>")
     for i, fraction in enumerate((0.0, 0.25, 0.5, 0.75, 1.0)):
-        cx = margin + 10 + i * 46
-        out.append(f'<circle cx="{cx}" cy="{legend_y + 22}" r="7" fill="{_bus_color(fraction * max_mw, max_mw)}"/>')
-        out.append(f'<text x="{cx}" y="{legend_y + 46}" font-size="11" text-anchor="middle">{fraction * max_mw:.0f}</text>')
-    out.append(f'<text x="{margin + 240}" y="{legend_y + 46}" font-size="11">MW</text>')
+        cx = margin + 12 + i * 52
+        out.append(f'<circle cx="{cx}" cy="{legend_y + 18}" r="8" fill="{_bus_color(fraction * max_mw, max_mw)}"/>')
+        out.append(f'<text x="{cx}" y="{legend_y + 42}" font-size="14" text-anchor="middle">{fraction * max_mw:.0f}</text>')
+    out.append(f'<text x="{margin + 268}" y="{legend_y + 42}" font-size="14">MW</text></g>')
+    if has_prices:
+        out.append(f'<g id="legend-price" display="none"><text x="{margin}" y="{legend_y}" font-size="15" '
+                   f'font-weight="bold">Average energy price over {hours} h</text>')
+        for i, fraction in enumerate((0.0, 0.25, 0.5, 0.75, 1.0)):
+            value = low_price + fraction * (high_price - low_price)
+            cx = margin + 12 + i * 52
+            out.append(f'<circle cx="{cx}" cy="{legend_y + 18}" r="8" fill="{_price_color(value, low_price, high_price)}"/>')
+            out.append(f'<text x="{cx}" y="{legend_y + 42}" font-size="14" text-anchor="middle">{value:.0f}</text>')
+        out.append(f'<text x="{margin + 268}" y="{legend_y + 42}" font-size="14">$/MWh</text></g>')
     if loading_by_branch is not None:
-        lx = margin + 330
-        span = f"{hours} h"
-        out.append(f'<text x="{lx}" y="{legend_y}" font-size="12" font-weight="bold">Peak line loading over {escape(span)}</text>')
+        lx = margin + 420
+        out.append(f'<text x="{lx}" y="{legend_y}" font-size="15" font-weight="bold">Peak line loading over {hours} h</text>')
         for i, (label, value) in enumerate((("< 50%", 0.0), ("50-80%", 0.6), ("80-99%", 0.9), ("at limit", 1.0))):
             color, stroke = _line_style(value)
-            x0 = lx + i * 95
-            out.append(f'<line x1="{x0}" y1="{legend_y + 22}" x2="{x0 + 40}" y2="{legend_y + 22}" stroke="{color}" stroke-width="{max(stroke, 1.5)}"/>')
-            out.append(f'<text x="{x0}" y="{legend_y + 46}" font-size="11">{escape(label)}</text>')
+            x0 = lx + i * 105
+            out.append(f'<line x1="{x0}" y1="{legend_y + 18}" x2="{x0 + 44}" y2="{legend_y + 18}" stroke="{color}" stroke-width="{max(stroke, 1.5)}"/>')
+            out.append(f'<text x="{x0}" y="{legend_y + 42}" font-size="14">{escape(label)}</text>')
 
     out.append('<g id="view">')
     for path in background_paths:
@@ -333,35 +661,65 @@ def render_svg(
         if branch.from_bus_id not in positions or branch.to_bus_id not in positions:
             continue
         loading = None
-        tip = f"Line {branch.branch_id}: bus {branch.from_bus_id} to {branch.to_bus_id}, limit {branch.limit_mw:g} MW"
+        tip = (
+            f"Line {branch.branch_id}\nfrom {bus_label(branch.from_bus_id)}\nto {bus_label(branch.to_bus_id)}"
+            f"\nthermal limit {branch.limit_mw:g} MW"
+        )
         if loading_by_branch is not None and branch.branch_id in loading_by_branch:
             loading, near_hours = loading_by_branch[branch.branch_id]
-            tip += f"\npeak loading {loading:.0%}; at or near limit in {near_hours} of {hours} h"
+            tip += f"\npeak loading {loading:.0%}\nat or near limit in {near_hours} of {hours} h"
+        extra = ""
+        if branch.branch_id in impacts_by_branch:
+            tip += "\nclick to highlight the buses that push this line"
+            spec = " ".join(f"{bus}:{value:g}" for bus, value in impacts_by_branch[branch.branch_id])
+            extra = f' data-impact="{escape(spec)}" data-branch="{escape(branch.branch_id)}"'
         color, stroke = _line_style(loading)
         x1, y1 = point(branch.from_bus_id)
         x2, y2 = point(branch.to_bus_id)
+        css = "line binding" if extra else "line"
         out.append(
-            f'<line class="line" x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-            f'stroke="{color}" stroke-width="{stroke}"><title>{escape(tip)}</title></line>'
+            f'<line class="{css}" x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+            f'stroke="{color}" stroke-width="{stroke}" data-tip="{_tip_attr(tip)}"{extra}/>'
         )
+    label_lines = []
     for bus_id in sorted(positions, key=lambda b: connection_by_bus.get(b, 0.0)):
         x, y = point(bus_id)
         mw = connection_by_bus.get(bus_id, 0.0)
-        tip = f"Bus {bus_id}\nbase load {base_load_by_bus.get(bus_id, 0.0):g} MW"
-        if mw > 0:
-            tip += f"\nserved to teams (all teams): {mw:.1f} MW"
-            radius = 3.5 + 6.5 * (mw / max_mw) ** 0.5
-            out.append(
-                f'<circle class="site" cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" fill="{_bus_color(mw, max_mw)}" '
-                f'stroke="#5c0016" stroke-width="0.8"><title>{escape(tip)}</title></circle>'
-            )
+        if peak_period is not None and bus_id in peak_load_by_bus:
+            existing, when = peak_load_by_bus[bus_id], f"at the peak hour (period {peak_period})"
         else:
-            out.append(
-                f'<circle class="bus" cx="{x:.1f}" cy="{y:.1f}" r="1.6" fill="#8c959f">'
-                f"<title>{escape(tip)}</title></circle>"
+            existing, when = base_load_by_bus.get(bus_id, 0.0), "(base case)"
+        tip = f"{bus_label(bus_id)}\nload {when}:\n  existing base load {existing:,.1f} MW"
+        tip += f"\n  new data-center load (all teams): {mw:,.1f} MW\n  total {existing + mw:,.1f} MW"
+        if bus_id in average_price_by_bus:
+            tip += (
+                f"\nenergy price over {hours} h:\n  average {average_price_by_bus[bus_id]:,.2f} $/MWh"
+                f"\n  highest {peak_price_by_bus.get(bus_id, average_price_by_bus[bus_id]):,.2f} $/MWh"
             )
+        if mw > 0:
+            css, radius, fill = "site", 3.5 + 6.5 * (mw / max_mw) ** 0.5, _bus_color(mw, max_mw)
+            stroke = ' stroke="#5c0016" stroke-width="0.8"'
+        else:
+            css, radius, fill, stroke = "bus", 2.2, "#8c959f", ""
+        price_fill = (
+            _price_color(average_price_by_bus[bus_id], low_price, high_price)
+            if bus_id in average_price_by_bus
+            else fill
+        )
+        price_r = max(radius, 3.0) if has_prices else radius
+        name = escape(bus_names.get(bus_id, ""))
+        out.append(
+            f'<circle class="{css}" cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" fill="{fill}"{stroke} '
+            f'data-id="{escape(bus_id)}" data-name="{name}" data-load-fill="{fill}" data-load-r="{radius:.1f}" '
+            f'data-price-fill="{price_fill}" data-price-r="{price_r:.1f}" data-tip="{_tip_attr(tip)}"/>'
+        )
+        label_lines.append(f'<text x="{x + 2.5:.1f}" y="{y - 2.5:.1f}">{escape(bus_id)}</text>')
+    out.append('<g id="labels" display="none" font-size="11">' + "".join(label_lines) + "</g>")
     out.append("</g>")
-    out.append(f"<script><![CDATA[{_PAN_ZOOM_SCRIPT}]]></script>")
+    out.append('<g id="tip" visibility="hidden" pointer-events="none">'
+               '<rect rx="6" fill="#24292f" fill-opacity="0.94"/>'
+               '<text font-size="15" xml:space="preserve" style="white-space:pre"/></g>')
+    out.append(f"<script><![CDATA[{_MAP_SCRIPT}]]></script>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -378,13 +736,22 @@ def build_map(
     bus_ids, branches, base_load = load_network(artifact_dir)
     positions = load_or_create_layout(layout_path, bus_ids, branches)
     background_paths, layout_kind = load_layout_background(layout_path)
+    bus_names = load_bus_names(layout_path)
+    peak_load, peak_period = peak_hour_demand(artifact_dir)
     served, _ = served_load_by_bus(evaluation_dirs)
     unknown = sorted(set(served) - set(bus_ids))
     if unknown:
         raise ValueError("evaluation output references buses outside the artifact: " + ", ".join(unknown[:5]))
     loading, hours = (None, 0)
+    average_price: dict[str, float] = {}
+    peak_price: dict[str, float] = {}
+    impacts: dict[str, list[tuple[str, float]]] = {}
     if dispatch_dir is not None:
         loading, hours = branch_loading(dispatch_dir, branches)
+        average_price, peak_price = bus_prices(dispatch_dir)
+        binding = [branch_id for branch_id, (peak, _) in loading.items() if peak >= NEAR_LIMIT_FRACTION]
+        if binding:
+            impacts = binding_line_impacts(artifact_dir, binding, peak_flow_sign(dispatch_dir, branches))
     return render_svg(
         positions=positions,
         branches=branches,
@@ -394,6 +761,12 @@ def build_map(
         hours=hours,
         background_paths=background_paths,
         layout_kind=layout_kind,
+        bus_names=bus_names,
+        peak_load_by_bus=peak_load,
+        peak_period=peak_period,
+        average_price_by_bus=average_price,
+        peak_price_by_bus=peak_price,
+        impacts_by_branch=impacts,
         title=title,
         subtitle=subtitle,
     )
@@ -419,7 +792,7 @@ def _parser() -> argparse.ArgumentParser:
         help="evaluator dispatch/ directory with period_*.json files (default: <last --evaluation-dir>/dispatch when present)",
     )
     parser.add_argument(
-        "--layout", type=Path, default=Path("data/teaching/activsg2000_layout_v1.json"),
+        "--layout", type=Path, default=Path("data/teaching/activsg2000_geo_layout_v1.json"),
         help="stored bus layout (created if missing)",
     )
     parser.add_argument("--title", default="Grid map")

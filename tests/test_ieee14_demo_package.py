@@ -66,16 +66,6 @@ def test_demo_package_uses_the_main_representative_days_and_weights():
     assert manifest["validation"]["passed_period_count"] == HORIZON
 
 
-def test_demo_builder_regenerates_the_same_demand(tmp_path):
-    from tools.build_ieee14_demo_package import MAIN_PACKAGE as builder_main, demand_rows, main_package_days
-
-    rows = demand_rows(main_package_days(builder_main))
-    with (DEMO / "demand_bus.csv").open(newline="", encoding="utf-8") as handle:
-        stored = list(csv.DictReader(handle))
-    for row, built in zip(stored, rows):
-        assert {key: float(value) for key, value in row.items() if key != "period"} == pytest.approx(built)
-
-
 def test_demo_manifest_rejects_a_wrong_horizon_or_block(tmp_path):
     payload = json.loads((DEMO / "manifest.json").read_text(encoding="utf-8"))
     payload["horizon"] = 168

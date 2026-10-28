@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 from ercot_game import batch_cli, csv_validator
@@ -34,10 +33,6 @@ from ercot_game.scenario_package import (
     require_validated_block,
 )
 from ercot_game.scenario_profiles import hourly_state
-from tools.activsg2000.build_representative_package import (
-    k_medoids,
-    select_representative_days,
-)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -120,36 +115,6 @@ def test_representative_manifest_rejects_wrong_weights(tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ScenarioPackageError, match="representative block"):
         require_validated_block(tmp_path)
-
-
-def test_k_medoids_is_deterministic_and_separates_clear_clusters():
-    rng = np.random.default_rng(0)
-    centers = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]])
-    points = np.vstack([center + rng.normal(scale=0.3, size=(20, 2)) for center in centers])
-    medoids, labels = k_medoids(points, 3)
-    again = k_medoids(points, 3)
-    assert np.array_equal(medoids, again[0]) and np.array_equal(labels, again[1])
-    groups = {tuple(sorted(np.flatnonzero(labels == position) // 20)) for position in range(3)}
-    assert groups == {tuple([group] * 20) for group in range(3)}
-
-
-def test_peak_day_is_removed_from_its_cluster_and_weights_sum_to_365():
-    days = np.array([[1.0] * 24] * 10 + [[2.0] * 24] * 10 + [[3.0] * 24] * 10 + [[4.0] * 24] * 9 + [[4.2] * 24])
-    records = select_representative_days(days, clusters=4, days_per_year=39)
-    assert [record["represented_days"] for record in records] == [10, 10, 10, 9, 1]
-    assert records[-1]["is_peak_day"] and records[-1]["day_row"] == 39
-    assert records[-1]["weight"] == 1.0
-    assert sum(record["weight"] for record in records) == pytest.approx(39.0)
-
-
-@requires_source
-def test_builder_reproduces_the_committed_tables_byte_for_byte(tmp_path):
-    from tools.activsg2000.build_representative_package import build_package
-
-    manifest = build_package(SOURCE, tmp_path, validate=False)
-    assert manifest["validation_status"] == "pending"
-    for name in ("demand_bus.csv", "representative_days.csv", "bus.csv", "branch_limits.csv", "generator_limits.csv"):
-        assert (tmp_path / name).read_bytes() == (PACKAGE / name).read_bytes(), name
 
 
 # --- rules and weighted scoring ---------------------------------------------------

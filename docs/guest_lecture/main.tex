@@ -395,10 +395,10 @@
   One 50\MW{} site, planned on 5 representative days (120 hours) for 10 years:
   \begin{itemize}
     \item earns \alert{\$1{,}000 per MWh} served over ten years (7\% discount),
-    \$61.5M per MW; costs \alert{\$25M per MW} (paid once).
-    \item Energy is about \$18/MWh, charged only in Week 3.
-    \item It breaks even at about \alert{41\% served}, so what matters is whether
-    the grid can deliver.
+     costs \alert{\$25M per MW} (paid once).
+    \item Energy is about \$18/MWh.
+    % \item It breaks even at about \alert{41\% served}, so what matters is whether
+    % the grid can deliver.
   \end{itemize}
   \centering
   \includegraphics[width=\textwidth]{figures/timeline.pdf}\\[0.2em]
@@ -407,7 +407,7 @@
 \end{frame}
 
 \begin{frame}{What the grid operator does}
-  \small
+  % \small
   Part I's LP, with every team's \alert{submitted plans}:
   \begin{align*}
     \min\ & \text{generation cost} + \text{private generator cost}\\
@@ -416,7 +416,7 @@
       \text{batteries' constraints.}
   \end{align*}
   \begin{itemize}
-    \item One DCOPF per representative hour (120 in all), coupled through the batteries over each day.
+    \item One DCOPF per representative hour, coupled through the batteries over each day.
     \item The price of energy at your bus is the LMP.
     % \item The full LP is on the backup slide.
   \end{itemize}
@@ -429,24 +429,24 @@
       \textbf{Before: one request at a time}
       \begin{itemize}
         \item Each new project could invalidate the studies of projects ahead of it.
-        \item Repeated restudies; delays of years.
+        \item Repeated restudies and delays of years.
       \end{itemize}
       \pause
       \textbf{Now: a batch (PGRR145, ``Batch Zero'')}\fcite{ercot2026batch}
       \begin{itemize}
-        \item All eligible loads ($\ge$75\MW) are studied \alert{together}.
-        \item MW are allocated ``based on what the grid can reliably support''.
+        \item All eligible loads are studied \alert{together}.
+        \item Allocated ``based on what the grid can reliably support''.
         % \item Batch Zero allocations in spring 2027; Batch 1 opens summer 2027.
       \end{itemize}
     \end{column}
-    \pause
+    % \pause
     \begin{column}{0.5\textwidth}
-      \textbf{Three kinds of applicant}
-      \begin{itemize}
-        \item \textbf{Base load:} studied before and its MW are kept.
-        \item \textbf{Studied load:} gets its full request, \alert{part of it}, or waits for the next batch.
-        \item \textbf{Excluded:} waits for a future batch.
-      \end{itemize}
+      % \textbf{Three kinds of applicant}
+      % \begin{itemize}
+      %   \item \textbf{Base load:} studied before and its MW are kept.
+      %   \item \textbf{Studied load:} gets its full request, \alert{part of it}, or waits for the next batch.
+      %   \item \textbf{Excluded:} waits for a future batch.
+      % \end{itemize}
       \pause
       \textbf{Minimum allocation}\fcite{ercot2026pgrr145}
       \begin{itemize}
@@ -511,24 +511,24 @@
   \end{enumerate}
 \end{frame}
 
-\begin{frame}{The game and ERCOT}
-  \small
-  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}>{\raggedright\arraybackslash}p{0.34\textwidth}@{}}
-    \toprule
-    & ERCOT batch study & This game\\
-    \midrule
-    Who is studied together & All eligible loads in a batch & All teams' submissions\\
-    Already connected & Base load keeps its MW & \texttt{ACTIVSg2000}'s existing load\\
-    How MW are split & System-wide study & Equal MW level, then water-filling\\
-    Too small a share & below 100\MW{} (90\% for requests $\le$100\MW) $\to$ 0 & below 50\% of the request $\to$ 0\\
-    Commitment & Financial security, site control & Capital charged on the full request\\
-    Own generation & Offsets transmission need & Private generator $G$\\
-    Flexible load & May be curtailed under stress & Not in the game (Part I)\\
-    \bottomrule
-  \end{tabular}\\[0.8em]
-  % The 50\% threshold is scaled to the game's 50--200\MW{} requests; ERCOT's
-  % 100\MW{} floor would drop almost every team.
-\end{frame}
+% \begin{frame}{The game and ERCOT}
+%   \small
+%   \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}>{\raggedright\arraybackslash}p{0.34\textwidth}@{}}
+%     \toprule
+%     & ERCOT batch study & This game\\
+%     \midrule
+%     Who is studied together & All eligible loads in a batch & All teams' submissions\\
+%     Already connected & Base load keeps its MW & \texttt{ACTIVSg2000}'s existing load\\
+%     How MW are split & System-wide study & Equal MW level, then water-filling\\
+%     Too small a share & below 100\MW{} (90\% for requests $\le$100\MW) $\to$ 0 & below 50\% of the request $\to$ 0\\
+%     Commitment & Financial security, site control & Capital charged on the full request\\
+%     Own generation & Offsets transmission need & Private generator $G$\\
+%     Flexible load & May be curtailed under stress & Not in the game (Part I)\\
+%     \bottomrule
+%   \end{tabular}\\[0.8em]
+%   % The 50\% threshold is scaled to the game's 50--200\MW{} requests; ERCOT's
+%   % 100\MW{} floor would drop almost every team.
+% \end{frame}
 
 \begin{frame}{A two-team example}
   \small
@@ -548,21 +548,22 @@
   \end{center}
   \begin{itemize}
     \item<2-> If B goes small, A should go large. If B goes large, A should go small.
-    \item<3-> Nash equilibria: (A small, B large); (A large, B small). A game of
-      \emph{chicken}: if both insist, both lose. In Week 3, congestion adds
-      \$400--770M of energy cost per team.
+    \item<3-> Nash equilibria: (A small, B large); (A large, B small). 
+    % A game of
+    %   \emph{chicken}: if both insist, both lose. In Week 3, congestion adds
+    %   \$400--770M of energy cost per team.
     \item<4-> Your score depends on where everyone builds, and you see the results
       between submissions. \alert{What would you do?}
   \end{itemize}
 \end{frame}
 
-\begin{frame}{From the slides to your laptop}
-  \centering
-  \includegraphics[width=\textwidth]{figures/workflow.pdf}\\[0.6em]
-  \small Everything is in one GitHub repository: \hyperlink{https://github.com/MhaoMou/ercot-connection-planning-instructor}{\alert{[Link]}}.\\[0.3em]
-  The tutorial walks through a full session with an AI coding agent on a 14-bus demo.\\
-  % The tutorial's Part I is the official assignment; Part II walks through every step.
-\end{frame}
+% \begin{frame}{From the slides to your laptop}
+%   \centering
+%   \includegraphics[width=\textwidth]{figures/workflow.pdf}\\[0.6em]
+%   \small Everything is in one GitHub repository: \hyperlink{https://github.com/MhaoMou/ercot-connection-planning-instructor}{\alert{[Link]}}.\\[0.3em]
+%   The tutorial walks through a full session with an AI coding agent on a 14-bus demo.\\
+%   % The tutorial's Part I is the official assignment; Part II walks through every step.
+% \end{frame}
 
 
 

@@ -51,7 +51,7 @@ state of charge.
 | Representative days | 5 | days | INSTRUCTOR-CHOSEN | 2028-01-03 (weight 83.77), 2028-05-10 (99.73), 2028-07-12 (82.77), 2028-09-10 (97.73), and the peak day 2028-09-15 (weight exactly 1); weights sum to 365. The year label is only the ACTIVSg2000 source year. |
 | Horizon | 120 | hourly periods | INSTRUCTOR-CHOSEN | 5 days x 24 hours; the system peak is period 109 (zero-based). |
 | Planning horizon | 10 | years | INSTRUCTOR-CHOSEN | The weighted representative days stand for each of the next ten years. |
-| Scenario package | `data/processed/activsg2000_representative_v1/` | path | INSTRUCTOR-CHOSEN | Built by `tools/activsg2000/build_representative_package.py`; scoring rules `data/teaching/dispatch_scoring_rules_representative_v1.json` (from `scripts/create_representative_scoring_rules.py`); release config `data/teaching/game_release_representative_v1.json`. |
+| Scenario package | `data/processed/activsg2000_representative_v1/` | path | INSTRUCTOR-CHOSEN | Built with instructor tools (not distributed); scoring rules `data/teaching/dispatch_scoring_rules_representative_v1.json`; release config `data/teaching/game_release_representative_v1.json`. |
 | Practice demo | `data/teaching/ieee14_demo_representative/` | path | INSTRUCTOR-CHOSEN | IEEE 14-bus practice package with rules `data/teaching/dispatch_scoring_rules_ieee14_demo_representative_v1.json`. |
 | Existing-generator availability | Static status, PMIN, PMAX | MW and status | DATASET-SPECIFIED | ACTIVSg2000 has no technology labels or hourly availability fields; no synthetic renewable derating is applied. |
 | Dispatch solver | HiGHS through the DCOPF adapter | solver | INSTRUCTOR-CHOSEN | Transparent, repeatable linear dispatch; storage-bearing horizons use the prepared storage-aware path. |
@@ -245,7 +245,7 @@ cross-team dispatch JSON.
 
 - The representative package (`activsg2000_representative_v1`) records
   `validation_status: passed` for all 120 periods. The hourly source package
-  (`activsg2000_scenarios_v1`) is only the builder's local input; it is not
+  (`activsg2000_scenarios_v1`) is only the instructor builder's local input; it is not
   distributed and not used by the game.
 - The student preview (`ercot-game-preview`, default `--preview-stride 1` on
   the representative release) leaves storage idle. A plan above the hosting

@@ -103,7 +103,7 @@ def test_svg_is_valid_interactive_and_hides_team_identity(tmp_path):
     xml.dom.minidom.parseString(svg)
     assert "team-" not in svg and "site-" not in svg
     assert "all teams): 45.0 MW" in svg
-    assert "<title>" in svg and "<script>" in svg
+    assert "data-tip=" in svg and "<script>" in svg and "<title>" not in svg
     assert "b3" not in svg  # out-of-service branch is not drawn
     assert json.loads(layout.read_text(encoding="utf-8"))["positions"].keys() == {"1", "2", "3"}
 
@@ -151,3 +151,53 @@ def test_geographic_layout_draws_background_outline_and_note(tmp_path):
     assert "<polygon" in svg
     assert "Approximate geographic layout" in svg
     assert "Schematic layout" not in svg
+
+
+def test_bus_names_peak_load_and_price_layer_in_hover_text():
+    svg = render_svg(
+        positions={"1": (0.0, 0.0), "2": (1.0, 0.5)},
+        branches=(MapBranch("b1", "1", "2", 10.0),),
+        connection_by_bus={"2": 30.0},
+        bus_names={"2": "KATY 1 2"},
+        peak_load_by_bus={"1": 5.0, "2": 12.5},
+        peak_period=109,
+        average_price_by_bus={"1": 20.0, "2": 35.0},
+        peak_price_by_bus={"1": 25.0, "2": 90.0},
+        loading_by_branch={"b1": (1.0, 2)},
+        hours=120,
+    )
+    assert "KATY 1 2 (bus 2)" in svg
+    assert "existing base load 12.5 MW" in svg
+    assert "new data-center load (all teams): 30.0 MW" in svg
+    assert "total 42.5 MW" in svg
+    assert "highest 90.00 $/MWh" in svg
+    assert 'id="button-price"' in svg and 'id="legend-price"' in svg
+    assert 'id="search"' in svg and 'id="labels"' in svg
+
+
+def test_price_layer_hidden_without_dispatch_prices():
+    svg = render_svg(
+        positions={"1": (0.0, 0.0), "2": (1.0, 0.5)},
+        branches=(MapBranch("b1", "1", "2", 10.0),),
+        connection_by_bus={},
+    )
+    assert 'id="button-price"' not in svg and 'id="button-load"' in svg
+
+
+def test_binding_line_impacts_follow_the_flow_direction(tmp_path):
+    from ercot_game.grid_map import binding_line_impacts
+
+    root = tmp_path / "net"
+    root.mkdir()
+    (root / "bus.csv").write_text("bus_id,type\n1,3\n2,1\n3,1\n", encoding="utf-8")
+    (root / "branch_limits.csv").write_text(
+        "branch_id,from_bus_id,to_bus_id,reactance_pu,thermal_limit_mva,status\n"
+        "b12,1,2,0.1,10,1\nb23,2,3,0.1,10,1\n",
+        encoding="utf-8",
+    )
+    # Flow on b12 runs from bus 1 (reference) to bus 2, so load at buses 2
+    # and 3 adds to it one for one.
+    impacts = binding_line_impacts(root, ["b12"], {"b12": 1.0})
+    assert dict(impacts["b12"]) == {"2": 1.0, "3": 1.0}
+    # If the peak flow ran the other way, new load there would relieve it.
+    assert binding_line_impacts(root, ["b12"], {"b12": -1.0})["b12"] == []

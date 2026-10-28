@@ -7,7 +7,7 @@ official evaluator dispatches every team's plan together and scores it.
 
 ## Start here
 
-1. Read the tutorial, [`docs/student_tutorial/main.pdf`](docs/student_tutorial/main.pdf):
+1. Read the tutorial, [`docs/student_tutorial/tutorial.pdf`](docs/student_tutorial/tutorial.pdf):
    Part I is the assignment (rules, deadlines, grading), Part II walks through
    every step.
 2. Set up Python (see [Setup](#setup) below).
@@ -80,10 +80,10 @@ representative base.
 | Path | Purpose |
 | --- | --- |
 | `src/ercot_game/` | Canonical CSV reader, validator, batch evaluator, and CLI |
-| `tools/activsg2000/` | Scenario construction, per-period validation, DCOPF, storage scheduling, and joint dispatch |
-| `data/processed/activsg2000_representative_v1/` | Canonical validated representative-day ACTIVSg2000 package (built by `tools/activsg2000/build_representative_package.py`) |
+| `tools/activsg2000/` | DCOPF, storage scheduling, and joint dispatch |
+| `data/processed/activsg2000_representative_v1/` | Canonical validated representative-day ACTIVSg2000 package (the build tools are maintained by the instructor and not distributed) |
 | `data/teaching/` | Scoring rules and release config (`dispatch_scoring_rules_representative_v1.json`, `game_release_representative_v1.json`) and the IEEE 14-bus practice demo (`ieee14_demo_representative/`) |
-| `scripts/` | CSV check and scoring-rules generation (`create_representative_scoring_rules.py`) |
+| `scripts/` | CSV check (`check_submission.py`) |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
 | `docs/` | Student tutorial, guest lecture, hyperparameters, repository and evaluation guides, and data documentation |
 | `examples/eight_team_round/` | Eight-team example round and grid map |
