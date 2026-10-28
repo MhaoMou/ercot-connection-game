@@ -1,7 +1,27 @@
-# ERCOT Data-Center Dispatch Game
+# ERCOT Data-Center Connection Game
 
-Instructor-facing implementation of a competitive connection-planning game
-based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
+Course repository for the data-center connection-planning game in ECE 51032.
+Teams decide where to connect data centers to a synthetic Texas grid, how
+large to make them, and whether to add on-site generation or batteries; an
+official evaluator dispatches every team's plan together and scores it.
+
+## Start here
+
+1. Read the tutorial, [`docs/student_tutorial/main.pdf`](docs/student_tutorial/main.pdf):
+   Part I is the assignment (rules, deadlines, grading), Part II walks through
+   every step.
+2. Set up Python (see [Setup](#setup) below).
+3. Practice on the small IEEE 14-bus demo in
+   [`data/teaching/ieee14_demo_representative/`](data/teaching/ieee14_demo_representative/).
+4. For each submission: compute hosting capacity
+   (`ercot-game-hosting-capacity`), write your CSV, check it
+   (`ercot-game-check-csv`), and preview it (`ercot-game-preview`).
+
+The rest of this README summarizes the game and the tools in more detail.
+
+## The game in brief
+
+The game is based on the public synthetic Texas ACTIVSg2000 2,000-bus system. The active
 workflow uses the checked-in representative-day package
 (`data/processed/activsg2000_representative_v1`): 5 representative days x 24
 hourly periods = 120 periods, weighted to stand for the next ten years. All 120
@@ -9,7 +29,7 @@ periods have passed the release DCOPF validation. The hourly ACTIVSg2000 source
 package from which the days were drawn is a local derivation input and is not
 distributed or needed to play.
 
-## Current production pipeline
+## How a plan is evaluated
 
 ```text
 ACTIVSg2000 hourly source -> 5-day x 24-hour representative package (validated)
@@ -20,9 +40,9 @@ ACTIVSg2000 hourly source -> 5-day x 24-hour representative package (validated)
         -> ten-year present-value team score and ranking
 ```
 
-The Python evaluator is authoritative. Students submit CSV files; instructors
-run the batch evaluator and return scores plus the intended privacy-safe
-feedback artifacts. Student-owned generators and storage serve only their own
+The Python evaluator is authoritative. You submit CSV files; after each
+deadline the instructor runs the batch evaluator on all teams' files and
+returns your score plus privacy-safe feedback. Student-owned generators and storage serve only their own
 team. The score (from `data/teaching/dispatch_scoring_rules_representative_v1.json`)
 is a ten-year present value: IT value of \$1,000/MWh served, a team-generator
 curve of \$80/\$150/\$250 per MWh over 25%/50%/25% of capacity and (in Week 3)
@@ -65,7 +85,7 @@ representative base.
 | `data/teaching/` | Scoring rules and release config (`dispatch_scoring_rules_representative_v1.json`, `game_release_representative_v1.json`) and the IEEE 14-bus practice demo (`ieee14_demo_representative/`) |
 | `scripts/` | CSV check and scoring-rules generation (`create_representative_scoring_rules.py`) |
 | `tests/` | Active CSV, batch, DCOPF, storage, and ACTIVSg2000 adapter tests |
-| `docs/` | Student tutorial, guest lecture, hyperparameters, instructor guides, and data documentation |
+| `docs/` | Student tutorial, guest lecture, hyperparameters, repository and evaluation guides, and data documentation |
 | `examples/eight_team_round/` | Eight-team example round and grid map |
 
 ## Setup
@@ -78,7 +98,7 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-## Validate a student CSV
+## Check your CSV
 
 ```bash
 ercot-game-check-csv \
@@ -106,7 +126,11 @@ For Python callers, `CANONICAL_CSV_COLUMNS` is the named active constant.
 that same tuple. The retired ten-column hourly names are available only for
 explicit historical/legacy parsing and are not current submission examples.
 
-## Evaluate a weekly round
+## Evaluate a weekly round (official evaluation)
+
+The instructor runs these commands after each deadline. You can run them on
+your own candidate plans, or on several mock teams, to see exactly how scores
+are computed.
 
 Submission 1 of Week 2 (omit `--artifact-dir`/`--rules` to use the
 representative release; `--week` sets the energy charge: weeks 1-2 off,
@@ -160,9 +184,9 @@ fair projection: a common MW level rises by water-filling, teams served below
 50% of their request are dropped (largest short request first), and
 deterministic fallback isolation follows only if that fails.
 Malformed submissions are rejected independently so valid teams can still be
-scored. The output directory is the instructor-side source of truth.
+scored. The output directory of the official run is the source of truth for scores.
 
-See [`docs/ERCOT_INSTRUCTOR_BATCH_EVALUATION.md`](docs/ERCOT_INSTRUCTOR_BATCH_EVALUATION.md)
+See [`docs/OFFICIAL_EVALUATION.md`](docs/OFFICIAL_EVALUATION.md)
 for the complete CSV, dispatch, projection, scoring, and privacy contract.
 
 ## Tests

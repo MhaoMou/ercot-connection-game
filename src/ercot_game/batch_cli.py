@@ -1,4 +1,4 @@
-"""Instructor-facing command line entry point for CSV batch evaluation."""
+"""Command line entry point for the official CSV batch evaluation."""
 
 from __future__ import annotations
 

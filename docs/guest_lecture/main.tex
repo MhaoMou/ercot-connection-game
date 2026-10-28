@@ -155,7 +155,7 @@
 \end{frame}
 
 \begin{frame}{Single-bus hosting capacity as a linear program}
-  Extra load $\vL$ at bus $k$ in hour $t$; existing generators redispatch:\fcite{alturki2018optimization,wan2026hosting}
+  Extra load $\vL$ at bus $k$ in hour $t$; existing generators redispatch:
   \vspace{-0.3em}
   \begin{align*}
     \HC_{k,t} = \max_{\vL,\,\vpg,\,\vp,\,\vf}\ \ & \vL\\[-0.2em]
@@ -188,10 +188,11 @@
       ACTIVSg2000 synthetic Texas grid,\fcite{birchfield2017grid} 2028 Jul--Dec,
       the 24 hours of the peak-load day, all \HCbuses{} buses:
       \begin{itemize}
-        \item median \HCmedian\MW
-        \item 10\% of buses below \HCpten\MW
-        \item 90\% below \HCpninety\MW; \HCabove{} buses above 2{,}000\MW{} (not shown)
         \item smallest: \HCmin\MW
+        \item median \HCmedian\MW
+        % \item 10\% of buses below \HCpten\MW
+        \item 90\% below \HCpninety\MW
+        %  \HCabove{} buses above 2{,}000\MW{} (not shown)
       \end{itemize}
       \vspace{0.2em}
       % \HCruntime{} with \texttt{ercot-game-hosting-capacity} (Gurobi).
@@ -230,12 +231,11 @@
     \begin{column}{0.51\textwidth}
       \small
       The \alert{hosting-capacity region} $\mathcal H$: every combination of new
-      loads $\mathbf x$ (one per bus) that the grid can serve in every hour.
-      (Formal definition in the backup.)
+      loads $\mathbf x$ that the grid can serve in every hour.
       \begin{itemize}
         \item A convex polytope: the projection of the DCOPF feasible
           set.\fcite{gong2024adaptive}
-        \item Single-bus HCs are its axis intercepts; they \alert{do not add
+        \item Single-bus HCs are its axis intercepts. They \alert{do not add
           up}.\fcite{wan2026hosting}
         \item Peak hour: bus 1002 hosts \PairHCa\MW{} alone, only
           \PairHCaGiven\MW{} with 60\MW{} at neighbor 1010.
@@ -245,15 +245,19 @@
 \end{frame}
 
 \begin{frame}{With a local generator}
-  Site at bus $k$: load $\vL$, private generator $0\le \vg_t\le G$. The grid only
+  Site at bus $k$: load $\vL$, private gen $0\le \vg_t\le G$. The grid only
   sees the \emph{net} withdrawal $\vL-\vg_t$:
   \[
-    \text{feasible} \iff \exists\, \vg_t\in[0,G]:\ \underbrace{\vL - \vg_t}_{\text{net withdrawal}} \le \HC_{k,t}\ \ \forall t
+    \text{feasible} \iff 
+    \pause
+    \exists\, \vg_t\in[0,G]:\ \underbrace{\vL - \vg_t}_{\text{net withdrawal}} \le \HC_{k,t}\ \ \forall t
+    \pause
     \quad\Longrightarrow\quad \keyeq{\HC_k^{G} = \min_t \HC_{k,t} + G}
   \]
   \begin{itemize}
-    \item Exact when the generator is always available; with outages, ramping,
-      or fuel limits, $\HC^G_k \le \HC_k + G$.
+    \item Exact when the generator is always available
+    % ; with outages, ramping,
+    %   or fuel limits, $\HC^G_k \le \HC_k + G$.
     \item The generator runs only when the grid is short or when its cost
       is below the local price.
     % \item Buying headroom: in the game \$1.5M per MW of generator, versus
@@ -268,15 +272,14 @@
     \end{column}
     \begin{column}{0.42\textwidth}
       \small
-      Bus \StoBus, peak day, hourly steps, daily cycle
-      ($\ve_0 = \ve_{24} = B/2$), $B = 4P$:
+      Bus \StoBus, peak day, daily cycle\footnote{$\ve_0 = \ve_{24} = B/2$ and $B = 4P$}:
       \begin{itemize}
         \item no battery: \alert{\StoMin\MW}
         \item average headroom (dotted): \StoMean\MW{}, the most any battery could reach (next slide)
         \item $P = \StoP\MW$, $B = \StoB\MWh$: \alert{\StoWith\MW}
       \end{itemize}
-      $B$ limits how long a shortfall the battery can cover. Half-year:
-      \StoHalfNo{} $\to$ \StoHalfWith\MW.\\[0.2em]
+      % $B$ limits how long a shortfall the battery can cover. Half-year:
+      % \StoHalfNo{} $\to$ \StoHalfWith\MW.\\[0.2em]
     \end{column}
   \end{columns}
 \end{frame}
@@ -293,26 +296,30 @@
         \qquad \underbrace{\ve_0 = \ve_T}_{\text{daily cycle}} .
   \end{align*}
   {\footnotesize Decision variables: $\vL$ new load, $\vu_t$ battery output,
-  $\ve_t$ stored energy. A lossless battery (no round-trip losses), which makes
-  the bound below optimistic.}
-  \small
+  $\ve_t$ stored energy. A lossless battery (no round-trip losses)
+  % , which makes
+  % the bound below optimistic.
+  }
+  % \small
+  \pause
   \begin{itemize}
     \item A multi-period LP: discharge in tight hours, recharge in slack
       ones.\fcite{macedo2017increasing}
     \item Summing over the cycle ($\sum_t \vu_t = 0$):
       $\keyeqin{\HC^S_k \le \frac1T \sum_t \HC_{k,t}}$: storage lifts the limit at
-      most from the \alert{minimum} to the \alert{average} headroom; power
-      ($\vL \le \HC_{k,t} + P$) and energy ($B$) keep it below that.
+      most from the \alert{minimum} to the \alert{average} headroom.
+      % ; power
+      % ($\vL \le \HC_{k,t} + P$) and energy ($B$) keep it below that.
   \end{itemize}
 \end{frame}
 
 
 \begin{frame}{Flexibility: curtail in a few hours}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.42\textwidth}
+    \begin{column}{0.40\textwidth}
       \includegraphics[width=\linewidth]{figures/order_statistic.pdf}
     \end{column}
-    \begin{column}{0.56\textwidth}
+    \begin{column}{0.59\textwidth}
       \footnotesize
       Flexible connection:\fcite{gu2026flexible}
       \[
@@ -325,9 +332,14 @@
         \item $\vd_t$ is the load curtailed in hour $t$; nonconvex ($\|\vd\|_0$ counts curtailed hours).
         \item $\keyeqin{\HC_k^{(K)} = \HC_{k,[K+1]}}$, the $(K{+}1)$-th \emph{smallest} hourly value.
         \item Bus \OrdBus:
-        \OrdZero\MW{} at $K=0$, \OrdTwentyFour\MW{} at $K=24$
-        ($+$\OrdTwentyFourGain\%), \OrdHundred\MW{} at $K=100$
-        ($+$\OrdHundredGain\%). Diminishing returns in $K$.\fcite{etherden2011increasing,sarker2026risk}
+        \begin{itemize}
+          \item \OrdZero\MW{} at $K=0$,
+          \item \OrdTwentyFour\MW{} at $K=24$ ($+$\OrdTwentyFourGain\%),
+          \item \OrdHundred\MW{} at $K=100$ ($+$\OrdHundredGain\%).
+        \end{itemize}
+        % , 
+        % ($+$\OrdTwentyFourGain\%), \OrdHundred\MW{} at $K=100$
+        % ($+$\OrdHundredGain\%). Diminishing returns in $K$.\fcite{etherden2011increasing,sarker2026risk}
       \end{itemize}
     \end{column}
   \end{columns}
@@ -341,9 +353,10 @@
       converters) can be the binding constraint.\fcite{ren2026ride}
     \item \textbf{Model.} DC power flow has no voltage or reactive-power limits
       and no losses.
-    \item \textbf{Simultaneity.} Single-bus numbers ignore everyone else who is
+    \item \textbf{Simultaneity.} Single-bus numbers ignore everyone else 
       connecting at the same time.
   \end{itemize}
+  \pause
   \vspace{0.4em}
   The last point leads to the second question: \alert{who gets served?}
 \end{frame}
@@ -353,7 +366,7 @@
 
 \begin{frame}{From one bus to many applicants}
   \begin{columns}[c,onlytextwidth]
-    \begin{column}{0.5\textwidth}
+    \begin{column}{0.52\textwidth}
       \begin{itemize}
         \item Part I: one bus $\Rightarrow$ one number; many buses
           $\Rightarrow$ a \alert{region}.
@@ -363,7 +376,7 @@
       \vspace{0.8em}
       \alert{For the next three weeks, you are the applicants.}
     \end{column}
-    \begin{column}{0.46\textwidth}
+    \begin{column}{0.43\textwidth}
       \centering
       \includegraphics[width=\linewidth]{figures/hc_region.pdf}
     \end{column}

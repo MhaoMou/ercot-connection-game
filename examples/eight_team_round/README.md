@@ -1,7 +1,7 @@
 # Eight-team example round
 
-A deterministic instructor demonstration of the current site-level submission
-contract on the released representative-day package. It is not an official
+A worked example of a full round with eight mock teams, using the site-level
+submission format on the released representative-day package. It is not an official
 student result and does not reveal any student's strategy.
 
 ## Scenario

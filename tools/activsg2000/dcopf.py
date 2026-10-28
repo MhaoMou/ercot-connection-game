@@ -123,7 +123,7 @@ class DCOPFHorizonResult:
 
 @dataclass(frozen=True)
 class DCOPFBendersDiagnostics:
-    """Instructor-facing diagnostics for an exact Benders horizon solve."""
+    """Diagnostics for an exact Benders horizon solve."""
 
     route: str = "benders"
     solver_backend: str = "highs"

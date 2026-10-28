@@ -1,10 +1,12 @@
-# ERCOT Instructor Batch Evaluation
+# How the Official Evaluation Works
 
 `ercot-game-batch` evaluates canonical site-level student CSV submissions
 against one ACTIVSg2000 scenario block. The Python evaluator and the selected
-scoring-rules JSON are authoritative. This guide describes the active
-instructor workflow; historical/legacy hourly fixtures are compatibility tests,
-not current student inputs.
+scoring-rules JSON are authoritative. The instructor runs it on all teams'
+files after each deadline; this guide describes that workflow step by step so
+that you can see exactly how your score is computed and reproduce it on your
+own plans. Historical/legacy hourly fixtures are compatibility tests, not
+current student inputs.
 
 ## Release boundary and limitations
 
@@ -162,7 +164,7 @@ prints `roster: K of N teams submitted; missing: ...` and writes
 output directory.
 
 For controlled performance comparisons, use
-`tools/benchmarks/benchmark_instructor_evaluator.py`. It runs isolated
+`tools/benchmarks/benchmark_evaluator.py`. It runs isolated
 subprocesses over the leading 24, 72 and 120 periods (`--horizons`, with
 `--week` setting the energy charge), records wall time and solver
 diagnostics, and writes compact

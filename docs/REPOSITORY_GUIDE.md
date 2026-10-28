@@ -1,9 +1,11 @@
-# Instructor Repository Guide
+# Repository Guide
 
-This repository contains the current instructor-side implementation of the
-ACTIVSg2000-based data-center connection-planning game. Its active
-responsibility is to validate student CSV files, run joint DCOPF dispatch on a
-release-approved scenario block, and produce auditable team scores.
+This repository contains the ACTIVSg2000-based data-center connection-planning
+game: the data you plan on, the tools you use to check and preview your plans,
+and the official evaluator that validates every team's CSV files, runs the
+joint DCOPF dispatch, and produces auditable team scores. This guide explains
+how the pieces fit together. If you are new, start with the tutorial
+(`docs/student_tutorial/main.pdf`).
 
 The released game runs on one representative-day package: 5 representative
 days x 24 hourly periods = 120 periods that together stand for the next ten
@@ -144,7 +146,7 @@ feasibility boundary (Submission 1 serves teams up to that edge) are accepted
 after a demand change of at most 1e-3 MW, recorded in the artifact's
 `manifest.json` (`validation.tolerance_adjustments`); a real infeasibility
 stops with the offending periods and `validation_status: failed`. See
-`docs/ERCOT_INSTRUCTOR_BATCH_EVALUATION.md`. `--workers N` parallelizes the
+`docs/OFFICIAL_EVALUATION.md`. `--workers N` parallelizes the
 fair projection without changing results, `--roster <file>` lists teams with
 no submission, and the `classroom` command writes
 `instructor/final_leaderboard.csv` (the four graded scores and their total)
