@@ -1,0 +1,197 @@
+\documentclass[10pt]{article}
+% The assignment (Part I of the tutorial) as a standalone two-page handout.
+% Keep it in sync with Part I of main.tex. No hyperref: references to the
+% tutorial are written as section numbers (\S) of tutorial.pdf.
+
+\usepackage[margin=1in]{geometry}
+\usepackage{textcomp}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{xurl}
+\usepackage[normalem]{ulem}
+
+\definecolor{alertblue}{HTML}{1F4E79}
+\newcommand{\alert}[1]{{\color{alertblue}\uline{#1}}}
+\newcommand{\code}[1]{\path{#1}}
+\newcommand{\MW}{\ensuremath{\,\mathrm{MW}}}
+\newcommand{\MWh}{\ensuremath{\,\mathrm{MWh}}}
+% Placeholder for a decision the instructor still has to fill in.
+\newcommand{\instr}[1]{\textcolor{red}{\textbf{[Instructor: #1]}}}
+\newcommand{\assignsection}[2]{\subsection*{#1}}
+
+\pagestyle{fancy}
+\setlength{\headheight}{15pt}
+\fancyhf{}
+\lhead{Data-Center Connection Planning Game}
+\rhead{Assignment}
+\cfoot{\thepage\ of \pageref{LastPage}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.3em}
+\setlist{itemsep=0pt,topsep=2pt}
+\emergencystretch=3em
+
+\begin{document}
+
+\begin{center}
+{\large ECE 51032: Computational Methods for Power System Analysis}\\[0.2em]
+{\Large\bfseries Data-Center Connection Planning Game: Assignment}\\[0.2em]
+Purdue University, Fall 2026
+\end{center}
+
+% This handout is the official assignment. The tutorial
+% (\code{docs/student_tutorial/tutorial.pdf}) explains the game, the model, the
+% tools, and strategy in detail.
+
+% ---------------------------------------------------------------------------
+\assignsection{The project}{asg:glance}
+
+\paragraph{Your role.} Your team is a \alert{large-load developer}: you build
+data centers, and your goal is to connect \alert{gigawatts of computing load}
+to the Texas grid as quickly and as profitably as possible. The grid is a
+2,000-bus synthetic model of Texas (\S7 of the tutorial), and the instructor plays the grid operator.
+
+\paragraph{Interconnection options.} Each site is one row of a CSV file (\S8 of the tutorial):
+\begin{itemize}[leftmargin=*]
+  \item a \alert{bus} (where the site connects) and a \alert{connection
+    capacity} $C$\MW{} (the load you ask the grid to serve);
+  \item optionally, a \alert{co-located generator} of $G \le C$\MW{} that is
+    used to offset load at the location, i.e., the net load for your load and
+    generator there is $C - G$;
+  \item optionally, a \alert{co-located 4-hour battery} of $P$\MW{} and
+    $4P$\MWh, that will be operated by the system operator according to
+    multiperiod economic dispatch to help integrate more load into the network
+    (\S3 of the tutorial).
+\end{itemize}
+A team's sites may add up to at most \alert{1,000\MW} of connection capacity
+per submission.
+
+\paragraph{The game.} You are not alone on the grid. Every team's plan is
+evaluated \alert{together} on the same network, to ensure the feasibility of
+the grid during real time operation. If the plans do not all fit, the plans
+will be curtailed down systematically to \alert{maximize the total load
+interconnected} (\S2.2 of the tutorial). So the best place to build depends on
+where the other teams build: a bus that looks empty may be crowded once
+everyone picks it. After each submission you see every team's service fraction
+and a grid map of the total load per bus, but never another team's plan
+(\S14 of the tutorial).
+
+% ---------------------------------------------------------------------------
+\assignsection{Teams and communication}{asg:team}
+
+Every team should have \alert{three students}, formed by yourselves. Each team
+will be assigned a fixed \code{team_id} (chosen by yourselves) all game long,
+and one member uploads each file. Questions, announcements, and finding
+teammates go through the \alert{Discord} channel (link:
+\url{https://discord.gg/Xwdgwvn5}). Teams may talk to and coordinate with each
+other, but do not share your CSV or your exact plan with another team. You may
+use AI tools (e.g., coding agents) for any part of the work and it is
+encouraged to do so (\S5 of the tutorial). Your team is responsible for every number
+it submits and must be able to explain its plan in the final presentation.
+
+% ---------------------------------------------------------------------------
+\assignsection{The three weeks}{asg:rules}
+
+Every week plays the \alert{same game on the same data}: you are developing
+data-center siting plans, possibly with co-located generation and storage,
+that will be in effect for the next ten years, made in two submissions per
+week (Fig.~1 of the tutorial). The practice week (Week 1) \alert{spans two
+calendar weeks}, Nov 16--29, so that it does not overlap with Thanksgiving.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l l X X l@{}}
+\toprule
+Week & Dates & Submission 1 due & Submission 2 due & Grid energy cost\\
+\midrule
+1 (practice) & Nov 16--29 & Fri Nov 20, 11:59 PM & Fri Nov 27, 11:59 PM & none\\
+2 (graded)   & Nov 30--Dec 6 & Thu Dec 3, 11:59 PM & Sun Dec 6, 11:59 PM & none\\
+3 (graded)   & Dec 7--13 & Thu Dec 10, 11:59 PM & Sun Dec 13, 11:59 PM & at the LMPs\\
+\bottomrule
+\end{tabularx}
+\end{center}
+\begin{itemize}[leftmargin=*]
+  \item \alert{Submission 1:} connect your first sites.
+  \item \alert{Submission 2:} the Submission 1 results are released first, and
+    every team's Submission 1 load/generation/storage becomes part of the base
+    system. List \alert{only new sites} and they compete for the room that is
+    left.
+  \item Everything \alert{resets} between weeks, so you can use what you
+    learned the week before.
+  \item \alert{What you submit:} one CSV per team per submission, named
+    \code{team{x}_week{x}_sub{x}.csv} (e.g., \code{team07_week2_sub1.csv}) and
+    uploaded to \alert{BrightSpace}. Check it first with
+    \code{ercot-game-check-csv} (\S8 and \S13 of the tutorial): an
+    \alert{invalid or late file scores 0}. The free late days for the course
+    cannot be used for the project.
+  \item \alert{At the end:} a short team presentation (last week of class) and
+    a report on what you did, why, and optionally, some insights on explaining
+    the results of the game.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\assignsection{Scoring rules}{asg:scoring}
+
+Each submission is scored in US dollars, once, for the ten-year value of the
+sites it builds (\S2 of the tutorial; worked example in \S2.1):
+score $=$ IT value $-$ energy cost $-$ generator operating cost $-$ generator
+capital $-$ storage capital $-$ site cost.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Term & Value & How it is charged\\
+\midrule
+IT value & \$1,000 per MWh & For every MWh of your load \alert{that is actually served}.\\
+Energy cost & LMP at your site & Grid purchases times the LMP. \alert{Week 3 only.}\\
+Generator operation & \$80/\$150/\$250 per MWh & First 25\% / next 50\% / last 25\% of capacity.\\
+Generator capital & \$2.0M per MW & Once, on the allocated generator capacity $\alpha G$.\\
+Storage capital & \$400k/MW + \$250k/MWh & Once, on $\alpha P$ and $\alpha B$; a 4-hour battery costs \$1.4M per MW.\\
+Site cost & \$25M per MW & Once, on the allocated connection capacity $\alpha C$.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+Here $\alpha \in [0,1]$ is a site's allocated share. The representative days make up one typical year, and the ten
+years count in \alert{net present value} at a 7\% discount rate:
+$\text{NPV} = \sum_{y=1}^{10} \text{(yearly operating net revenue)}/1.07^{y}
+- \text{capital}$, where $\sum_{y=1}^{10} 1.07^{-y} = 7.02$. So one MW served in
+every hour earns $8{,}760 \times \$1{,}000 \times 7.02 = \alert{\$61.5\text{M}}$,
+against \$25M of site cost. Capital is paid up front and is not discounted.
+
+% ---------------------------------------------------------------------------
+\assignsection{Grading}{asg:conduct}
+
+The assignment counts for \alert{40 points} of the final grade:
+\begin{itemize}[leftmargin=*]
+  \item \alert{30 points}: the presentation, the report, and your work.
+  \item \alert{10 points}: your final game score $S$, the sum of your four
+    Week 2 and Week 3 submission scores.
+    \begin{itemize}
+      \item \alert{5 absolute points}: $5 \times \min\!\big(1, \max(0,
+        S/(2B))\big)$, where $B = \$49.67$B is the final score $S$ of a
+        reference team that runs 1,000\MW{} off the grid ($G = C$): \$24.84B in
+        each of W2S1 and W3S1, and \$0 in W2S2 and W3S2 (no new sites).
+      \item \alert{5 rank points}: 5, 4, 3, 2, or 1 for the top 20\%,
+        20--40\%, 40--60\%, 60--80\%, or bottom 20\% of teams.
+    \end{itemize}
+  \item \alert{Bonus, up to 5 points}: 3, 2, and 1 for the top three final
+    scores, and up to 2 for reporting non-trivial and non-intended
+    issues/bugs in the project design.
+\end{itemize}
+Purdue's academic integrity policy applies. To question an evaluation, email
+Minghao Mou (\code{mmou@purdue.edu}) within 7 days of the results release.
+
+% ---------------------------------------------------------------------------
+\assignsection{Resources and links}{asg:resources}
+
+\begin{itemize}[leftmargin=*]
+  \item \alert{Tutorial} (\code{docs/student_tutorial/tutorial.pdf} in the repository): setup (\S4), an AI-agent walkthrough (\S6), and strategy (\S11).
+  \item \alert{Code and data}:
+    \url{https://github.com/MhaoMou/ercot-connection-planning-instructor}.
+  \item \alert{Discord}: \url{https://discord.gg/Xwdgwvn5}.
+\end{itemize}
+
+\end{document}

@@ -20,7 +20,7 @@ ACTIVSg2000 hourly source -> 5 representative days x 24 h (~2,000 buses)
         -> canonical seven-column site-level student CSV
         -> catalog validation (optional checker context)
         -> daily-cycle joint DCOPF
-        -> fair continuous projection when needed
+        -> utilitarian site allocation when needed
         -> score components, ranking, and audit outputs
 ```
 
@@ -68,7 +68,6 @@ ercot-game-batch run \
   --submissions-dir path/to/submission1 \
   --week 2 --submission-number 1 \
   --workers 8 \
-  --projection-iterations 10 \
   --output-dir work/week2_submission1
 
 # Submission 2: Submission 1 sites become base load
@@ -77,7 +76,6 @@ ercot-game-batch run \
   --week 2 --submission-number 2 \
   --base-load-from work/week2_submission1 \
   --workers 8 \
-  --projection-iterations 10 \
   --output-dir work/week2_submission2
 ```
 
@@ -147,7 +145,7 @@ after a demand change of at most 1e-3 MW, recorded in the artifact's
 `manifest.json` (`validation.tolerance_adjustments`); a real infeasibility
 stops with the offending periods and `validation_status: failed`. See
 `docs/OFFICIAL_EVALUATION.md`. `--workers N` parallelizes the
-fair projection without changing results, `--roster <file>` lists teams with
+hourly dispatch without changing results, `--roster <file>` lists teams with
 no submission, and the `classroom` command writes
 `instructor/final_leaderboard.csv` (the four graded scores and their total)
 and salts the private team folder names with an instructor-only secret.
@@ -156,11 +154,10 @@ and salts the private team folder names with an instructor-only secret.
 
 After each evaluated submission, release a privacy-safe interactive map with
 the score breakdown and service fractions. Each bus is colored by the total MW
-*served* to all scored teams at that bus (service fraction x connection
+*served* to all scored teams at that bus (site fraction x connection
 capacity, read from the evaluator output's `site_net_withdrawal.csv`), so
 rejected files (including Submission 2 files that reuse a Submission 1
-`site_id`), infeasible teams and teams dropped by the minimum allocation add
-nothing; no team or site IDs appear in the file. Each line is colored by its
+`site_id`), infeasible teams and sites allocated nothing add nothing; no team or site IDs appear in the file. Each line is colored by its
 peak loading over the 120 evaluated hours (from `dispatch/`, written with
 `--output-mode full`). The artifact defaults to the representative package.
 

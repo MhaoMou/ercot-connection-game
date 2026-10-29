@@ -20,8 +20,12 @@ from .csv_submission import (
     parse_decimal,
     read_student_csv,
     site_capacity_issue,
+    team_capacity_violation,
 )
-from .release_config import CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO
+from .release_config import (
+    CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO,
+    CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW,
+)
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,7 @@ def validate_csv_submission(
     generator_ids: Iterable[str] | None = None,
     horizon: int | None = None,
     max_generator_to_connection_ratio: float = 1.0,
+    max_team_connection_capacity_mw: float | None = None,
 ) -> ValidationReport:
     """Validate a canonical one-row-per-site student CSV.
 
@@ -102,7 +107,9 @@ def validate_csv_submission(
     impose a row-count or hourly-coverage requirement.
 
     ``max_generator_to_connection_ratio`` is the private-generator cap
-    G <= ratio x C (0.5 in the released rules; the CLI always applies 0.5).
+    G <= ratio x C, and ``max_team_connection_capacity_mw`` caps the team's
+    total connection capacity (the CLI applies the released rules: G <= C
+    and 1,000 MW per team).
     """
     if horizon is not None and horizon <= 0:
         raise ValueError("horizon must be positive")
@@ -235,6 +242,16 @@ def validate_csv_submission(
     except csv.Error as exc:
         issues.append(_issue(f"malformed CSV: {exc}"))
 
+    total_capacity = 0.0
+    for row in rows:
+        try:
+            total_capacity += max(0.0, parse_decimal(_value(row, "connection_capacity_mw")))
+        except ValueError:
+            pass  # reported per row above
+    team_message = team_capacity_violation(total_capacity, max_team_connection_capacity_mw)
+    if team_message:
+        issues.append(_issue(team_message))
+
     if not rows:
         issues.append(_issue("submission CSV must contain at least one site row"))
 
@@ -247,6 +264,7 @@ def validate_csv_submission(
                 bus_ids=known_buses,
                 generator_cost_by_id=generator_costs,
                 max_generator_to_connection_ratio=max_generator_to_connection_ratio,
+                max_team_connection_capacity_mw=max_team_connection_capacity_mw,
             )
         except ValueError as exc:
             issues.append(_issue(str(exc)))
@@ -289,6 +307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             artifact_dir=args.artifact_dir,
             horizon=horizon,
             max_generator_to_connection_ratio=CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO,
+            max_team_connection_capacity_mw=CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW,
         )
     except (OSError, ValueError) as exc:
         print(f"CONFIGURATION ERROR: {exc}")

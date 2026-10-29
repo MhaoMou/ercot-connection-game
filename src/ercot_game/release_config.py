@@ -19,9 +19,10 @@ CANONICAL_RELEASE_CONFIG = "data/teaching/game_release_representative_v1.json"
 CANONICAL_TIME_STEP_HOURS = 1
 CANONICAL_HORIZON = 120
 CANONICAL_STORAGE_BOUNDARY_MODE = "daily_exact_cycle"
-CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO = 0.5
-# Daily run-hour budget of team generators (h x G MWh per representative day).
-CANONICAL_GENERATOR_DAILY_ENERGY_HOURS = 2.0
+# A site's generator may serve its whole load (G <= C), with no run-hour limit.
+CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO = 1.0
+# Total connection capacity a team may request in one submission.
+CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW = 1_000.0
 CANONICAL_GENERATOR_CAPITAL_COST_PER_MW = 2_000_000.0
 CANONICAL_PREVIEW_STRIDE = 1
 # Week number -> whether grid purchases are charged at LMP in both submissions.

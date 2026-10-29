@@ -191,8 +191,7 @@ def served_load_by_bus(evaluation_dirs: Iterable[str | Path]) -> tuple[dict[str,
     of teams that were scored feasible, at their projected load (service
     fraction x connection capacity).  Rejected files (including Submission 2
     files that reuse a Submission 1 site ID) and infeasible teams are not in
-    it; a team dropped by the minimum allocation is served 0 MW and adds
-    nothing.  A site's served MW is its largest hourly load (the projected
+    it; a site allocated nothing is served 0 MW and adds nothing.  A site's served MW is its largest hourly load (the projected
     capacity for a flat CSV site).  Only per-bus totals are returned; team
     and site identifiers are discarded.  Returns ``(totals, served_sites)``.
     """
@@ -372,10 +371,15 @@ _MAP_SCRIPT = """
   var W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
   var scale = 1, x = 0, y = 0, drag = null, moved = false;
   var MIN = 1, MAX = 60, LABEL_SCALE = 4;
+  // The map scales to fit the window, so screen points are converted with the
+  // current screen transform (which also accounts for any letterboxing).
   function toView(e) {
-    var r = svg.getBoundingClientRect();
-    return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height];
+    var pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    pt = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return [pt.x, pt.y];
   }
+  function screenScale() { return svg.getScreenCTM().a || 1; }
   function apply() {
     view.setAttribute('transform', 'translate(' + x + ',' + y + ') scale(' + scale + ')');
     labels.setAttribute('display', scale >= LABEL_SCALE ? 'inline' : 'none');
@@ -402,7 +406,7 @@ _MAP_SCRIPT = """
   window.addEventListener('mouseup', function () { drag = null; });
   window.addEventListener('mousemove', function (e) {
     if (!drag) return;
-    var r = svg.getBoundingClientRect(), k = W / r.width;
+    var k = 1 / screenScale();
     var dx = e.clientX - drag[0], dyy = e.clientY - drag[1];
     if (Math.abs(dx) + Math.abs(dyy) > 3) moved = true;
     x = drag[2] + dx * k; y = drag[3] + dyy * k; apply();
@@ -426,12 +430,14 @@ _MAP_SCRIPT = """
     box.setAttribute('width', b.width + 24); box.setAttribute('height', b.height + 16);
     tip.setAttribute('visibility', 'visible'); place(p);
   }
+  // The hover box keeps the same on-screen size however small the map is drawn.
   function place(p) {
-    var w = +box.getAttribute('width'), h = +box.getAttribute('height');
-    var tx = p[0] + 16, ty = p[1] + 16;
-    if (tx + w > W) tx = p[0] - w - 16;
-    if (ty + h > H) ty = p[1] - h - 16;
-    tip.setAttribute('transform', 'translate(' + tx + ',' + ty + ')');
+    var k = 1 / screenScale();
+    var w = +box.getAttribute('width') * k, h = +box.getAttribute('height') * k, d = 16 * k;
+    var tx = p[0] + d, ty = p[1] + d;
+    if (tx + w > W) tx = p[0] - w - d;
+    if (ty + h > H) ty = p[1] - h - d;
+    tip.setAttribute('transform', 'translate(' + tx + ',' + ty + ') scale(' + k + ')');
   }
   svg.addEventListener('mouseover', function (e) {
     var t = e.target.getAttribute && e.target.getAttribute('data-tip');
@@ -575,7 +581,7 @@ def render_svg(
     )
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
-        f'width="{width}" height="{height}" font-family="Helvetica, Arial, sans-serif">',
+        'width="100%" height="100%" style="display:block;max-height:100vh" font-family="Helvetica, Arial, sans-serif">',
         "<style>"
         ".bus:hover,.site:hover{stroke:#111;stroke-width:2}"
         ".line:hover{stroke:#0969da;stroke-width:4}.binding{cursor:pointer}"

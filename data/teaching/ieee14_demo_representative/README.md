@@ -109,8 +109,8 @@ Buses 13 and 14 share the bottleneck:
 
 - 20 MW at bus 13 plus 20 MW at bus 14 fits.
 - Either 30 MW request fits on its own, but 30 MW at bus 13 plus 30 MW at bus
-  14 does not. The batch evaluator's uniform rule then gives both teams
-  about 25.4 MW.
+  14 does not. The batch evaluator's site allocation (most total MW served,
+  ties split evenly) then gives both teams about 25.4 MW.
 
 ## Scoring rules
 
@@ -120,13 +120,15 @@ weights, which are the same as the main package's:
 
 - IT value 1000 $/MWh; every energy term of period t is weighted by
   `1 h x day weight x A`, `A = sum_{y=1..10} 1.07^-y = 7.024`
-- capital charged once, undiscounted: site 25 M$/MW, generator 2.0 M$/MW,
-  storage 400 k$/MW + 250 k$/MWh
-- generator capacity at most 0.5 x connection capacity, at most 2 hours of
-  full output per day; cost curve 80/150/250 $/MWh
+- capital charged once, undiscounted, on the allocated capacities: site
+  25 M$/MW, generator 2.0 M$/MW, storage 400 k$/MW + 250 k$/MWh
+- generator capacity at most the connection capacity (G <= C), no run-hour
+  limit; cost curve 80/150/250 $/MWh; a team's sites add up to at most
+  1,000 MW
 - storage mode `daily_exact_cycle`
 
-A site breaks even at about 40.6% served (25e6 / (1000 x 8760 x A)).
+A MW served from the grid nets about 36.5 M$ before energy cost; a MW run off
+the grid (G = C) about 24.8 M$.
 Reported served load is MWh per represented year.
 
 As in the game, an infeasible score of 0 ranks above a feasible plan with a

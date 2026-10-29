@@ -61,7 +61,9 @@ def test_active_representative_rules_are_released_without_economic_drift():
         assert len(rules["period_weight_hours"]) == 120
         assert set(rules["it_value_per_mwh"]) == {1000.0}
         assert rules["storage_boundary_mode"] == "daily_exact_cycle"
-        assert rules["max_generator_to_connection_ratio"] == 0.5
+        assert rules["max_generator_to_connection_ratio"] == 1.0
+        assert rules["max_team_connection_capacity_mw"] == 1_000.0
+        assert rules.get("generator_daily_energy_hours") is None
         assert rules["generator_capital_cost_per_mw"] == 2_000_000.0
         assert rules["site_cost_per_mw"] == 25_000_000.0
         assert rules["default_generator_cost_per_mwh"] == 150.0

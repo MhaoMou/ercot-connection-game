@@ -12,19 +12,13 @@ validated and its capital cost is included in the preview score, but its
 operating benefit is deliberately omitted.  The result is a conservative
 screening estimate, never the official score.
 
-Team generators respect the daily run-hour budget
-(``generator_daily_energy_hours``) when the rules set one: with every period
-solved (stride 1, whole days) the preview uses the evaluator's exact daily
-budgeted dispatch; with a sampled stride the days are incomplete, so each
-generator is conservatively derated to h/24 of its capacity in every sampled
-period (never more energy than the budget, less flexibility than the
-evaluator).
+Team generators may run in every hour, as in the evaluator.
 
 When the plans exceed the hosting capacity of a checked hour, the preview
-applies the evaluator's fair projection (uniform rule with the 50% minimum
-allocation) to the same storage-free dispatch instead of failing, and
+applies the evaluator's site allocation (the most served capacity, ties
+split evenly) to the same storage-free dispatch instead of failing, and
 reports each team's service fraction.  Storage can only raise the official
-fraction, so the projected preview stays conservative for a single team.
+fraction, so the allocated preview stays conservative for a single team.
 """
 
 from __future__ import annotations
@@ -42,7 +36,8 @@ from .batch_evaluation import (
     BatchScoringRules,
     ProjectionDiagnostics,
     TeamScore,
-    _fair_continuous_projection,
+    _scaled_plan,
+    _utilitarian_allocation,
     _score_team,
     collect_csv_submissions,
     load_scoring_rules,
@@ -137,37 +132,7 @@ def preview_plans(
         )
         for plan in ordered_plans
     )
-    budget_hours = rules.generator_daily_energy_hours
-    day_periods = 24.0 / rules.time_step_hours
-    exact_budget = (
-        budget_hours is not None
-        and preview_stride == 1
-        and day_periods.is_integer()
-        and len(period_indices) % int(day_periods) == 0
-    )
     generator_policy = "no_daily_budget"
-    adapter_options: dict[str, Any] = {}
-    if budget_hours is not None:
-        if exact_budget:
-            adapter_options["generator_daily_energy_hours"] = budget_hours
-            generator_policy = f"daily_budget_{budget_hours:g}h_exact"
-        else:
-            derate = min(1.0, budget_hours / 24.0)
-            dispatch_plans = tuple(
-                replace(
-                    plan,
-                    generators=tuple(
-                        replace(generator, capacity_mw=generator.capacity_mw * derate)
-                        for generator in plan.generators
-                    ),
-                    sites=tuple(
-                        replace(site, generator_capacity_mw=site.generator_capacity_mw * derate)
-                        for site in plan.sites
-                    ),
-                )
-                for plan in dispatch_plans
-            )
-            generator_policy = f"daily_budget_{budget_hours:g}h_derated_to_{derate:g}_of_capacity"
     projection: ProjectionDiagnostics | None = None
     projection_reason: str | None = None
     try:
@@ -176,19 +141,17 @@ def preview_plans(
             dispatch_plans,
             period_indices=period_indices,
             workers=workers,
-            **adapter_options,
         )
     except (DCOPFInfeasible, DCOPFUnresolved) as exc:
         # Some checked hour exceeds hosting capacity.  Apply the evaluator's
-        # fair projection to the same storage-free dispatch.
+        # site allocation to the same storage-free dispatch.
         projection_reason = str(exc)
-        projected = _fair_continuous_projection(
+        projected = _utilitarian_allocation(
             artifact_dir,
             dispatch_plans,
             period_indices,
             period_indices,
-            # The adapter's stop-on-infeasible probes require one worker.
-            generator_daily_energy_hours=adapter_options.get("generator_daily_energy_hours"),
+            time_step_hours=rules.time_step_hours,
         )
         if projected is None:
             raise PreviewInfeasible(
@@ -201,6 +164,15 @@ def preview_plans(
         {plan.team_id: 1.0 for plan in ordered_plans}
         if projection is None
         else dict(projection.service_fraction_by_team)
+    )
+    # Capital is charged on the allocated capacities.
+    scored_plans = (
+        ordered_plans
+        if projection is None
+        else tuple(
+            _scaled_plan(plan, projection.site_fraction_by_team.get(plan.team_id, {}))
+            for plan in ordered_plans
+        )
     )
     scores = tuple(
         replace(
@@ -215,7 +187,7 @@ def preview_plans(
                 "student_preview" if projection is None else "student_preview_projection"
             ),
         )
-        for plan in ordered_plans
+        for plan in scored_plans
     )
     ranked = tuple(
         replace(score, rank=rank)
@@ -434,6 +406,7 @@ def _run(args: argparse.Namespace, energy_cost_enabled: bool, scratch: Path) -> 
         require_complete_horizon=True,
         max_generator_to_connection_ratio=rules.max_generator_to_connection_ratio,
         reserved_site_ids_by_team=reserved_site_ids,
+        max_team_connection_capacity_mw=rules.max_team_connection_capacity_mw,
     )
     for record in collection.rejected:
         print(f"rejected {record.path.name} (team {record.team_id}): {record.failure_reason}")

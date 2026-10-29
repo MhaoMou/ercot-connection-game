@@ -30,7 +30,7 @@ ACTIVSg2000 network and catalogs
     -> representative-day package (5 days x 24 hourly periods)
     -> canonical seven-column site CSV
     -> joint DCOPF and grid-operated storage
-    -> fair projection when required
+    -> utilitarian site allocation when required
     -> score and privacy-safe classroom outputs
 ```
 
@@ -114,16 +114,16 @@ PYTHONPATH=src python scripts/check_submission.py \
 ```
 
 Use `--artifact-dir` when the checker should validate `bus_id` against the
-released package catalog; the checker always applies the release's 0.5 x
-connection generator cap. The evaluator remains authoritative.
+released package catalog; the checker always applies the release's G <= C
+generator cap and the 1,000 MW team cap. The evaluator remains authoritative.
 
 | CSV field | Units | Origin | Rule |
 |---|---|---|---|
 | `team_id` | identifier | INSTRUCTOR-CHOSEN | One file contains one team. |
 | `site_id` | identifier | INSTRUCTOR-CHOSEN | Unique within the file; defines the site identity used for asset IDs. |
 | `bus_id` | catalog identifier | DATASET-SPECIFIED | Must exist in the selected block's `bus.csv`. |
-| `connection_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite and nonnegative constant site capacity. |
-| `generator_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite, nonnegative, and no greater than 0.5 x `connection_capacity_mw`. |
+| `connection_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite and nonnegative constant site capacity; the file's sites add up to at most 1,000 MW. |
+| `generator_capacity_mw` | MW | INSTRUCTOR-CHOSEN | Finite, nonnegative, and no greater than `connection_capacity_mw`. |
 | `storage_power_mw` | MW | INSTRUCTOR-CHOSEN | Charge/discharge power capacity; zero only with zero energy capacity. |
 | `storage_energy_mwh` | MWh | INSTRUCTOR-CHOSEN | Must equal `4 * storage_power_mw` when storage is present. |
 
@@ -149,8 +149,10 @@ only and must not be copied into an active submission.
 | Storage energy capital | 250,000 | USD/MWh | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | Rounded component of the same 2028 moderate four-hour projection. |
 | Four-hour storage equivalent | 1,400,000 | USD/MW | DERIVED | `400,000 * P + 250,000 * (4P)` for power `P`; storage operating cost is zero. |
 | Storage operating cost | 0 | USD/MWh | INSTRUCTOR-CHOSEN | The grid operator schedules storage without a variable storage-cost term. |
-| Generator cap | 0.5 | fraction of connection capacity | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | `max_generator_to_connection_ratio`; a site cannot be mostly self-supplied. Texas SB 6 (2025) treats on-site backup that can serve at least 50% of a large load's demand as backup ERCOT may call on in emergencies ([Utility Dive](https://www.utilitydive.com/news/texas-law-gives-grid-operator-power-to-disconnect-data-centers-during-crisis/751587)). |
-| Generator daily run-hour budget | 2 | hours of full output per representative day | SOURCE-CALIBRATED, INSTRUCTOR-CHOSEN | `generator_daily_energy_hours` = h: each team generator of capacity G produces at most h x G MWh per day (sum over the day's 24 periods of g_t x 1 h <= 2G). Air permits cap run hours of on-site engines: federal emergency-engine rules allow 100 h/yr of maintenance and testing (at most 50 h non-emergency), and state permits often cap total operation (e.g. under 500 h/yr in a Georgia EPD draft permit). 2 h/day (about 730 h/yr) is a teaching choice in that range that makes the generator a peak-shaving device, not baseload. The evaluator dispatches budgeted generators in one coupled LP per day, and the fair projection uses the same budgeted feasibility. Absent or null = no budget. Co-located private generators of different teams share the bus's private generation in proportion to their capacity (a deterministic tie-break applied after the solve, capped by each generator's capacity, its team's own load and its daily budget; bus totals, LMPs and the objective are unchanged). |
+| Generator cap | 1.0 | fraction of connection capacity | INSTRUCTOR-CHOSEN | `max_generator_to_connection_ratio`; G <= C, so a site may carry its whole load on its own generator and run off the grid. There is no run-hour limit: a team generator may run in every hour (a rules file that sets `generator_daily_energy_hours` is rejected). Co-located private generators of different teams share the bus's private generation in proportion to their capacity (a deterministic tie-break applied after the solve, capped by each generator's capacity and its team's own load; bus totals, LMPs and the objective are unchanged). |
+| Team connection cap | 1,000 | MW of total connection capacity per team per submission | INSTRUCTOR-CHOSEN | `max_team_connection_capacity_mw`; keeps scores bounded (an off-grid MW is always served) and comparable with the reference plan. A file above the cap is rejected. |
+| Off-grid net value | about 24.8 | million USD per MW | DERIVED | 61.53M IT value - 25M site - 2M generator capital - 9.69M fuel (full output every hour at an average 157.5 USD/MWh on the curve, times 61,526.57 weighted hours). A MW served from the grid nets about 36.5M before energy cost. |
+| Reference plan B | 49.67 | billion USD | DERIVED | Final score (sum of the four graded submissions) of one team alone running 1,000 MW off the grid (G = C): W2S1 24.84B + W2S2 0 + W3S1 24.84B + W3S2 0. Computed analytically from the rules; see `data/teaching/reference_plan/`. |
 | Break-even served share | about 41% | fraction of connection capacity | DERIVED | `25e6 / (1000 x 8760 x A)` = 0.406: average served share at which IT value recovers the site cost, without energy cost. |
 | Invalid/infeasible fallback score | 0 | USD | INSTRUCTOR-CHOSEN | Deterministic grading value when no usable projected/fallback dispatch exists. |
 
@@ -168,7 +170,9 @@ IT-service value
 IT-service value, energy purchase cost, and team-generator operating cost are
 energy terms: each sums a per-period MW quantity times its USD/MWh rate times
 `period_weight_hours[t]`, giving a ten-year present value. Capital terms are
-charged once per newly built asset and are not discounted.
+charged once per newly built asset, on its allocated capacity (alpha C, alpha
+G, alpha P, alpha B; alpha = 1 unless the allocation below is needed), and are
+not discounted.
 
 Existing public generators retain their dataset marginal costs. Team-owned
 generators and storage are separate private assets and cannot serve another
@@ -201,29 +205,37 @@ exported to another team. A separate continuous peak-shaving path exists only
 for explicitly marked no-artifact compatibility tests; it is not the active
 classroom dispatch.
 
-## Fair projection and execution parameters
+## Site allocation and execution parameters
 
-Projection is evaluator policy, not a student control. When the joint request
-is infeasible, the evaluator applies the uniform rule: a common level `t` (MW)
-rises, each team is served `min(requested MW, t)` with all of its sites scaled
-by one fraction, and teams that are not blocked keep rising together until
-every unfilled team is blocked. A team served below the minimum allocation
-gets nothing: the largest such request is dropped and the allocation is
-recomputed. There are no per-site or per-team request caps.
+Allocation is evaluator policy, not a student control. When the joint request
+is infeasible, every site s (of any team) gets a fraction alpha_s in [0, 1]
+that scales its connection, generator and storage capacities together. Stage 1
+maximizes the total served capacity sum_s alpha_s C_s subject to the joint
+DCOPF in all 120 periods (storage cycling daily, each team's generator and
+storage serving only its own load). Stage 2 breaks ties by minimizing
+sum_s C_s (1 - alpha_s)^2 at the stage-1 total; the objective is strictly
+convex, so the allocation is unique. There is no minimum allocation, and
+capital is charged on the allocated capacities. The fractions are computed by
+cutting planes: a small master over alpha (LP in stage 1, QP in stage 2) and
+one load-shedding LP per representative day whose reduced costs give a cut;
+the final fractions are dispatched with one exact LP per day.
 
 | Parameter | Value | Units | Origin | Rationale / reference |
 |---|---:|---|---|---|
-| Allocation rule | uniform rule (max-min fair in requested MW) with water-filling | policy | INSTRUCTOR-CHOSEN | Strategy-proof for one divisible resource (Sprumont, "The Division Problem with Single-Peaked Preferences," *Econometrica* 59(2), 1991): inflating a request earns nothing beyond the common level. |
-| Minimum allocation | 0.5 | fraction of request | INSTRUCTOR-CHOSEN | Near the ~41% served share at which a site breaks even. On a network an inflated request can lower everyone's level; this drops it. Patterned on the minimum allocation in [ERCOT's batch study for large loads](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf). |
-| Feasibility tolerance | min(0.1, 1e-3 times the largest request) | MW | INSTRUCTOR-CHOSEN | Bisection stopping tolerance for each level; finer values only add dispatch calls. |
-| Projection objective label | `uniform_rule_max_min_capacity` | objective | INSTRUCTOR-CHOSEN | Recorded in the audit with the common level `common_level_mw`. |
-| CLI `--projection-iterations` | 10 default; lower bound on bisection steps | iterations | INSTRUCTOR-CHOSEN | Runtime lower bound with deterministic refinement. |
+| Allocation rule | maximize total served capacity, one fraction per site | policy | INSTRUCTOR-CHOSEN | Utilitarian: favors sites that need the least network per MW served (generators, batteries, buses with small shift factors on the bottleneck). ERCOT publishes no formula for splitting capacity among studied loads ([ERCOT batch process](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf)). |
+| Tie-break | minimize sum C (1 - alpha)^2 at the stage-1 total | policy | INSTRUCTOR-CHOSEN | Unique allocation, independent of the solver; identical sites at one bus get the same fraction. |
+| Minimum allocation | none | fraction of request | INSTRUCTOR-CHOSEN | A small fraction is still served and pays only for itself. |
+| Shed tolerance | 1e-4 | MWh per day | INSTRUCTOR-CHOSEN | A day fits when its load-shedding LP sheds at most this much. |
+| Allocation margin | 1e-4 | fraction of alpha | INSTRUCTOR-CHOSEN | Every cut site (alpha < 1) is scaled by 1 - 1e-4 so the dispatch, and a Submission 2 base load built from it, stays strictly inside the binding limits; a site within 1e-5 of full service is served in full. If the final dispatch still fails, all fractions are scaled by 1 - 1e-3, then 1 - 1e-2. |
+| Projection objective label | `utilitarian_max_served_capacity` | objective | INSTRUCTOR-CHOSEN | Recorded in the audit with `site_fraction_by_team` and `cap_policy` (`max_total_capacity_mw`, `total_capacity_mw`, `requested_capacity_mw`, `iterations`, `cuts`). |
+| CLI `--projection-iterations` | accepted, unused | iterations | INSTRUCTOR-CHOSEN | Kept for command compatibility; the cutting-plane method stops when no day sheds load. |
 | Malformed submission | Reject file; continue valid teams | policy | INSTRUCTOR-CHOSEN | Failure isolation prevents one file from erasing other teams' results. |
 
-The result records a separate service fraction and projected load for each team,
-the common level, and the projection scope. It does not use first-come-first-
-serve ordering. If joint projection is unavailable, deterministic leave-one-
-team-out and individual fallback attempts are recorded where possible.
+The result records each site's fraction, each team's service fraction
+(allocated over requested capacity) and projected load, and the projection
+scope. It does not use first-come-first-serve ordering. If no allocation exists
+(the base network itself cannot be dispatched), deterministic leave-one-team-out
+and individual fallback attempts are recorded where possible.
 
 ## Persistent assets and privacy-safe outputs
 
@@ -249,7 +261,7 @@ cross-team dispatch JSON.
   distributed and not used by the game.
 - The student preview (`ercot-game-preview`, default `--preview-stride 1` on
   the representative release) leaves storage idle. A plan above the hosting
-  capacity of some hour is scaled by the evaluator's fair projection (the JSON
+  capacity of some hour is scaled by the evaluator's site allocation (the JSON
   reports each team's `service_fraction`) instead of failing; a Submission 2
   preview needs `--base-load-from <Submission 1 output dir>` as the evaluator
   does. It can help students iterate, but instructor evaluation uses the full

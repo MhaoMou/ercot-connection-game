@@ -17,7 +17,7 @@ from ercot_game.batch_evaluation import (
     BatchScoringRules,
     ProjectionDiagnostics,
     TeamScore,
-    _fair_continuous_projection,
+    _utilitarian_allocation,
     _leaderboard_row,
     collect_csv_submissions,
 )
@@ -119,9 +119,7 @@ def test_adding_a_battery_never_reduces_projected_service(
     artifact = _dip_artifact(tmp_path / "dip")
 
     def alpha(plan: TeamPlan) -> float:
-        result = _fair_continuous_projection(
-            artifact, (plan,), PERIODS, PERIODS, storage_boundary_mode="daily_exact_cycle"
-        )
+        result = _utilitarian_allocation(artifact, (plan,), PERIODS, PERIODS)
         assert result is not None
         return result.service_fraction_by_team[plan.team_id]
 
@@ -142,9 +140,9 @@ def _preview_rules() -> BatchScoringRules:
 
 @pytest.mark.parametrize(
     ("connection_mw", "expected_fraction"),
-    [(100.0, 0.75), (50_000.0, 0.0)],
+    [(100.0, 0.75), (50_000.0, 75.0 / 50_000.0)],
 )
-def test_preview_applies_fair_projection_above_hosting_capacity(
+def test_preview_applies_the_allocation_above_hosting_capacity(
     tmp_path, connection_mw, expected_fraction
 ) -> None:
     artifact = _dip_artifact(tmp_path / "dip")
@@ -158,12 +156,13 @@ def test_preview_applies_fair_projection_above_hosting_capacity(
         workers=2,
     )
     fraction = result.service_fraction_by_team["team-a"]
-    assert fraction == pytest.approx(expected_fraction, abs=2e-3)
+    assert fraction == pytest.approx(expected_fraction, rel=2e-4)
     assert result.projection is not None
     payload = json.loads(json.dumps(student_preview._result_payload(result)))
     score = payload["team_scores"][0]
-    assert score["service_fraction"] == pytest.approx(expected_fraction, abs=2e-3)
-    assert score["dropped"] is (expected_fraction == 0.0)
+    assert score["service_fraction"] == pytest.approx(expected_fraction, rel=2e-4)
+    # There is no minimum allocation: a tiny share is still served.
+    assert score["dropped"] is False
     assert payload["projection"]["applied"] is True
     assert score["served_load_mwh"] == pytest.approx(
         connection_mw * fraction * HORIZON, rel=1e-6, abs=1e-6
@@ -288,7 +287,7 @@ def test_missing_base_load_dir_says_not_found(tmp_path) -> None:
 
 
 def test_all_rejected_folder_prints_each_reason(tmp_path, capsys) -> None:
-    _csv(tmp_path, "team-a,s1,1001,100,60,0,0", name="a.csv")
+    _csv(tmp_path, "team-a,s1,1001,100,160,0,0", name="a.csv")
     _csv(tmp_path, "team-b,s1,1001,1_000,0,0,0", name="b.csv")
     folder = tmp_path / "subs"
     assert student_preview.main(

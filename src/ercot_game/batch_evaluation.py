@@ -132,9 +132,8 @@ class BatchScoringRules:
     # Divides weighted MWh back to MWh per represented year for reporting.
     present_value_factor: float = 1.0
     max_generator_to_connection_ratio: float = 1.0
-    # Daily run-hour budget h: each team generator of capacity G may produce
-    # at most h x G MWh per 24-hour day.  None means no budget.
-    generator_daily_energy_hours: float | None = None
+    # Cap on a team's total connection capacity per submission (None: no cap).
+    max_team_connection_capacity_mw: float | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("it_value_per_mwh", "energy_price_per_mwh", "period_weight_hours"):
@@ -157,16 +156,12 @@ class BatchScoringRules:
             self.generator_capital_cost_per_mw,
             nonnegative=True,
         )
-        if self.generator_daily_energy_hours is not None:
-            if isinstance(self.generator_daily_energy_hours, bool):
-                raise ValueError("generator_daily_energy_hours must be a number or None")
+        if self.max_team_connection_capacity_mw is not None:
             _validate_rule_number(
-                "generator_daily_energy_hours",
-                self.generator_daily_energy_hours,
-                nonnegative=True,
+                "max_team_connection_capacity_mw",
+                self.max_team_connection_capacity_mw,
+                positive=True,
             )
-            if self.generator_daily_energy_hours > 24.0:
-                raise ValueError("generator_daily_energy_hours must not exceed 24")
         _validate_rule_number("site_cost_per_site", self.site_cost_per_site, nonnegative=True)
         _validate_rule_number("site_cost_per_mw", self.site_cost_per_mw, nonnegative=True)
         _validate_rule_number("infeasible_score", self.infeasible_score)
@@ -283,7 +278,7 @@ class DispatchRecord:
 
 @dataclass(frozen=True)
 class ProjectionDiagnostics:
-    """Audit data for the continuous joint-load projection."""
+    """Audit data for the site allocation used when plans do not fit together."""
 
     service_fraction_by_team: dict[str, float]
     projected_capacity_mw_by_team: dict[str, float]
@@ -294,8 +289,9 @@ class ProjectionDiagnostics:
     total_projected_load_mwh: float
     proportional_fair_utility: float
     total_load_tolerance_mwh: float
-    objective: str = "uniform_rule_max_min_capacity"
+    objective: str = "utilitarian_max_served_capacity"
     cap_policy: dict[str, float] = field(default_factory=dict)
+    site_fraction_by_team: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -328,6 +324,11 @@ def load_scoring_rules(
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("scoring rules must be a JSON object")
+    if payload.get("generator_daily_energy_hours") is not None:
+        raise ValueError(
+            "generator_daily_energy_hours is no longer supported: team generators "
+            "may run in every hour (remove the field or set it to null)"
+        )
     it_values = tuple(float(value) for value in payload.get("it_value_per_mwh", ()))
     energy_prices = tuple(float(value) for value in payload.get("energy_price_per_mwh", ()))
     return BatchScoringRules(
@@ -348,10 +349,10 @@ def load_scoring_rules(
         max_generator_to_connection_ratio=float(
             payload.get("max_generator_to_connection_ratio", 1.0)
         ),
-        generator_daily_energy_hours=(
+        max_team_connection_capacity_mw=(
             None
-            if payload.get("generator_daily_energy_hours") is None
-            else float(payload["generator_daily_energy_hours"])
+            if payload.get("max_team_connection_capacity_mw") is None
+            else float(payload["max_team_connection_capacity_mw"])
         ),
     )
 
@@ -375,6 +376,7 @@ def _collect_paths(
     require_complete_horizon: bool = False,
     max_generator_to_connection_ratio: float = 1.0,
     reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
+    max_team_connection_capacity_mw: float | None = None,
 ) -> BatchCollection:
     reserved = {
         team_id: frozenset(site_ids)
@@ -398,6 +400,7 @@ def _collect_paths(
                 require_complete_horizon=require_complete_horizon,
                 allow_legacy=True,
                 max_generator_to_connection_ratio=max_generator_to_connection_ratio,
+                max_team_connection_capacity_mw=max_team_connection_capacity_mw,
             )
             reused = sorted(
                 site.site_id
@@ -475,6 +478,7 @@ def collect_csv_submissions(
     require_complete_horizon: bool = False,
     max_generator_to_connection_ratio: float = 1.0,
     reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
+    max_team_connection_capacity_mw: float | None = None,
 ) -> BatchCollection:
     """Discover, validate, and deterministically partition CSV submissions.
 
@@ -499,6 +503,7 @@ def collect_csv_submissions(
         require_complete_horizon=require_complete_horizon,
         max_generator_to_connection_ratio=max_generator_to_connection_ratio,
         reserved_site_ids_by_team=reserved_site_ids_by_team,
+        max_team_connection_capacity_mw=max_team_connection_capacity_mw,
     )
 
 
@@ -513,6 +518,7 @@ def _collect_evaluation_inputs(
     require_complete_horizon: bool = False,
     max_generator_to_connection_ratio: float = 1.0,
     reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
+    max_team_connection_capacity_mw: float | None = None,
 ) -> BatchCollection:
     if isinstance(csv_paths, (str, Path)):
         root = Path(csv_paths)
@@ -529,6 +535,7 @@ def _collect_evaluation_inputs(
                 require_complete_horizon=require_complete_horizon,
                 max_generator_to_connection_ratio=max_generator_to_connection_ratio,
                 reserved_site_ids_by_team=reserved_site_ids_by_team,
+                max_team_connection_capacity_mw=max_team_connection_capacity_mw,
             )
         paths: Sequence[str | Path] = (root,)
     else:
@@ -543,6 +550,7 @@ def _collect_evaluation_inputs(
         require_complete_horizon=require_complete_horizon,
         max_generator_to_connection_ratio=max_generator_to_connection_ratio,
         reserved_site_ids_by_team=reserved_site_ids_by_team,
+        max_team_connection_capacity_mw=max_team_connection_capacity_mw,
     )
 
 
@@ -760,13 +768,6 @@ def _validate_rules(
         raise ValueError("scoring period weights must cover the selected period indices")
     if not math.isfinite(rules.time_step_hours) or rules.time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
-    if rules.generator_daily_energy_hours is not None:
-        day_periods = 24.0 / rules.time_step_hours
-        if not day_periods.is_integer() or len(period_indices) % int(day_periods):
-            raise ValueError(
-                "generator_daily_energy_hours requires the evaluated periods to "
-                "form whole 24-hour days"
-            )
 
 
 def _validate_period_mapping(
@@ -881,46 +882,65 @@ def _relabel_dispatch_periods(
         return relabeled_dispatch
 
 
-def _scaled_plan(plan: TeamPlan, alpha: float) -> TeamPlan:
-    """Scale a team's load while keeping canonical and legacy site views equal."""
+def _scaled_plan(plan: TeamPlan, alpha_by_site: Mapping[str, float]) -> TeamPlan:
+    """Scale each site's C, G, P and B by its allocated fraction.
+
+    Sites missing from ``alpha_by_site`` keep their request.  A battery
+    scaled to zero is removed (the adapter requires positive storage).
+    """
+
+    def alpha(site_id: str) -> float:
+        return float(alpha_by_site.get(site_id, 1.0))
+
     connections = tuple(
         ConnectionPlan(
             connection.connection_id,
             connection.bus_id,
-            connection.capacity_mw * alpha,
+            connection.capacity_mw * alpha(connection.connection_id),
             connection.profile,
         )
         for connection in plan.connections
     )
-    connection_capacity_by_id = {
-        connection.connection_id: connection.capacity_mw
-        for connection in plan.connections
-    }
+    generators = tuple(
+        replace(generator, capacity_mw=generator.capacity_mw * alpha(generator.connection_id))
+        for generator in plan.generators
+    )
+    storages = tuple(
+        replace(
+            storage,
+            power_mw=storage.power_mw * alpha(storage.connection_id),
+            energy_mwh=storage.energy_mwh * alpha(storage.connection_id),
+            initial_state_of_charge_mwh=(
+                None
+                if storage.initial_state_of_charge_mwh is None
+                else storage.initial_state_of_charge_mwh * alpha(storage.connection_id)
+            ),
+        )
+        for storage in plan.storages
+        if alpha(storage.connection_id) > 0.0
+    )
     sites = tuple(
         replace(
             site,
-            connection_capacity_mw=(
-                connection_capacity_by_id.get(
-                    site.site_id,
-                    site.connection_capacity_mw,
-                )
-                * alpha
-            ),
+            connection_capacity_mw=site.connection_capacity_mw * alpha(site.site_id),
+            generator_capacity_mw=site.generator_capacity_mw * alpha(site.site_id),
+            storage_power_mw=site.storage_power_mw * alpha(site.site_id),
+            storage_energy_mwh=site.storage_energy_mwh * alpha(site.site_id),
         )
         for site in plan.sites
     )
     return TeamPlan(
         plan.team_id,
         connections=connections,
-        generators=plan.generators,
-        storages=plan.storages,
+        generators=generators,
+        storages=storages,
         sites=sites,
     )
 
 
 @dataclass(frozen=True)
 class FairProjectionResult:
-    """Continuous projection result with a compatibility tuple interface."""
+    """Allocation result with a compatibility tuple interface."""
 
     dispatch: BatchDispatchResult
     service_fraction_by_team: dict[str, float]
@@ -950,14 +970,16 @@ class FairProjectionResult:
         yield self.projected_plans
 
 
-# A team served below this share of its request is dropped to zero (cf. the
-# minimum allocation in ERCOT's batch study for large loads).
-_FAIR_PROJECTION_MIN_ALLOCATION_FRACTION = 0.5
-# Bisection stops within this many MW, or this share of the largest request
-# when that is smaller.
-_FAIR_PROJECTION_TOLERANCE_MW = 0.1
-_FAIR_PROJECTION_RELATIVE_TOLERANCE = 1e-3
 _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE = 1e-6
+# The allocation fills the network to its limits.  The fractions of the sites
+# that are cut (alpha < 1) are scaled by the first factor (a 0.01% margin) so
+# that the dispatch, and a Submission 2 base load built from it, stays strictly
+# inside the limits that bind instead of on them at solver tolerance; a site
+# served in full stays at 1.  If the final dispatch still fails, every fraction
+# is scaled by the next factors in turn (the feasible set is convex and
+# contains zero).
+_ALLOCATION_MARGIN = 1.0 - 1e-4
+_ALLOCATION_BACKOFF_FACTORS = (1.0 - 1e-3, 1.0 - 1e-2)
 
 
 def _projection_request_capacity_mw(plan: TeamPlan) -> float:
@@ -997,375 +1019,172 @@ def _projection_utility(
     return utility
 
 
-def _fair_continuous_projection(
+def _allocation_sites(
+    plans: Sequence[TeamPlan],
+    period_indices: tuple[int, ...],
+):
+    """One allocation site per connection, with its assets summed."""
+    from tools.activsg2000.allocation import AllocationSite
+
+    sites = []
+    for plan in plans:
+        generator_mw: dict[str, float] = {}
+        storage_power: dict[str, float] = {}
+        storage_energy: dict[str, float] = {}
+        for generator in plan.generators:
+            generator_mw[generator.connection_id] = generator_mw.get(generator.connection_id, 0.0) + generator.capacity_mw
+        for storage in plan.storages:
+            storage_power[storage.connection_id] = storage_power.get(storage.connection_id, 0.0) + storage.power_mw
+            storage_energy[storage.connection_id] = storage_energy.get(storage.connection_id, 0.0) + storage.energy_mwh
+        for connection in plan.connections:
+            loads = tuple(
+                connection.capacity_mw * (connection.profile[index] if connection.profile else 1.0)
+                for index in period_indices
+            )
+            sites.append(
+                AllocationSite(
+                    team_id=plan.team_id,
+                    site_id=connection.connection_id,
+                    bus_id=connection.bus_id,
+                    capacity_mw=connection.capacity_mw,
+                    load_mw_by_period=loads,
+                    generator_mw=generator_mw.get(connection.connection_id, 0.0),
+                    storage_power_mw=storage_power.get(connection.connection_id, 0.0),
+                    storage_energy_mwh=storage_energy.get(connection.connection_id, 0.0),
+                )
+            )
+    return tuple(sites)
+
+
+def _utilitarian_allocation(
     artifact_dir: str | Path,
     plans: Sequence[TeamPlan],
     period_indices: tuple[int, ...],
     source_period_indices: tuple[int, ...],
     *,
-    projection_iterations: int = 10,
     time_step_hours: float = 1.0,
-    storage_solver: str = "benders",
-    storage_parallel_workers: int | None = None,
-    storage_solver_threads: int = 1,
-    storage_solver_backend: str = "auto",
-    storage_boundary_mode: str = "half_year_terminal_floor",
-    storage_wall_time_limit_seconds: float | None = 1500.0,
-    storage_max_iterations: int = 200,
-    storage_tighten_feasible_bounds: bool = False,
-    generator_daily_energy_hours: float | None = None,
-    projection_workers: int = 1,
-    full_request_infeasible: bool = False,
+    workers: int = 1,
+    **dispatch_options,
 ) -> FairProjectionResult | None:
-    """Project valid plans with the uniform (max-min) rule on requested MW.
+    """Allocate the sites when the full plans do not fit together.
 
-    Each team's connections are scaled by one fraction.  A common level t
-    (MW) rises and every team is served min(request, t), so a team asking
-    for less than t is served in full and asking for more than an equal
-    share earns nothing extra.  When the common level is blocked, teams that
-    can still grow on their own keep rising together (water-filling) until
-    every unfilled team is blocked.  This is the uniform rule (Sprumont,
-    1991), strategy-proof for one divisible resource.
-
-    A team served below ``_FAIR_PROJECTION_MIN_ALLOCATION_FRACTION`` of its
-    request gets nothing: the largest such request (ties by team id) is
-    dropped and the allocation is recomputed, until every remaining team
-    meets the minimum.  On a network an inflated request can lower everyone's
-    level, so the minimum is what removes oversized requests.  Feasibility
-    comes from the fixed-load DCOPF adapter, assumed downward closed; each
-    level is found by bisection to ``_FAIR_PROJECTION_TOLERANCE_MW``.
-
-    With ``projection_workers`` > 1 the independent feasibility checks (the
-    per-team probes, and the next levels of the bisection tree evaluated
-    speculatively) run in that many worker processes.  Every check is the
-    same serial dispatch as with one worker and the search consumes the
-    answers in the serial order, so the projection is identical.  Only
-    feasibility flags are cached; the dispatch of the final allocation is
-    recomputed once.  ``full_request_infeasible`` records that the caller's
-    joint dispatch of the unscaled plans already failed.
+    Every site gets a fraction alpha in [0, 1] of its connection, generator
+    and storage capacities.  The fractions maximize the total served
+    connection capacity over all evaluated periods; ties are broken by
+    minimizing ``sum C (1 - alpha)^2``, which makes the allocation unique
+    (:func:`tools.activsg2000.allocation.allocate_sites`).  Storage cycles
+    daily.  The allocated plans are then dispatched with one exact LP per
+    day, the same model the allocation used.  ``workers`` > 1 solves the days
+    in parallel processes (same result).  ``None`` means no allocation
+    exists (the base network alone does not fit, or the artifact is not a
+    prepared network).
     """
-    if projection_iterations <= 0:
-        raise ValueError("projection_iterations must be positive")
-    if not isinstance(projection_workers, int) or isinstance(projection_workers, bool) or projection_workers <= 0:
-        raise ValueError("projection_workers must be a positive integer")
     if not math.isfinite(time_step_hours) or time_step_hours <= 0:
         raise ValueError("time_step_hours must be finite and positive")
     if not plans or not (Path(artifact_dir) / "bus.csv").is_file():
         return None
+    from tools.activsg2000.allocation import allocate_sites
 
     plans = tuple(plans)
     team_ids = tuple(plan.team_id for plan in plans)
-    request_capacity = {
-        plan.team_id: _projection_request_capacity_mw(plan) for plan in plans
-    }
-    requested_loads = {
-        plan.team_id: _projection_requested_load_mwh(
-            plan,
-            period_indices,
+    block_periods = int(round(24.0 / time_step_hours))
+    try:
+        allocation = allocate_sites(
+            artifact_dir,
+            _allocation_sites(plans, period_indices),
+            period_indices=source_period_indices,
             time_step_hours=time_step_hours,
+            block_periods=block_periods,
+            workers=workers,
         )
-        for plan in plans
-    }
-    dispatch_options = dict(
-        source_period_indices=source_period_indices,
-        time_step_hours=time_step_hours,
-        stop_on_infeasible=True,
-        storage_solver=storage_solver,
-        storage_parallel_workers=storage_parallel_workers,
-        storage_solver_threads=storage_solver_threads,
-        storage_solver_backend=storage_solver_backend,
-        storage_boundary_mode=storage_boundary_mode,
-        storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
-        storage_max_iterations=storage_max_iterations,
-        storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
-        generator_daily_energy_hours=generator_daily_energy_hours,
-    )
-    # Feasibility flags only: a full 120-period dispatch of the 2000-bus
-    # network is large, and the search needs just one of them at the end.
-    cache: dict[tuple[float, ...], bool] = {}
-    last_feasible: dict[tuple[float, ...], tuple[BatchDispatchResult, tuple[TeamPlan, ...]]] = {}
+    except (DCOPFInfeasible, DCOPFUnresolved, ValueError, OSError):
+        return None
+    if allocation is None:
+        return None
 
-    def normalize(alphas: Sequence[float]) -> tuple[float, ...]:
-        return tuple(round(min(1.0, max(0.0, float(alpha))), 12) for alpha in alphas)
-
-    if full_request_infeasible:
-        cache[normalize([1.0] * len(plans))] = False
-
-    def dispatch_at(normalized: tuple[float, ...]):
-        projected_plans = tuple(
-            _scaled_plan(plan, normalized[index]) for index, plan in enumerate(plans)
-        )
+    options = dict(dispatch_options)
+    options["storage_solver"] = "monolithic"
+    options["storage_boundary_mode"] = "daily_exact_cycle"
+    best = None
+    candidates = [
+        # A site within the cutting-plane tolerance of full service is served
+        # in full; the margin on the cut sites leaves room for it.
+        lambda alpha: 1.0 if alpha >= 1.0 - 1e-5 else alpha * _ALLOCATION_MARGIN,
+        *(lambda alpha, factor=factor: min(alpha, 1.0) * factor for factor in _ALLOCATION_BACKOFF_FACTORS),
+    ]
+    for scale in candidates:
+        alpha_by_team = {
+            team_id: {
+                site_id: scale(alpha)
+                for (owner, site_id), alpha in allocation.alpha_by_site.items()
+                if owner == team_id
+            }
+            for team_id in team_ids
+        }
+        projected_plans = tuple(_scaled_plan(plan, alpha_by_team[plan.team_id]) for plan in plans)
         try:
             dispatch = _dispatch_plans(
-                artifact_dir, projected_plans, period_indices, **dispatch_options
+                artifact_dir,
+                projected_plans,
+                period_indices,
+                source_period_indices=source_period_indices,
+                time_step_hours=time_step_hours,
+                **options,
             )
         except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
-            return None
-        return dispatch, projected_plans
-
-    pool = None
-    if projection_workers > 1:
-        import multiprocessing
-        from concurrent.futures import ProcessPoolExecutor
-
-        # Spawned (not forked) workers: no solver environment or license
-        # handle of this process is shared with them.
-        pool = ProcessPoolExecutor(
-            max_workers=projection_workers,
-            mp_context=multiprocessing.get_context("spawn"),
-        )
-
-    def evaluate_many(vectors: Sequence[Sequence[float]]) -> None:
-        """Fill the cache for ``vectors`` (in parallel when a pool exists)."""
-        pending = list(dict.fromkeys(normalize(vector) for vector in vectors))
-        pending = [vector for vector in pending if vector not in cache]
-        if not pending:
-            return
-        if pool is None or len(pending) == 1:
-            for vector in pending:
-                feasible(vector)
-            return
-        payloads = [
-            (str(artifact_dir), plans, vector, period_indices, dispatch_options)
-            for vector in pending
-        ]
-        for vector, answer in zip(pending, pool.map(_projection_feasibility_worker, payloads)):
-            cache[vector] = answer
-
-    def feasible(alphas: Sequence[float]) -> bool:
-        normalized = normalize(alphas)
-        if normalized not in cache:
-            result = dispatch_at(normalized)
-            cache[normalized] = result is not None
-            if result is not None:
-                last_feasible.clear()
-                last_feasible[normalized] = result
-        return cache[normalized]
-
-    def evaluate(alphas: Sequence[float]):
-        """Return ``(dispatch, projected_plans)`` or ``None`` when infeasible."""
-        normalized = normalize(alphas)
-        if normalized in last_feasible:
-            return last_feasible[normalized]
-        if cache.get(normalized) is False:
-            return None
-        result = dispatch_at(normalized)
-        cache[normalized] = result is not None
-        if result is not None:
-            last_feasible.clear()
-            last_feasible[normalized] = result
-        return result
-
-    try:
-        return _fair_projection_search(
-            plans=plans,
-            team_ids=team_ids,
-            request_capacity=request_capacity,
-            requested_loads=requested_loads,
-            projection_iterations=projection_iterations,
-            feasible=feasible,
-            evaluate=evaluate,
-            evaluate_many=evaluate_many,
-            is_known=lambda alphas: normalize(alphas) in cache,
-            speculation_depth=(
-                0 if pool is None else max(1, int(math.log2(projection_workers + 1)))
-            ),
-        )
-    finally:
-        if pool is not None:
-            pool.shutdown(wait=True, cancel_futures=True)
-
-
-def _projection_feasibility_worker(payload) -> bool:
-    """Process-pool task: is the projection vector dispatchable?"""
-    artifact_dir, plans, vector, period_indices, dispatch_options = payload
-    projected_plans = tuple(_scaled_plan(plan, vector[index]) for index, plan in enumerate(plans))
-    try:
-        _dispatch_plans(artifact_dir, projected_plans, period_indices, **dispatch_options)
-    except (DCOPFInfeasible, DCOPFUnresolved, ValueError, NotImplementedError):
-        return False
-    return True
-
-
-def _fair_projection_search(
-    *,
-    plans: tuple[TeamPlan, ...],
-    team_ids: tuple[str, ...],
-    request_capacity: Mapping[str, float],
-    requested_loads: Mapping[str, float],
-    projection_iterations: int,
-    feasible,
-    evaluate,
-    evaluate_many,
-    is_known,
-    speculation_depth: int,
-) -> FairProjectionResult | None:
-    """Water-filling search of :func:`_fair_continuous_projection`."""
-    zero = tuple(0.0 for _ in team_ids)
-    if not feasible(zero):
+            continue
+        best = (alpha_by_team, projected_plans, dispatch)
+        break
+    if best is None:
         return None
+    alpha_by_team, projected_plans, dispatch = best
 
-    bisection_iterations = max(projection_iterations, 64)
-    max_request = max(request_capacity.values(), default=0.0)
-    tolerance_mw = min(
-        _FAIR_PROJECTION_TOLERANCE_MW,
-        _FAIR_PROJECTION_RELATIVE_TOLERANCE * max_request,
-    )
-    # Levels are normalized by the largest request, so level 1 serves everyone.
-    tolerance = tolerance_mw / max_request if max_request > 0.0 else 1.0
-
-    def speculative_midpoints(low: float, high: float) -> list[float]:
-        """Midpoints of the next ``speculation_depth`` bisection levels."""
-        points: list[float] = []
-        frontier = [(low, high)]
-        for _depth in range(speculation_depth):
-            following = []
-            for left, right in frontier:
-                if right - left <= tolerance:
-                    continue
-                midpoint = (left + right) / 2.0
-                points.append(midpoint)
-                following += [(left, midpoint), (midpoint, right)]
-            frontier = following
-        return points
-
-    def water_fill(eligible: set[int]):
-        alphas = [0.0] * len(team_ids)
-        level = 0.0
-        result_vector = zero
-        active = {index for index in eligible if request_capacity[team_ids[index]] > 0.0}
-
-        def raised(target_level: float, indices) -> tuple[float, ...]:
-            vector = list(alphas)
-            for index in indices:
-                share = target_level * max_request / request_capacity[team_ids[index]]
-                vector[index] = max(alphas[index], min(1.0, share))
-            return tuple(vector)
-
-        while active:
-            top = max(request_capacity[team_ids[index]] for index in active) / max_request
-            if speculation_depth:
-                evaluate_many(
-                    [raised(top, active)]
-                    + [raised(point, active) for point in speculative_midpoints(level, top)]
-                )
-            if feasible(raised(top, active)):
-                level, result_vector = top, raised(top, active)
-            else:
-                low, high = level, top
-                for _ in range(bisection_iterations):
-                    if high - low <= tolerance:
-                        break
-                    midpoint = (low + high) / 2.0
-                    if speculation_depth and not is_known(raised(midpoint, active)):
-                        evaluate_many(
-                            [raised(point, active) for point in speculative_midpoints(low, high)]
-                        )
-                    if feasible(raised(midpoint, active)):
-                        low, result_vector = midpoint, raised(midpoint, active)
-                    else:
-                        high = midpoint
-                level = low
-            alphas = list(raised(level, active))
-            active = {index for index in active if alphas[index] < 1.0}
-            if not active:
-                break
-            probe = min(1.0, level + 2.0 * tolerance)
-            if speculation_depth:
-                evaluate_many([raised(probe, (index,)) for index in sorted(active)])
-            blocked = set()
-            reaches_request = []
-            for index in sorted(active):
-                trial = raised(probe, (index,))
-                if not feasible(trial):
-                    blocked.add(index)
-                elif trial[index] >= 1.0:
-                    reaches_request.append(index)
-            # A team whose request lies within the probe step of the level is
-            # capped at its request, so the probe cannot block it.  Serve it in
-            # full where that stays feasible, one team at a time.
-            filled = set()
-            for index in reaches_request:
-                vector = list(alphas)
-                vector[index] = 1.0
-                if feasible(vector):
-                    alphas, result_vector = vector, tuple(vector)
-                    filled.add(index)
-            if not blocked and not filled:
-                # Only a non-convex oracle gets here: no single team is
-                # blocked but the group is.  The minimum allocation below
-                # then drops teams in a fixed order.
-                break
-            active -= blocked | filled
-        return alphas, level, result_vector
-
-    eligible = set(range(len(team_ids)))
-    dropped: list[str] = []
-    while True:
-        alphas, level, result_vector = water_fill(eligible)
-        short = [
-            index
-            for index in eligible
-            if request_capacity[team_ids[index]] > 0.0
-            and alphas[index] * request_capacity[team_ids[index]]
-            < _FAIR_PROJECTION_MIN_ALLOCATION_FRACTION * request_capacity[team_ids[index]]
-            - tolerance_mw
-        ]
-        if not short:
-            break
-        removed = min(short, key=lambda index: (-request_capacity[team_ids[index]], team_ids[index]))
-        eligible.discard(removed)
-        dropped.append(team_ids[removed])
-
-    best_vector = tuple(alphas)
-    best_result = evaluate(best_vector) or evaluate(result_vector)
-    if best_result is None:
-        return None
-    total_tolerance = max(
-        _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
-        sum(requested_loads.values()) * _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
-    )
-    dispatch, projected_plans = best_result
-    projected_capacity = {
-        team_id: request_capacity[team_id] * best_vector[index]
-        for index, team_id in enumerate(team_ids)
+    request_capacity = {plan.team_id: _projection_request_capacity_mw(plan) for plan in plans}
+    projected_capacity = {plan.team_id: _projection_request_capacity_mw(plan) for plan in projected_plans}
+    service_fraction = {
+        team_id: (projected_capacity[team_id] / request_capacity[team_id] if request_capacity[team_id] > 0.0 else 1.0)
+        for team_id in team_ids
+    }
+    requested_loads = {
+        plan.team_id: _projection_requested_load_mwh(plan, period_indices, time_step_hours=time_step_hours)
+        for plan in plans
     }
     projected_loads = {
-        team_id: requested_loads[team_id] * best_vector[index]
-        for index, team_id in enumerate(team_ids)
+        plan.team_id: _projection_requested_load_mwh(plan, period_indices, time_step_hours=time_step_hours)
+        for plan in projected_plans
     }
     diagnostics = ProjectionDiagnostics(
-        service_fraction_by_team={team_id: best_vector[index] for index, team_id in enumerate(team_ids)},
+        service_fraction_by_team=service_fraction,
         projected_capacity_mw_by_team=projected_capacity,
         capped_request_capacity_mw_by_team=dict(request_capacity),
-        requested_load_mwh_by_team=dict(requested_loads),
+        requested_load_mwh_by_team=requested_loads,
         projected_load_mwh_by_team=projected_loads,
         total_requested_load_mwh=sum(requested_loads.values()),
         total_projected_load_mwh=sum(projected_loads.values()),
-        proportional_fair_utility=_projection_utility(best_vector, requested_loads, team_ids),
-        total_load_tolerance_mwh=total_tolerance,
-        objective="uniform_rule_max_min_capacity",
+        proportional_fair_utility=_projection_utility(
+            [service_fraction[team_id] for team_id in team_ids], requested_loads, team_ids
+        ),
+        total_load_tolerance_mwh=max(
+            _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
+            sum(requested_loads.values()) * _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
+        ),
+        objective="utilitarian_max_served_capacity",
         cap_policy={
-            "common_level_mw": level * max_request,
-            "minimum_allocation_fraction": _FAIR_PROJECTION_MIN_ALLOCATION_FRACTION,
-            "tolerance_mw": tolerance_mw,
-            "dropped_team_count": float(len(dropped)),
+            "max_total_capacity_mw": allocation.max_total_capacity_mw,
+            "total_capacity_mw": sum(projected_capacity.values()),
+            "requested_capacity_mw": allocation.requested_capacity_mw,
+            "iterations": float(allocation.iterations),
+            "cuts": float(allocation.cuts),
         },
+        site_fraction_by_team=alpha_by_team,
     )
     try:
-        dispatch_with_projection = replace(
-            dispatch,
-            service_fraction_by_team=diagnostics.service_fraction_by_team,
-        )
+        dispatch = replace(dispatch, service_fraction_by_team=service_fraction)
     except TypeError:
-        dispatch_with_projection = copy(dispatch)
-        try:
-            dispatch_with_projection.service_fraction_by_team = diagnostics.service_fraction_by_team
-        except AttributeError:
-            dispatch_with_projection = dispatch
+        pass
     return FairProjectionResult(
-        dispatch=dispatch_with_projection,
-        service_fraction_by_team=diagnostics.service_fraction_by_team,
+        dispatch=dispatch,
+        service_fraction_by_team=service_fraction,
         projected_capacity_mw_by_team=projected_capacity,
         projected_plans=projected_plans,
         diagnostics=diagnostics,
@@ -1389,7 +1208,6 @@ def _dispatch_plans(
     storage_wall_time_limit_seconds: float | None = 1500.0,
     storage_max_iterations: int = 200,
     storage_tighten_feasible_bounds: bool = False,
-    generator_daily_energy_hours: float | None = None,
 ) -> BatchDispatchResult:
     """Call the adapter with optional performance controls.
 
@@ -1436,8 +1254,6 @@ def _dispatch_plans(
         optional["tighten_feasible_bounds"] = True
     if time_step_hours != 1.0:
         optional["time_step_hours"] = time_step_hours
-    if generator_daily_energy_hours is not None:
-        optional["generator_daily_energy_hours"] = generator_daily_energy_hours
     if not optional:
         dispatch = evaluate_plans_with_prepared_dcopf(
             artifact_dir, adapter_plans, period_indices=source_periods
@@ -1449,10 +1265,6 @@ def _dispatch_plans(
             )
         except TypeError as exc:
             if "unexpected keyword argument" not in str(exc):
-                raise
-            if generator_daily_energy_hours is not None:
-                # Never drop the budget silently: an adapter that cannot
-                # enforce it must not score budgeted plans.
                 raise
             dispatch = evaluate_plans_with_prepared_dcopf(
                 artifact_dir, adapter_plans, period_indices=source_periods
@@ -1700,6 +1512,7 @@ def evaluate_csv_batch(
         require_complete_horizon=True,
         max_generator_to_connection_ratio=rules.max_generator_to_connection_ratio,
         reserved_site_ids_by_team=reserved_site_ids_by_team,
+        max_team_connection_capacity_mw=rules.max_team_connection_capacity_mw,
     )
     accepted = tuple(collection.accepted)
     evaluation_plans = _evaluation_plans(accepted, plan_overrides)
@@ -1735,6 +1548,7 @@ def evaluate_csv_batch(
     projection_diagnostics: ProjectionDiagnostics | None = None
     batch_scope = "not_evaluated"
     batch_failure_reason: str | None = None
+    dispatched_plans: tuple[TeamPlan, ...] = plans
 
     if plans:
         attempted_ids = tuple(plan.team_id for plan in plans)
@@ -1752,7 +1566,6 @@ def evaluate_csv_batch(
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
                 storage_boundary_mode=effective_storage_boundary_mode,
-                generator_daily_energy_hours=rules.generator_daily_energy_hours,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
                 storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
@@ -1776,28 +1589,25 @@ def evaluate_csv_batch(
                     reason=str(exc),
                 )
             )
-            projection = _fair_continuous_projection(
+            projection = _utilitarian_allocation(
                 artifact_dir,
                 plans,
                 selected_periods,
                 selected_source_periods,
-                projection_iterations=projection_iterations,
                 time_step_hours=rules.time_step_hours,
-                storage_solver=storage_solver,
+                workers=dispatch_workers,
                 storage_parallel_workers=storage_parallel_workers,
                 storage_solver_threads=storage_solver_threads,
                 storage_solver_backend=storage_solver_backend,
-                storage_boundary_mode=effective_storage_boundary_mode,
-                generator_daily_energy_hours=rules.generator_daily_energy_hours,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
-                storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
-                projection_workers=dispatch_workers,
-                full_request_infeasible=True,
             )
             if projection is not None:
                 dispatch = projection.dispatch
                 projection_diagnostics = projection.diagnostics
+                # The allocated plans are what was dispatched: each site at
+                # alpha x its capacities (used for the Submission 2 base load).
+                dispatched_plans = projection.projected_plans
                 batch_scope = "joint_projection"
                 dispatch_records.append(
                     DispatchRecord(
@@ -1814,40 +1624,45 @@ def evaluate_csv_batch(
                         removed_team_id=None,
                         outcome="joint_projected",
                         reason=(
-                            "continuous team service fractions="
+                            "utilitarian site allocation; team service fractions="
                             + ",".join(
                                 f"{team_id}:{fraction:.12g}"
                                 for team_id, fraction in sorted(
                                     projection.service_fraction_by_team.items()
                                 )
                             )
-                            + "; service fraction="
-                            f"{min(projection.service_fraction_by_team.values()):.12g}; "
-                            "minimum allocation fraction="
-                            f"{_FAIR_PROJECTION_MIN_ALLOCATION_FRACTION:.12g}; "
-                            "bisection tolerance MW="
-                            f"{projection.diagnostics.cap_policy.get('tolerance_mw', 0.0):.12g}; "
+                            + "; served capacity MW="
+                            f"{projection.diagnostics.cap_policy.get('total_capacity_mw', 0.0):.12g}; "
                             "total projected load="
                             f"{projection.total_projected_load_mwh:.12g}"
                         ),
                     )
                 )
+                # Capital is charged on the allocated (alpha-scaled)
+                # capacities, so each team is scored on its projected plan.
+                projected_site_capacity = None
+                if site_cost_connection_capacity_mw_by_team is not None:
+                    projected_site_capacity = {
+                        team_id: capacity
+                        * projection.service_fraction_by_team.get(team_id, 1.0)
+                        for team_id, capacity in site_cost_connection_capacity_mw_by_team.items()
+                    }
                 scores.extend(
                     replace(
                         _score_team(
-                            original_plan,
+                            projected_plan,
                             dispatch,
                             rules,
-                            submission_key=record_by_team[original_plan.team_id].submission_key,
+                            submission_key=record_by_team[projected_plan.team_id].submission_key,
                             capital_cost_scope=capital_cost_scope,
                             site_cost_connection_count_by_team=site_cost_connection_count_by_team,
-                            site_cost_connection_capacity_mw_by_team=site_cost_connection_capacity_mw_by_team,
+                            site_cost_connection_capacity_mw_by_team=projected_site_capacity,
                             submission_number=submission_number,
                             energy_cost_enabled=energy_cost_enabled,
                         ),
                         competition_scope="joint_projection",
                     )
-                    for original_plan in plans
+                    for projected_plan in projection.projected_plans
                 )
                 # Skip discrete team-removal isolation: all valid teams receive
                 # the same joint projected dispatch with team-specific fractions.
@@ -1897,8 +1712,7 @@ def evaluate_csv_batch(
                         storage_solver_threads=storage_solver_threads,
                         storage_solver_backend=storage_solver_backend,
                         storage_boundary_mode=effective_storage_boundary_mode,
-                        generator_daily_energy_hours=rules.generator_daily_energy_hours,
-                        storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                                storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                         storage_max_iterations=storage_max_iterations,
                         storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
                     )
@@ -2009,8 +1823,7 @@ def evaluate_csv_batch(
                             storage_solver_threads=storage_solver_threads,
                             storage_solver_backend=storage_solver_backend,
                             storage_boundary_mode=effective_storage_boundary_mode,
-                            generator_daily_energy_hours=rules.generator_daily_energy_hours,
-                            storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
+                                        storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                             storage_max_iterations=storage_max_iterations,
                             storage_tighten_feasible_bounds=storage_tighten_feasible_bounds,
                         )
@@ -2163,8 +1976,8 @@ def evaluate_csv_batch(
             ),
             "max_generator_to_connection_ratio": rules.max_generator_to_connection_ratio,
             **(
-                {"generator_daily_energy_hours": rules.generator_daily_energy_hours}
-                if rules.generator_daily_energy_hours is not None
+                {"max_team_connection_capacity_mw": rules.max_team_connection_capacity_mw}
+                if rules.max_team_connection_capacity_mw is not None
                 else {}
             ),
         },
@@ -2173,7 +1986,7 @@ def evaluate_csv_batch(
         dispatch_records=tuple(dispatch_records),
         source_period_indices=selected_source_periods,
         projection_diagnostics=projection_diagnostics,
-        evaluated_plans=plans,
+        evaluated_plans=dispatched_plans,
     )
 
 
@@ -2230,7 +2043,7 @@ def _leaderboard_row(
     }
     fraction = _service_fraction(score, diagnostics)
     row["service_fraction"] = "" if fraction is None else f"{fraction:.6g}"
-    # A dropped team scored but was served nothing (minimum allocation rule).
+    # A dropped team scored but was allocated nothing.
     row["dropped"] = "" if fraction is None else fraction <= 0.0
     return row
 
@@ -2527,7 +2340,7 @@ def generator_energy_mwh_by_day(
     """Energy (MWh) each team generator produced per 24-hour day.
 
     Days are consecutive blocks of ``24 / time_step_hours`` dispatch periods
-    in period order, matching the daily run-hour budget.
+    in period order (the representative days).
     """
     if dispatch is None:
         return {}
@@ -2564,17 +2377,10 @@ def _generator_energy_payload(evaluation: "BatchEvaluation", team_id: str) -> di
         if plan.team_id == team_id
         for generator in plan.generators
     }
-    hours = payload.get("generator_daily_energy_hours")
     return {
-        "generator_daily_energy_hours": hours,
         "generators": {
             generator_id: {
                 "capacity_mw": capacity_by_id.get(generator_id),
-                "daily_budget_mwh": (
-                    None
-                    if hours is None or capacity_by_id.get(generator_id) is None
-                    else float(hours) * capacity_by_id[generator_id]
-                ),
                 "energy_mwh_by_day": values,
             }
             for generator_id, values in by_day.items()
@@ -2607,6 +2413,10 @@ def _serialized_team_diagnostic(
                 "capped_request_capacity_mw": evaluation.projection_diagnostics.capped_request_capacity_mw_by_team.get(score.team_id),
                 "requested_load_mwh": evaluation.projection_diagnostics.requested_load_mwh_by_team.get(score.team_id),
                 "projected_load_mwh": evaluation.projection_diagnostics.projected_load_mwh_by_team.get(score.team_id),
+                # alpha of each of this team's sites (its own sites only).
+                "site_fraction": dict(
+                    sorted(evaluation.projection_diagnostics.site_fraction_by_team.get(score.team_id, {}).items())
+                ),
             }
         ),
         "submission_key": score.submission_key,
@@ -3148,6 +2958,8 @@ def _classroom_team_summary(
             "capped_request_capacity_mw": diagnostics.capped_request_capacity_mw_by_team.get(score.team_id),
             "requested_load_mwh": diagnostics.requested_load_mwh_by_team.get(score.team_id),
             "projected_load_mwh": diagnostics.projected_load_mwh_by_team.get(score.team_id),
+            # alpha of each of this team's sites; other teams' sites are never listed.
+            "site_fraction": dict(sorted(diagnostics.site_fraction_by_team.get(score.team_id, {}).items())),
         }
     score_payload = _classroom_public_score(score)
     failure_reason = score_payload.get("failure_reason")

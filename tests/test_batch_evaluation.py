@@ -650,7 +650,7 @@ def test_evaluate_csv_batch_uses_legacy_subset_then_individual_fallback(
 
     monkeypatch.setattr(
         batch_evaluation,
-        "_fair_continuous_projection",
+        "_utilitarian_allocation",
         lambda *args, **kwargs: None,
     )
     result = _evaluate_paths(tmp_path, monkeypatch, (first, second), dispatch)
@@ -661,82 +661,6 @@ def test_evaluate_csv_batch_uses_legacy_subset_then_individual_fallback(
     assert result.dispatch is None
     assert result.isolation_events[-1].outcome == "individual_fallback"
     assert "fair continuous projection unavailable" in result.isolation_events[-1].reason
-
-
-def test_fair_continuous_projection_drops_lone_team_below_minimum_allocation(
-    tmp_path, monkeypatch
-):
-    submission = tmp_path / "team-a.csv"
-    _write_submission(submission, "team-a")
-    artifact_dir = _write_artifact_catalogs(tmp_path)
-    plan = read_student_csv(
-        submission,
-        region_to_source_bus={"PANHANDLE": "3002041"},
-        horizon=1,
-        allow_legacy=True,
-    ).plan
-    observed_alphas = []
-
-    def dispatch(_artifact_dir, plans, *, period_indices):
-        alpha = plans[0].connections[0].capacity_mw / 2.0
-        observed_alphas.append(alpha)
-        if alpha > 0.0001:
-            raise DCOPFInfeasible("synthetic overload below old resolution")
-        return _fake_dispatch(("team-a",), period_indices=period_indices)
-
-    monkeypatch.setattr(batch_evaluation, "evaluate_plans_with_prepared_dcopf", dispatch)
-    projection = batch_evaluation._fair_continuous_projection(
-        artifact_dir,
-        (plan,),
-        (0,),
-        (0,),
-        projection_iterations=10,
-    )
-
-    assert projection is not None
-    _dispatch, service_fraction, _projected_plans = projection
-    assert service_fraction == 0.0
-    assert projection.diagnostics.cap_policy["dropped_team_count"] == 1.0
-    assert observed_alphas[0] == 0.0
-
-
-def test_zero_service_projection_prevents_order_dependent_team_removal(
-    tmp_path, monkeypatch
-):
-    first = tmp_path / "team-a.csv"
-    second = tmp_path / "team-b.csv"
-    _write_submission(first, "team-a")
-    _write_submission(second, "team-b")
-    calls = []
-
-    def dispatch(_artifact_dir, plans, *, period_indices):
-        team_ids = tuple(sorted(plan.team_id for plan in plans))
-        total_capacity = sum(
-            connection.capacity_mw
-            for plan in plans
-            for connection in plan.connections
-        )
-        calls.append((team_ids, total_capacity))
-        if len(plans) > 1 and total_capacity > 0.0:
-            raise DCOPFInfeasible("synthetic overload at every positive fraction")
-        return _fake_dispatch(team_ids, period_indices=period_indices)
-
-    result = _evaluate_paths(tmp_path, monkeypatch, (first, second), dispatch)
-
-    assert result.competition_scope == "joint_projection"
-    assert all(score.feasible for score in result.team_scores)
-    assert all(score.competition_scope == "joint_projection" for score in result.team_scores)
-    assert any(total_capacity == 0.0 for _team_ids, total_capacity in calls)
-    projection_event = next(
-        event for event in result.isolation_events if event.outcome == "joint_projected"
-    )
-    assert "service fraction=0" in projection_event.reason
-    assert "minimum allocation fraction=0.5" in projection_event.reason
-    assert "bisection tolerance MW=" in projection_event.reason
-    assert not any(
-        event.outcome in {"feasible_remainder", "individual_fallback"}
-        for event in result.isolation_events
-    )
 
 
 def _projection_plan(team_id: str, capacity_mw: float) -> TeamPlan:
@@ -783,198 +707,6 @@ def _run_projection_with_capacity_oracle(
     return projection, calls
 
 
-def test_fair_projection_gives_equal_mw_when_both_teams_bind(tmp_path, monkeypatch):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
-        lambda capacities: capacities["team-a"] + 2.0 * capacities["team-b"] <= 8.0 + 1e-8,
-    )
-
-    assert projection is not None
-    assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 8.0 / 3.0, "team-b": 8.0 / 3.0}, abs=5e-3
-    )
-    assert projection.diagnostics.objective == "uniform_rule_max_min_capacity"
-    assert projection.diagnostics.cap_policy["common_level_mw"] == pytest.approx(8.0 / 3.0, abs=5e-3)
-    assert projection.diagnostics.cap_policy["dropped_team_count"] == 0.0
-
-
-def test_fair_projection_water_fills_teams_that_are_not_blocked(tmp_path, monkeypatch):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (
-            _projection_plan("team-a", 2.0),
-            _projection_plan("team-b", 2.0),
-            _projection_plan("team-c", 4.0),
-        ),
-        lambda capacities: capacities["team-a"] + capacities["team-b"] <= 2.0 + 1e-8
-        and capacities["team-c"] <= 3.0 + 1e-8,
-    )
-
-    assert projection is not None
-    assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 1.0, "team-b": 1.0, "team-c": 3.0}, abs=5e-3
-    )
-
-
-def test_fair_projection_drops_inflated_request_below_minimum_allocation(
-    tmp_path, monkeypatch
-):
-    def feasible(capacities):
-        return sum(capacities.values()) <= 6.0 + 1e-8
-
-    (tmp_path / "honest").mkdir()
-    (tmp_path / "inflated").mkdir()
-
-    honest, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path / "honest",
-        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
-        feasible,
-    )
-    inflated, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path / "inflated",
-        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 100.0)),
-        feasible,
-    )
-
-    assert honest is not None and inflated is not None
-    assert honest.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 3.0, "team-b": 3.0}, abs=5e-3
-    )
-    # Inflating to 100 MW would be served 3% of the request: below the
-    # minimum, so it gets nothing and the honest team is served in full.
-    assert inflated.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 4.0, "team-b": 0.0}, abs=5e-3
-    )
-
-
-def test_fair_projection_splits_shared_limit_equally(tmp_path, monkeypatch):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
-        lambda capacities: sum(capacities.values()) <= 5.0 + 1e-8,
-    )
-
-    assert projection is not None
-    assert projection.total_projected_load_mwh == pytest.approx(5.0, abs=2e-4)
-    assert projection.projected_capacity_mw_by_team["team-b"] == pytest.approx(2.5, abs=2e-4)
-    assert projection.projected_capacity_mw_by_team["team-a"] == pytest.approx(2.5, abs=2e-4)
-    assert projection.service_fraction_by_team["team-a"] == pytest.approx(0.625, abs=3e-5)
-    assert projection.service_fraction_by_team["team-b"] == pytest.approx(0.625, abs=3e-5)
-
-
-def test_fair_projection_reports_proportional_fair_utility(tmp_path, monkeypatch):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (_projection_plan("team-a", 4.0), _projection_plan("team-b", 4.0)),
-        lambda capacities: sum(capacities.values()) <= 5.0 + 1e-8,
-    )
-
-    assert projection is not None
-    assert projection.total_projected_load_mwh == pytest.approx(5.0, abs=2e-4)
-    assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 2.5, "team-b": 2.5}, abs=3e-4
-    )
-    assert projection.proportional_fair_utility == pytest.approx(2 * math.log(2.5), abs=2e-3)
-
-
-def test_fair_projection_solves_coupled_three_team_constraints(tmp_path, monkeypatch):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (
-            _projection_plan("team-a", 1.0),
-            _projection_plan("team-b", 1.0),
-            _projection_plan("team-c", 1.0),
-        ),
-        lambda capacities: all(
-            capacities[left] + capacities[right] <= 1.0 + 1e-8
-            for left, right in (
-                ("team-a", "team-b"),
-                ("team-a", "team-c"),
-                ("team-b", "team-c"),
-            )
-        ),
-    )
-
-    assert projection is not None
-    assert projection.total_projected_load_mwh == pytest.approx(1.5, abs=2e-5)
-    assert projection.service_fraction_by_team == pytest.approx(
-        {"team-a": 0.5, "team-b": 0.5, "team-c": 0.5}, abs=2e-5
-    )
-    assert math.isfinite(projection.proportional_fair_utility)
-
-
-def test_fair_projection_preserves_undefined_pf_utility_as_negative_infinity(
-    tmp_path, monkeypatch
-):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (
-            _projection_plan("team-a", 1.0),
-            _projection_plan("team-b", 1.0),
-            _projection_plan("team-c", 1.0),
-        ),
-        lambda capacities: sum(value > 1e-8 for value in capacities.values()) <= 1,
-    )
-
-    # No single team is blocked but any two are, so every team is below the
-    # minimum; teams are dropped by request size, then team id.
-    assert projection is not None
-    assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 0.0, "team-b": 0.0, "team-c": 1.0}, abs=5e-3
-    )
-    assert math.isinf(projection.proportional_fair_utility)
-    assert projection.proportional_fair_utility < 0.0
-
-
-def test_fair_projection_serves_small_request_in_full_against_oversized_request(
-    tmp_path, monkeypatch
-):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (_projection_plan("team-adversarial", 10_000.0), _projection_plan("team-small", 10.0)),
-        lambda capacities: sum(capacities.values()) <= 60.0 + 1e-8,
-    )
-
-    assert projection is not None
-    assert projection.capped_request_capacity_mw_by_team == pytest.approx(
-        {"team-adversarial": 10_000.0, "team-small": 10.0}
-    )
-    assert projection.service_fraction_by_team["team-small"] == pytest.approx(1.0)
-    assert projection.projected_capacity_mw_by_team == pytest.approx(
-        {"team-adversarial": 0.0, "team-small": 10.0}, abs=2e-2
-    )
-    assert all(0.0 <= alpha <= 1.0 for alpha in projection.service_fraction_by_team.values())
-
-
-def test_fair_projection_reports_projected_load_in_mwh(tmp_path, monkeypatch):
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (_projection_plan("team-a", 2.0), _projection_plan("team-b", 2.0)),
-        lambda capacities: sum(capacities.values()) <= 2.0 + 1e-8,
-        time_step_hours=2.0,
-    )
-
-    assert projection is not None
-    assert projection.diagnostics.requested_load_mwh_by_team == pytest.approx(
-        {"team-a": 4.0, "team-b": 4.0}
-    )
-    assert projection.diagnostics.projected_load_mwh_by_team == pytest.approx(
-        {"team-a": 2.0, "team-b": 2.0}, abs=2e-5
-    )
-    assert projection.total_projected_load_mwh == pytest.approx(4.0, abs=2e-5)
-
-
 def test_scaled_plan_keeps_canonical_site_and_materialized_connection_in_sync():
     plan = TeamPlan(
         team_id="team-a",
@@ -987,102 +719,17 @@ def test_scaled_plan_keeps_canonical_site_and_materialized_connection_in_sync():
         sites=(SitePlan("site-a", "b0001", 40.0, 4.0, 2.0, 8.0),),
     )
 
-    scaled = batch_evaluation._scaled_plan(plan, 0.25)
+    scaled = batch_evaluation._scaled_plan(plan, {"site-a": 0.25})
 
-    assert [connection.capacity_mw for connection in scaled.connections] == [10.0, 1.5]
+    # Every capacity of a site scales by its own fraction; other sites keep
+    # their request.
+    assert [connection.capacity_mw for connection in scaled.connections] == [10.0, 6.0]
     assert scaled.sites == (
-        SitePlan("site-a", "b0001", 10.0, 4.0, 2.0, 8.0),
+        SitePlan("site-a", "b0001", 10.0, 1.0, 0.5, 2.0),
     )
-    assert scaled.generators == plan.generators
-    assert scaled.storages == plan.storages
-
-
-def test_canonical_site_submission_reaches_fair_projection_through_plan_adapter(
-    tmp_path, monkeypatch
-):
-    first = tmp_path / "team-a.csv"
-    second = tmp_path / "team-b.csv"
-    header = (
-        "team_id,site_id,bus_id,connection_capacity_mw,generator_capacity_mw,"
-        "storage_power_mw,storage_energy_mwh\n"
-    )
-    first.write_text(header + "team-a,site-a,3002041,8,0,0,0\n", encoding="utf-8")
-    second.write_text(header + "team-b,site-b,3002041,8,0,0,0\n", encoding="utf-8")
-    artifact_dir = _write_artifact_catalogs(tmp_path)
-    solver_calls: list[float] = []
-
-    def solve(*args, **kwargs):
-        total_load = sum(kwargs["additional_demand_mw_by_bus"].values())
-        solver_calls.append(total_load)
-        if total_load > 10.0 + 1e-8:
-            raise DCOPFInfeasible("synthetic projected overload")
-        return DCOPFResult(
-            status="optimal",
-            objective_cost=0.0,
-            generation_mw={},
-            angle_by_bus={},
-            flow_mw_by_branch={},
-            balance_dual_by_bus={"3002041": 50.0},
-        )
-
-    monkeypatch.setattr(plan_adapter, "solve_prepared_period", solve)
-
-    result = evaluate_csv_batch(
-        (first, second),
-        artifact_dir=artifact_dir,
-        bus_ids={"3002041"},
-        horizon=1,
-        rules=_rules(),
-    )
-
-    assert result.competition_scope == "joint_projection"
-    assert result.projection_diagnostics is not None
-    assert result.projection_diagnostics.service_fraction_by_team == pytest.approx(
-        {"team-a": 0.625, "team-b": 0.625}, abs=2e-5
-    )
-    assert result.projection_diagnostics.requested_load_mwh_by_team == pytest.approx(
-        {"team-a": 8.0, "team-b": 8.0}
-    )
-    assert result.projection_diagnostics.projected_load_mwh_by_team == pytest.approx(
-        {"team-a": 5.0, "team-b": 5.0}, abs=2e-4
-    )
-    assert result.projection_diagnostics.total_projected_load_mwh == pytest.approx(
-        10.0, abs=2e-4
-    )
-    assert [score.served_load_mwh for score in result.team_scores] == pytest.approx([5.0, 5.0])
-    assert any(total_load == pytest.approx(16.0) for total_load in solver_calls)
-    assert any(total_load == pytest.approx(10.0, abs=2e-4) for total_load in solver_calls)
-
-
-def test_evaluation_records_projection_diagnostics_and_preserves_valid_team_isolation(
-    tmp_path, monkeypatch
-):
-    valid = tmp_path / "valid.csv"
-    malformed = tmp_path / "malformed.csv"
-    _write_submission(valid, "team-valid")
-    malformed.write_text("not,a,valid,submission\n", encoding="utf-8")
-
-    def dispatch(_artifact_dir, plans, *, period_indices, **_kwargs):
-        if sum(connection.capacity_mw for plan in plans for connection in plan.connections) > 0.0:
-            raise DCOPFInfeasible("synthetic overload")
-        return _fake_dispatch(
-            tuple(sorted(plan.team_id for plan in plans)),
-            load_by_team={plan.team_id: 0.0 for plan in plans},
-            period_indices=tuple(period_indices),
-        )
-
-    result = _evaluate_paths(tmp_path, monkeypatch, (valid, malformed), dispatch)
-    assert result.projection_diagnostics is not None
-    assert set(result.projection_diagnostics.service_fraction_by_team) == {"team-valid"}
-    assert set(result.projection_diagnostics.projected_capacity_mw_by_team) == {"team-valid"}
-    assert result.team_scores[0].team_id == "team-valid"
-    assert result.team_scores[0].valid is True
-    assert result.team_scores[1].valid is False
-
-    output_dir = tmp_path / "outputs"
-    _write_outputs(result, output_dir)
-    payload = json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))
-    assert payload["projection_diagnostics"]["service_fraction_by_team"] == {"team-valid": 0.0}
+    assert [generator.capacity_mw for generator in scaled.generators] == [1.0]
+    assert [(storage.power_mw, storage.energy_mwh) for storage in scaled.storages] == [(0.5, 2.0)]
+    assert batch_evaluation._scaled_plan(plan, {"site-a": 0.0}).storages == ()
 
 
 def test_evaluate_csv_batch_keeps_malformed_submission_out_of_solver(tmp_path, monkeypatch):
@@ -1230,7 +877,7 @@ def test_batch_uses_first_successful_legacy_leave_one_out_removal_across_three_t
 
     monkeypatch.setattr(
         batch_evaluation,
-        "_fair_continuous_projection",
+        "_utilitarian_allocation",
         lambda *args, **kwargs: None,
     )
     result = _evaluate_paths(tmp_path, monkeypatch, paths, dispatch)
@@ -1962,7 +1609,7 @@ def test_individual_fallback_retains_dispatch_records_for_period_audits(tmp_path
     monkeypatch.setattr(batch_evaluation, "evaluate_plans_with_prepared_dcopf", dispatch)
     monkeypatch.setattr(
         batch_evaluation,
-        "_fair_continuous_projection",
+        "_utilitarian_allocation",
         lambda *args, **kwargs: None,
     )
     artifact_dir = _write_artifact_catalogs(tmp_path)
@@ -2021,66 +1668,3 @@ def test_all_rejected_batch_still_emits_period_audit_and_explicit_records(tmp_pa
     assert evaluation_payload["evaluation_metadata"]["subset_evaluations"]
     assert evaluation_payload["aggregate_diagnostics"]["dispatch_count"] == 0
 
-
-def test_fair_projection_keeps_filling_when_a_request_sits_just_above_the_blocked_level(
-    tmp_path, monkeypatch
-):
-    # Teams b and c share a 52.52 MW limit (each blocked at 26.26 MW); team a
-    # has its own 49.13 MW limit. b and c ask for slightly more than 26.26 MW,
-    # so their single-team probe is capped at their own request and looks
-    # feasible. Team a must still be served its full 49 MW.
-    projection, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path,
-        (
-            _projection_plan("team-a", 49.0),
-            _projection_plan("team-b", 26.27),
-            _projection_plan("team-c", 26.27),
-        ),
-        lambda capacities: capacities["team-b"] + capacities["team-c"] <= 52.52 + 1e-8
-        and capacities["team-a"] <= 49.13 + 1e-8,
-    )
-
-    assert projection is not None
-    assert projection.projected_capacity_mw_by_team["team-a"] == pytest.approx(49.0, abs=0.05)
-    assert projection.projected_capacity_mw_by_team["team-b"] == pytest.approx(26.26, abs=0.06)
-    assert projection.projected_capacity_mw_by_team["team-c"] == pytest.approx(26.26, abs=0.06)
-
-
-def test_fair_projection_reproduces_the_appendix_c_worked_example(tmp_path, monkeypatch):
-    # Appendix C: B and C share a 50 MW line, A has its own 45 MW limit.
-    def feasible(capacities):
-        return (
-            capacities["team-b"] + capacities["team-c"] <= 50.0 + 1e-8
-            and capacities["team-a"] <= 45.0 + 1e-8
-        )
-
-    (tmp_path / "base").mkdir()
-    (tmp_path / "variant").mkdir()
-    base, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path / "base",
-        (
-            _projection_plan("team-a", 60.0),
-            _projection_plan("team-b", 40.0),
-            _projection_plan("team-c", 40.0),
-        ),
-        feasible,
-    )
-    variant, _calls = _run_projection_with_capacity_oracle(
-        monkeypatch,
-        tmp_path / "variant",
-        (
-            _projection_plan("team-a", 60.0),
-            _projection_plan("team-b", 40.0),
-            _projection_plan("team-c", 60.0),
-        ),
-        feasible,
-    )
-
-    assert base.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 45.0, "team-b": 25.0, "team-c": 25.0}, abs=0.1
-    )
-    assert variant.projected_capacity_mw_by_team == pytest.approx(
-        {"team-a": 45.0, "team-b": 40.0, "team-c": 0.0}, abs=0.1
-    )

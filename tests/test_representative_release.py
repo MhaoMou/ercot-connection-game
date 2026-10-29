@@ -132,18 +132,19 @@ def test_rules_store_the_present_value_weights_and_unchanged_capital_costs():
     assert payload["it_value_per_mwh"] == [1000.0] * 120
     assert payload["site_cost_per_mw"] == 25e6
     assert payload["generator_capital_cost_per_mw"] == 2.0e6
-    assert payload["generator_daily_energy_hours"] == 2.0
+    assert payload.get("generator_daily_energy_hours") is None
+    assert payload["max_team_connection_capacity_mw"] == 1_000.0
     assert payload["storage_capital_cost_per_mw"] == 4e5
     assert payload["storage_capital_cost_per_mwh"] == 2.5e5
     assert payload["storage_boundary_mode"] == "daily_exact_cycle"
-    assert payload["max_generator_to_connection_ratio"] == 0.5
+    assert payload["max_generator_to_connection_ratio"] == 1.0
     assert payload["it_value_provenance"]["break_even_served_fraction"] == pytest.approx(
         25e6 / (1000 * 8760 * ANNUITY), abs=1e-4
     )
     rules = load_scoring_rules(RULES, artifact_dir=PACKAGE, horizon=120)
     assert rules.weight_for(0) == pytest.approx(weights[0] * ANNUITY)
     assert rules.present_value_factor == pytest.approx(ANNUITY)
-    assert rules.max_generator_to_connection_ratio == 0.5
+    assert rules.max_generator_to_connection_ratio == 1.0
 
 
 def _tiny_dispatch():
@@ -227,16 +228,20 @@ def test_energy_switch_is_independent_of_the_submission_number(submission_number
 # --- generator cap ------------------------------------------------------------------
 
 
-def test_generator_cap_is_half_the_connection_in_the_release(tmp_path, capsys):
-    ok = _write_plan(tmp_path / "ok.csv", "team-a", [("s1", "1001", 40, 20, 0, 0)])
-    over = _write_plan(tmp_path / "over.csv", "team-a", [("s1", "1001", 40, 21, 0, 0)])
-    assert read_student_csv(ok, max_generator_to_connection_ratio=0.5).plan.sites[0].generator_capacity_mw == 20
-    with pytest.raises(ValueError, match=r"0.5 x connection capacity \(21 MW > 20 MW\)"):
-        read_student_csv(over, max_generator_to_connection_ratio=0.5)
-    assert read_student_csv(over).plan.sites[0].generator_capacity_mw == 21
+def test_release_caps_the_generator_at_the_connection_and_the_team_at_one_gigawatt(tmp_path, capsys):
+    ok = _write_plan(tmp_path / "ok.csv", "team-a", [("s1", "1001", 40, 40, 0, 0)])
+    over = _write_plan(tmp_path / "over.csv", "team-a", [("s1", "1001", 40, 41, 0, 0)])
+    big = _write_plan(
+        tmp_path / "big.csv", "team-a", [("s1", "1001", 600, 600, 0, 0), ("s2", "1002", 401, 0, 0, 0)]
+    )
+    assert read_student_csv(ok).plan.sites[0].generator_capacity_mw == 40
+    with pytest.raises(ValueError, match="generator capacity cannot exceed connection capacity"):
+        read_student_csv(over)
 
     assert csv_validator.main(["--file", str(over), "--artifact-dir", str(PACKAGE)]) == 1
-    assert "0.5 x connection capacity" in capsys.readouterr().out
+    assert "cannot exceed connection capacity" in capsys.readouterr().out
+    assert csv_validator.main(["--file", str(big), "--artifact-dir", str(PACKAGE)]) == 1
+    assert "1,000 MW per team" in capsys.readouterr().out
     assert csv_validator.main(["--file", str(ok), "--artifact-dir", str(PACKAGE)]) == 0
     capsys.readouterr()
     with pytest.raises(SystemExit):
@@ -247,8 +252,8 @@ def test_generator_cap_is_half_the_connection_in_the_release(tmp_path, capsys):
 def test_batch_rejects_a_team_above_the_cap_and_scores_the_rest(tmp_path, monkeypatch):
     submissions = tmp_path / "subs"
     submissions.mkdir()
-    _write_plan(submissions / "a.csv", "team-a", [("s1", "1001", 40, 30, 0, 0)])
-    _write_plan(submissions / "b.csv", "team-b", [("s1", "1002", 40, 20, 0, 0)])
+    _write_plan(submissions / "a.csv", "team-a", [("s1", "1001", 40, 41, 0, 0)])
+    _write_plan(submissions / "b.csv", "team-b", [("s1", "1002", 40, 40, 0, 0)])
     rules = load_scoring_rules(RULES, artifact_dir=PACKAGE, horizon=120)
     seen = []
 

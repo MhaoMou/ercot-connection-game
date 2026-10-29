@@ -13,7 +13,7 @@ from ercot_game.batch_evaluation import (
     DCOPFInfeasible,
     ProjectionDiagnostics,
     TeamScore,
-    _fair_continuous_projection,
+    _utilitarian_allocation,
     _score_team,
 )
 from ercot_game.csv_submission import CANONICAL_CSV_COLUMNS, LEGACY_CSV_COLUMNS, read_student_csv
@@ -269,50 +269,9 @@ def test_submission_one_has_no_energy_charge_and_submission_two_uses_joint_lmp()
     assert submission_two.score == submission_one.score - submission_two.energy_cost
 
 
-def test_fair_projection_handles_missing_catalog_and_zero_request_without_leakage(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_allocation_needs_a_prepared_network(tmp_path: Path) -> None:
     plan = _audit_plan("team-valid", "site-valid", "gen-valid", capacity=4.0)
-    assert _fair_continuous_projection(tmp_path, (plan,), (0,), (0,)) is None
-
-    artifact = tmp_path / "artifact"
-    artifact.mkdir()
-    (artifact / "bus.csv").write_text("bus_id\nb0001\n", encoding="utf-8")
-    zero = _audit_plan("team-zero", "site-zero", "gen-zero", capacity=0.0)
-    calls = []
-
-    def dispatch(_artifact_dir, candidate_plans, period_indices, **_kwargs):
-        capacities = {
-            item.team_id: sum(connection.capacity_mw for connection in item.connections)
-            for item in candidate_plans
-        }
-        calls.append(capacities)
-        if sum(capacities.values()) > 4.0 + 1e-8:
-            raise DCOPFInfeasible("synthetic projection overload")
-        return SimpleNamespace(
-            team_ids=tuple(capacities),
-            periods=(
-                SimpleNamespace(
-                    period_index=period_indices[0],
-                    submitted_load_mw_by_team={team_id: value for team_id, value in capacities.items()},
-                    generator_dispatch_mw_by_team={team_id: {} for team_id in capacities},
-                ),
-            ),
-        )
-
-    monkeypatch.setattr(batch_evaluation, "_dispatch_plans", dispatch)
-    projection = _fair_continuous_projection(
-        artifact,
-        (plan, zero),
-        (0,),
-        (0,),
-        projection_iterations=8,
-    )
-    assert projection is not None
-    assert set(projection.service_fraction_by_team) == {"team-valid", "team-zero"}
-    assert projection.diagnostics.requested_load_mwh_by_team["team-zero"] == 0.0
-    assert projection.projected_capacity_mw_by_team["team-zero"] == 0.0
-    assert all("team-rejected" not in call for call in calls)
+    assert _utilitarian_allocation(tmp_path, (plan,), (0,), (0,)) is None
 
 
 def test_projection_diagnostics_reject_unknown_team_at_round_boundary(tmp_path: Path) -> None:

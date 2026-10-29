@@ -51,6 +51,7 @@ def _default_plan_loader(
             default_generator_cost_per_mwh=rules.default_generator_cost_per_mwh,
             require_complete_horizon=True,
             max_generator_to_connection_ratio=getattr(rules, "max_generator_to_connection_ratio", 1.0),
+            max_team_connection_capacity_mw=getattr(rules, "max_team_connection_capacity_mw", None),
         )
     except (OSError, ValueError) as exc:
         raise RoundCoordinatorError(f"could not validate round submissions: {exc}") from exc

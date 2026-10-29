@@ -81,11 +81,7 @@ def _bus_total(period, bus_id="2") -> float:
     )
 
 
-ROUTES = (
-    pytest.param({}, id="hourly"),
-    pytest.param({"generator_daily_energy_hours": 2.0}, id="benders-budget"),
-    pytest.param({"generator_daily_energy_hours": 2.0, "storage_solver": "monolithic"}, id="monolithic-budget"),
-)
+ROUTES = (pytest.param({}, id="hourly"),)
 
 
 @pytest.mark.parametrize("kwargs", ROUTES)
@@ -116,11 +112,8 @@ def test_identical_colocated_teams_get_identical_outcomes(tmp_path, monkeypatch,
         new_cost = sum(_fuel(new.generator_dispatch_mw_by_team[p.team_id]["gen-1"], 30.0) for p in plans)
         old_cost = sum(_fuel(old.generator_dispatch_mw_by_team[p.team_id]["gen-1"], 30.0) for p in plans)
         assert new_cost == pytest.approx(old_cost, abs=1e-6)
-    if "generator_daily_energy_hours" in kwargs:
-        for plan in plans:
-            daily = generator_energy_mwh_by_day(solved, plan.team_id)["gen-1"]
-            assert daily == pytest.approx([25.0] * DAYS)
-            assert all(energy <= 2.0 * 30.0 + 1e-6 for energy in daily)
+    for plan in plans:
+        assert generator_energy_mwh_by_day(solved, plan.team_id)["gen-1"] == pytest.approx([25.0] * DAYS)
 
 
 @pytest.mark.parametrize("kwargs", ROUTES)
@@ -140,9 +133,7 @@ def test_own_load_cap_redistributes_to_the_other_generator(tmp_path) -> None:
     # proportional shares (25 x 30/60 = 12.5 each) are water-filled to 10/15.
     artifact = _artifact(tmp_path / "toy")
     plans = (_plan("team-a", 10.0, 30.0), _plan("team-b", 90.0, 30.0))
-    dispatch = evaluate_plans_with_prepared_dcopf(
-        artifact, plans, period_indices=PERIODS, generator_daily_energy_hours=2.0
-    )
+    dispatch = evaluate_plans_with_prepared_dcopf(artifact, plans, period_indices=PERIODS)
     assert dispatch.generator_split_fallbacks == ()
     for period in dispatch.periods:
         a = period.generator_dispatch_mw_by_team["team-a"]["gen-1"]
@@ -152,46 +143,3 @@ def test_own_load_cap_redistributes_to_the_other_generator(tmp_path) -> None:
         else:
             assert a + b == pytest.approx(0.0, abs=1e-9)
         assert a <= 10.0 + 1e-9
-
-
-def test_budget_violation_falls_back_to_solver_split() -> None:
-    from tools.activsg2000.dcopf import DCOPFResult, Generator
-
-    def ids(team):
-        return tuple(plan_adapter._student_generator_segment_id(team, "gen-1", segment=s) for s in (1, 2, 3))
-
-    groups = {"2": ((10.0, ids("a")), (10.0, ids("b")))}
-
-    def candidates(cap_a):
-        rows = []
-        for team, cap in (("a", cap_a), ("b", 10.0)):
-            remaining = cap
-            for segment_id, (width, cost) in zip(ids(team), TEAM_GENERATOR_COST_CURVE):
-                take = min(width * 10.0, remaining)
-                remaining -= take
-                rows.append(Generator(segment_id, "2", 0.0, take, cost))
-        return tuple(rows)
-
-    def period(a, b):
-        generation = {}
-        for team, amount in (("a", a), ("b", b)):
-            for segment_id, (width, _cost) in zip(ids(team), TEAM_GENERATOR_COST_CURVE):
-                generation[segment_id] = min(amount, width * 10.0)
-                amount -= generation[segment_id]
-        return DCOPFResult("optimal", 0.0, generation, {}, {}, {})
-
-    # Hour 0: team a's own load caps it at 2.5 MW. Hour 1: an equally cheap
-    # solver split a=7.5, b=2.5. Each generator makes 10 MWh in the day.
-    dcopfs = (period(2.5, 7.5), period(7.5, 2.5))
-    cands = (candidates(2.5), candidates(10.0))
-    new, fallbacks = plan_adapter._colocated_generator_tie_break(
-        dcopfs, cands, groups, period_indices=(0, 1), daily_energy_hours=2.0, block_periods=2,
-    )
-    assert fallbacks == ()
-    assert sum(new[1].generation_mw[i] for i in ids("a")) == pytest.approx(5.0)
-    # With a 1 h (10 MWh) budget the proportional split would give b 12.5 MWh.
-    new, fallbacks = plan_adapter._colocated_generator_tie_break(
-        dcopfs, cands, groups, period_indices=(0, 1), daily_energy_hours=1.0, block_periods=2,
-    )
-    assert [item["reason"] for item in fallbacks] == ["daily_energy_budget"]
-    assert [d.generation_mw for d in new] == [d.generation_mw for d in dcopfs]

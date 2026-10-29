@@ -99,15 +99,179 @@
 \setlist{itemsep=2pt,topsep=3pt}
 
 \title{\vspace{-2em}ECE 51032: Computational Methods for Power System Analysis\\ \textbf{Data-Center Connection Planning Game}\\[0.3em]\large Assignment and Student Tutorial}
-\date{Fall 2026}
-\author{Purdue University}
+\date{\vspace{-1.5em}}
+\author{Purdue University, Fall 2026}
 \begin{document}
 \maketitle
 
-This document has two parts. \textbf{Part I} is the official
-assignment: the rules, the scoring, what you submit, and how it is graded. \textbf{Part II} is the tutorial: it explains the game, the model,
-the tools, and strategy, and walks you through your first plan.
+\textbf{Part I} is the official assignment, in two pages. \textbf{Part II}
+is the tutorial: the game, the model, the tools, and strategy, with a walk
+through your first plan.
 
+\phantomsection\addcontentsline{toc}{part}{Part I: The Assignment}
+\begin{center}
+\Large\bfseries Part I: The Assignment
+\end{center}
+
+% Two-page summary of the assignment. The earlier, longer Part I is kept below
+% between \iffalse and \fi.
+\begingroup
+\setlength{\parskip}{0.25em}
+\setlist{itemsep=0pt,topsep=1pt}
+% Smaller headings so that Part I fits on two pages.
+\renewcommand{\assignsection}[2]{\par\vspace{0.4em}\phantomsection\addcontentsline{toc}{section}{#1}\label{#2}%
+  {\large\bfseries #1}\par\nopagebreak}
+
+% ---------------------------------------------------------------------------
+\assignsection{The project}{asg:glance}
+
+\paragraph{Your role.} Your team is a \alert{large-load developer}: you build
+data centers, and your goal is to connect \alert{gigawatts of computing load}
+to the Texas grid as quickly and as profitably as possible. The grid is a
+2,000-bus synthetic model of Texas (\cref{sec:data}), and the instructor plays the grid operator.
+
+\paragraph{Interconnection options.} Each site is one row of a CSV file (\cref{sec:csv}):
+\begin{itemize}[leftmargin=*]
+  \item a \alert{bus} (where the site connects) and a \alert{connection
+    capacity} $C$\MW{} (the load you ask the grid to serve);
+  \item optionally, a \alert{co-located generator} of $G \le C$\MW{} that is
+    used to offset load at the location, i.e., the net load for your load and
+    generator there is $C - G$;
+  \item optionally, a \alert{co-located 4-hour battery} of $P$\MW{} and
+    $4P$\MWh, that will be operated by the system operator according to
+    multiperiod economic dispatch to help integrate more load into the network
+    (\cref{sec:model}).
+\end{itemize}
+A team's sites may add up to at most \alert{1,000\MW} of connection capacity
+per submission.
+
+\paragraph{The game.} You are not alone on the grid. Every team's plan is
+evaluated \alert{together} on the same network, to ensure the feasibility of
+the grid during real time operation. If the plans do not all fit, the plans
+will be curtailed down systematically to \alert{maximize the total load
+interconnected} (\cref{sec:projection}). So the best place to build depends on
+where the other teams build: a bus that looks empty may be crowded once
+everyone picks it. After each submission you see every team's service fraction
+and a grid map of the total load per bus, but never another team's plan
+(\cref{sec:results}).
+
+% ---------------------------------------------------------------------------
+\assignsection{Teams and communication}{asg:team}
+
+Every team should have \alert{three students}, formed by yourselves. Each team
+will be assigned a fixed \code{team_id} (chosen by yourselves) all game long,
+and one member uploads each file. Questions, announcements, and finding
+teammates go through the \alert{Discord} channel (link:
+\url{https://discord.gg/Xwdgwvn5}). Teams may talk to and coordinate with each
+other, but do not share your CSV or your exact plan with another team. You may
+use AI tools (e.g., coding agents) for any part of the work and it is
+encouraged to do so (\cref{sec:ai}). Your team is responsible for every number
+it submits and must be able to explain its plan in the final presentation.
+
+% ---------------------------------------------------------------------------
+\assignsection{The three weeks}{asg:rules}
+
+Every week plays the \alert{same game on the same data}: you are developing
+data-center siting plans, possibly with co-located generation and storage,
+that will be in effect for the next ten years, made in two submissions per
+week (\cref{fig:timeline}). The practice week (Week 1) \alert{spans two
+calendar weeks}, Nov 16--29, so that it does not overlap with Thanksgiving.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l l X X l@{}}
+\toprule
+Week & Dates & Submission 1 due & Submission 2 due & Grid energy cost\\
+\midrule
+1 (practice) & Nov 16--29 & Fri Nov 20, 11:59 PM & Fri Nov 27, 11:59 PM & none\\
+2 (graded)   & Nov 30--Dec 6 & Thu Dec 3, 11:59 PM & Sun Dec 6, 11:59 PM & none\\
+3 (graded)   & Dec 7--13 & Thu Dec 10, 11:59 PM & Sun Dec 13, 11:59 PM & at the LMPs\\
+\bottomrule
+\end{tabularx}
+\end{center}
+\begin{itemize}[leftmargin=*]
+  \item \alert{Submission 1:} connect your first sites.
+  \item \alert{Submission 2:} the Submission 1 results are released first, and
+    every team's Submission 1 load/generation/storage becomes part of the base
+    system. List \alert{only new sites} and they compete for the room that is
+    left.
+  \item Everything \alert{resets} between weeks, so you can use what you
+    learned the week before.
+  \item \alert{What you submit:} one CSV per team per submission, named
+    \code{team{x}_week{x}_sub{x}.csv} (e.g., \code{team07_week2_sub1.csv}) and
+    uploaded to \alert{BrightSpace}. Check it first with
+    \code{ercot-game-check-csv} (\cref{sec:csv,sec:checklist}): an
+    \alert{invalid or late file scores 0}. The free late days for the course
+    cannot be used for the project.
+  \item \alert{At the end:} a short team presentation (last week of class) and
+    a report on what you did, why, and optionally, some insights on explaining
+    the results of the game.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\assignsection{Scoring rules}{asg:scoring}
+
+Each submission is scored in US dollars, once, for the ten-year value of the
+sites it builds (\cref{sec:score}; worked example in \cref{subsec:worked_example}):
+score $=$ IT value $-$ energy cost $-$ generator operating cost $-$ generator
+capital $-$ storage capital $-$ site cost.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Term & Value & How it is charged\\
+\midrule
+IT value & \$1,000 per MWh & For every MWh of your load \alert{that is actually served}.\\
+Energy cost & LMP at your site & Grid purchases times the LMP. \alert{Week 3 only.}\\
+Generator operation & \$80/\$150/\$250 per MWh & First 25\% / next 50\% / last 25\% of capacity.\\
+Generator capital & \$2.0M per MW & Once, on the allocated generator capacity $\alpha G$.\\
+Storage capital & \$400k/MW + \$250k/MWh & Once, on $\alpha P$ and $\alpha B$; a 4-hour battery costs \$1.4M per MW.\\
+Site cost & \$25M per MW & Once, on the allocated connection capacity $\alpha C$.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+Here $\alpha \in [0,1]$ is a site's allocated share. The representative days make up one typical year, and the ten
+years count in \alert{net present value} at a 7\% discount rate:
+$\text{NPV} = \sum_{y=1}^{10} \text{(yearly operating net revenue)}/1.07^{y}
+- \text{capital}$, where $\sum_{y=1}^{10} 1.07^{-y} = 7.02$. So one MW served in
+every hour earns $8{,}760 \times \$1{,}000 \times 7.02 = \alert{\$61.5\text{M}}$,
+against \$25M of site cost. Capital is paid up front and is not discounted.
+
+% ---------------------------------------------------------------------------
+\assignsection{Grading}{asg:conduct}
+
+The assignment counts for \alert{40 points} of the final grade:
+\begin{itemize}[leftmargin=*]
+  \item \alert{30 points}: the presentation, the report, and your work.
+  \item \alert{10 points}: your final game score $S$, the sum of your four
+    Week 2 and Week 3 submission scores.
+    \begin{itemize}
+      \item \alert{5 absolute points}: $5 \times \min\!\big(1, \max(0,
+        S/(2B))\big)$, where $B = \$49.67$B is the final score $S$ of a
+        reference team that runs 1,000\MW{} off the grid ($G = C$).
+      \item \alert{5 rank points}: 5, 4, 3, 2, or 1 for the top 20\%,
+        20--40\%, 40--60\%, 60--80\%, or bottom 20\% of teams.
+    \end{itemize}
+  \item \alert{Bonus, up to 5 points}: 3, 2, and 1 for the top three final
+    scores, and up to 2 for reporting non-trivial and non-intended
+    issues/bugs in the project design.
+\end{itemize}
+Purdue's academic integrity policy applies. To question an evaluation, email
+Minghao Mou (\href{mailto:mmou@purdue.edu}{mmou@purdue.edu}) within 7 days of the results release.
+
+% ---------------------------------------------------------------------------
+\assignsection{Resources and links}{asg:resources}
+
+\begin{itemize}[leftmargin=*]
+  \item \alert{Part II}: setup (\cref{sec:setup}), an AI-agent walkthrough (\cref{sec:agent}), and strategy (\cref{sec:strategy}).
+  \item \alert{Code and data}:
+    \url{https://github.com/MhaoMou/ercot-connection-planning-instructor}.
+  \item \alert{Discord}: \url{https://discord.gg/Xwdgwvn5}.
+\end{itemize}
+\endgroup
+
+\newpage
+% Earlier Part I, hidden; delete \iffalse and \fi below to restore it.
+\iffalse
 \phantomsection\addcontentsline{toc}{part}{Part I: The Assignment}
 \begin{center}
 \Large\bfseries Part I: The Assignment
@@ -379,6 +543,7 @@ Each team's plans must be its own work.
 evaluated incorrectly, contact \alert{Minghao} via \alert{mmou@purdue.edu} within \alert{7} days of the
 results release.
 
+\fi
 \newpage
 \phantomsection\addcontentsline{toc}{part}{Part II: The Tutorial}
 \begin{center}
@@ -432,7 +597,7 @@ Decision & Unit & Meaning\\
 \midrule
 Bus & -- & Where the site connects to the network (a \code{bus_id}).\\
 Connection capacity $C$ & MW & Your requested computing \alert{load cap} at this site. \\
-Generator capacity $G$ & MW & Optional private generator at the site, at most $0.5\,C$.\\
+Generator capacity $G$ & MW & Optional private generator at the site, at most $C$.\\
 Storage power $P$ / energy $B$ & MW / MWh & Optional battery: either both zero, or $B = 4P$.\\
 \bottomrule
 \end{tabularx}
@@ -440,13 +605,22 @@ Storage power $P$ / energy $B$ & MW / MWh & Optional battery: either both zero, 
 
 \alert{You only choose sites and four capacities.} The grid operator decides how your
 generator and battery run in each operating period. Your generator and battery serve only
-your own load: they never export to the grid or to another team.
+your own load: they never export to the grid or to another team. The connection
+capacities of all your sites add up to at most \alert{1,000\MW} per submission.
 
 \subsection{Schedule and data}
 The schedule and the timeline are set out in \nameref{asg:rules}
 (\cref{fig:timeline}). In short: three weeks, each playing the same ten-year
 game in two submissions; Week 1 is practice, Weeks 2 and 3 count, and only
 Week 3 charges energy.
+
+\begin{figure}[!h]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/submission_timeline.tex}}
+  \caption{The submission timeline. Load connected in Submission 1 becomes base
+  load for Submission 2 of the same week; everything resets between weeks.}
+  \label{fig:timeline}
+\end{figure}
 
 Every submission uses the same \alert{representative data for the next ten
 years}, in \code{data/processed/activsg2000_representative_v1/}: five typical
@@ -494,13 +668,12 @@ the base load. A site added in Submission 2 earns the same ten-year value as
 one built in Submission 1, but it competes only for the room that is left.
 \end{keybox}
 
-\begin{warningbox}[Submission 2 can cost more than it earns]
-Submission 1 may leave little or no room on the grid. A Submission 2 site that
-would be served less than half of its request is served nothing, but it
-\alert{still pays its full site cost}, so a Submission 2 score can be billions
-of dollars below zero. Submitting no new sites scores exactly zero. Before you
-submit, recompute hosting capacity on the Submission 2 data your instructor
-releases (\cref{sec:hc}) and preview your plan on it (\cref{sec:preview}).
+\begin{warningbox}[Submission 2 may find little room]
+Submission 1 may leave little or no room on the grid. A Submission 2 site is
+then scaled down, possibly to nothing, and earns little. You pay only for the
+allocated capacity, but a generator still costs fuel. Before you submit,
+recompute hosting capacity on the Submission 2 data your instructor releases
+(\cref{sec:hc}) and preview your plan on it (\cref{sec:preview}).
 \end{warningbox}
 
 \begin{figure}[htbp]
@@ -527,9 +700,9 @@ For each submission, your score in US dollars is
 The coefficients are in the table in \nameref{asg:scoring}: IT value
 \$1,000/MWh served, energy at the LMP in Week 3 only, a generator curve of
 \$80/\$150/\$250 per MWh, all over ten years, and capital of \$25M/MW for a
-site, \$2.0M/MW for a generator (which may produce at most two hours' worth
-of its capacity per day), and \$400k/MW plus \$250k/MWh for storage,
-charged once when built.
+site, \$2.0M/MW for a generator, and \$400k/MW plus \$250k/MWh for storage,
+charged once when built, on the allocated capacities ($\alpha C$, $\alpha G$,
+$\alpha P$, $\alpha B$; \cref{sec:projection}).
 Storage has no operating cost. This section shows what those numbers mean for
 a plan.
 
@@ -550,14 +723,21 @@ served in every period. Baseline LMPs are about \$18/MWh.
   \text{score}       &\approx \$1{,}770.9\text{M}
 \end{align*}
 
-Each served MW earns about \$61.5M (present value) over ten years against a one-time site cost
-of \$25M, so a site breaks even once about \alert{41\% of its load is served}.
+Each served MW earns about \$61.5M (present value) over ten years against a
+one-time site cost of \$25M: about \$36.5M net per MW served from the grid.
 
-\begin{keybox}
-Energy is cheap compared with the value of serving load (\$18 against
-\$1,000 per MWh). What decides your score is \alert{whether the grid can
-actually deliver power to your site.} Load the network cannot serve still pays
-the full site cost.
+\begin{keybox}[The baseline: running off the grid]
+A site with its own generator of the same size ($G = C$) never needs the grid,
+so it is always served in full. Per MW it earns \$61.5M, pays \$25M of site
+cost and \$2.0M of generator capital, and burns fuel in every hour: at an
+average of \$157.5/MWh on the \$80/\$150/\$250 curve, that is \$9.7M over
+ten years. It nets about \$24.8M per MW, against about \$36.5M for a MW
+served from the grid. A team running its full 1,000\MW{} off the grid scores
+\$24.84B in a submission. Summed over the four graded submissions (W2S1
+\$24.84B, W2S2 \$0, W3S1 \$24.84B, W3S2 \$0, since it adds no sites in
+Submission 2), that is the reference score $B = \$49.67$B for the absolute
+points. You beat it by
+getting load onto the grid where the grid has room.
 \end{keybox}
 
 \begin{exercisebox}
@@ -581,33 +761,32 @@ a bit, realizing it's `not all about you.'\,''
 \end{quote}
 
 When the combined plan of all teams is infeasible, the evaluator has to decide who gets
-served. It applies a \alert{fair
-projection} based on the \emph{uniform rule}:
+served. It \alert{allocates} the sites:
 \begin{enumerate}[leftmargin=*]
-  \item \alert{Service fractions.} Each team $i$ gets a single fraction
-    $\alpha_i \in [0,1]$ that scales the connection capacities of all its
-    sites in every period.
-  \item \alert{Equal level.} A common level $t$ (in MW) rises from zero, and
-    team $i$ is served $\min(r_i, t)$, where $r_i$ is its total requested
-    connection capacity. The level stops at the largest $t$ for which the
-    joint dispatch is feasible in every operating period. A team that asked
-    for less than $t$ is served in full.
-  \item \alert{Fill the slack.} If some teams can still grow without hurting
-    a team that is already stuck, their level keeps rising until every team is
-    either fully served or blocked.
-  \item \alert{Minimum allocation.} A team that would be served less than
-    \alert{50\%} of its request gets \alert{nothing}. The largest such request
-    is dropped first, and the allocation is recomputed for the rest.
+  \item \alert{Site fractions.} Every site $i$ (of any team) gets its own
+    fraction $\alpha_i \in [0,1]$. It scales the site's connection capacity,
+    generator and battery together: the site is treated as if you had
+    submitted $\alpha_i C_i$, $\alpha_i G_i$, $\alpha_i P_i$ and $\alpha_i B_i$.
+  \item \alert{Serve the most.} The fractions maximize the total served
+    capacity $\sum_i \alpha_i C_i$ over all sites, subject to the joint
+    dispatch being feasible in all 120 periods.
+  \item \alert{Break ties evenly.} Among the fractions that serve the most,
+    the evaluator picks the one closest to serving everyone in full (it
+    minimizes $\sum_i C_i (1-\alpha_i)^2$). This choice is unique, so the
+    result does not depend on the solver.
+  \item \alert{Pay for what you get.} Capital is charged on the allocated
+    capacities. There is no minimum allocation: a small fraction is still
+    served.
 \end{enumerate}
 
-This changes the question you should ask. Your served load, and so
-whether you clear the break-even points above, depends on what everyone else
-builds. A bigger request does not buy you priority: you are never served more
-than the common level, and a request so large that it would be served less than
-half is dropped entirely, while capital is still charged on the full
-capacity you submitted. So the question is not only ``how much load can my
-site take?'' but also ``how much room will be left for me once the other teams
-have built, and what do they expect me to do?''
+This changes the question you should ask. Your served load depends on what
+everyone else builds. The rule serves the \emph{most megawatts}, so it favors
+sites that need the least of the scarce network per MW served: a site whose
+generator or battery covers its own peak hours, or a site at a bus where a MW
+of load loads the bottleneck lines less. A site that competes for the same
+lines with such sites can be cut a lot. So the question is not only ``how much
+load can my site take?'' but also ``how much room will be left for me once the
+other teams have built, and what do they expect me to do?''
 
 \Cref{sec:twoteam} works through a stylized two-team example at two
 neighboring buses.
@@ -874,7 +1053,7 @@ Do not change any files \alert{(constraint)}.
 \end{promptbox}
 \begin{aibox}[Agent reply (shortened)]
 \textbf{What you submit:} one CSV per submission, two a week for three weeks
-(six files in all). [...] The rules are $G \le 0.5C$ and storage either zero or
+(six files in all). [...] The rules are $G \le C$ and storage either zero or
 $B = 4P$. Submission 2 lists only new sites. You also give a final presentation
 and a report.
 
@@ -977,11 +1156,10 @@ VALID: runs/demo/plan.csv
 team=team-demo sites=2 rows=2 buses=2 generators=0 storage=0 horizon=None
 
 INVALID: runs/demo/plan_bad.csv
-- row 2: generator capacity cannot exceed 0.5 x connection capacity (300 MW > 117.5 MW)
+- row 2: generator capacity cannot exceed connection capacity
 \end{lstlisting}
-The checker's limit is stricter than ``no bigger than the connection'': a
-generator can be at most half the connection capacity [...]. That is the
-$G \le 0.5C$ rule from Part I.
+A generator can be at most as large as its site's connection capacity
+[...]. That is the $G \le C$ rule from Part I.
 \end{aibox}
 \begin{warningbox}[Check it yourself]
 The agent saved the broken copy \emph{next to} the real plan, in
@@ -1040,13 +1218,13 @@ ercot-game-batch run --submissions-dir runs/demo/joint \
 # summary: 2 teams scored, 0 rejected, scope=joint_projection
 \end{lstlisting}
 Together the two teams ask for 898\MW, and the grid cannot carry that, so the
-fair projection was used: each team is served 235.3\MW, a service fraction of
-\textbf{52.4\%}, and scores \textbf{\$2.82B} instead of \$15.6B.
+evaluator allocated the sites: each team is served 235.3\MW, a service
+fraction of \textbf{52.4\%}, and scores \textbf{\$8.16B} instead of \$15.6B.
 \begin{itemize}[leftmargin=*]
-  \item Site cost is charged on the 449\MW{} we request, served or not.
-  \item We are only 2.4 points above the 50\% cutoff. A third team copying the
-    same table would likely push both of us under it [...], for a score of
-    about $-\$11$B.
+  \item Site cost is charged on the 235.3\MW{} we are allocated, not on the
+    449\MW{} we requested.
+  \item A third team copying the same table would cut each of us to about
+    35\% [...], for a score of about \$5.4B.
   \item Smaller sites, or a spread to buses 4 and 5, are much more robust to
     copying.
 \end{itemize}
@@ -1213,7 +1391,7 @@ Column & Rule\\
 \code{site_id} & Your own label for the site, unique within the file.\\
 \code{bus_id} & Must exist in the block's \code{bus.csv}.\\
 \code{connection_capacity_mw} & $C \ge 0$, in MW.\\
-\code{generator_capacity_mw} & $0 \le G \le 0.5\,C$, in MW.\\
+\code{generator_capacity_mw} & $0 \le G \le C$, in MW. All your sites' $C$ add up to at most 1,000\MW.\\
 \code{storage_power_mw} & $P \ge 0$, in MW.\\
 \code{storage_energy_mwh} & $B = 4P$, in MWh (both zero means no battery).\\
 \bottomrule
@@ -1308,7 +1486,7 @@ The preview differs from the official evaluator in two ways:
 \midrule
 Operating periods solved & All 120 representative hours & All 120 representative hours\\
 Storage & Not dispatched (idle), but its capital is charged & Dispatched within each representative day; half full at the start and end of each day\\
-Other teams & Only the CSVs you put in the folder; if they exceed the grid, the same fair projection as the evaluator & All teams, with fair projection if needed\\
+Other teams & Only the CSVs you put in the folder; if they exceed the grid, the same site allocation as the evaluator & All teams, with the site allocation if needed\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -1323,8 +1501,8 @@ plus one entry per team in \code{team_scores} with \code{score},
 \code{generator_operating_cost}, \code{generator_capital_cost},
 \code{storage_capital_cost}, \code{site_cost}, \code{feasible},
 \code{service_fraction}, and \code{dropped}. If your plan does not fit the
-grid in some hour, the preview scales it back with the evaluator's fair
-projection, prints a NOTE, and records the details under \code{projection}.
+grid in some hour, the preview scales it back with the evaluator's site
+allocation, prints a NOTE, and records the details under \code{projection}.
 \code{served_load_mwh} is per represented year: compare it with
 $C \times 8{,}760$ to see how much of your load was served.
 
@@ -1382,24 +1560,26 @@ are part of the base load, and new sites compete only for the room that is
 left. Submission 2 is your chance to add sites once you have seen where
 everyone else built.
 
-\alert{How big?} A fully served site earns about \$36.5M per MW over ten years
-after site cost, and breaks even at about 41\% served. Grow capacity in steps and watch where served load stops keeping
-up.
+\alert{How big?} A MW served from the grid earns about \$36.5M over ten
+years after site cost; a MW run off the grid on your own generator about
+\$24.8M (\cref{sec:score}). You pay only for the capacity you are allocated,
+and your sites add up to at most 1,000\MW. Grow grid-served capacity in steps
+and watch where served load stops keeping up.
 
 \alert{Where?} Since baseline prices are flat, location matters through
 network headroom. Shortlist buses with a large hosting capacity
 (\cref{sec:hc}), keep your request comfortably below it to leave room for other
 teams, and preview the same capacity at several of them.
 
-\alert{Private generation?} Your generator is \alert{backup for the tight hours},
-not a second power supply: it may run at most two hours a day at full output
-(air permits limit how long on-site engines may run~\cite{ecfr6366640,georgia2025permit}). It therefore helps only
-where your bus's hosting capacity dips for a few hours a day, as on the peak
-day; at a bus that is limited in every hour, it can cover only a small part of
-the shortfall. At \$80/MWh or more it also costs more than baseline grid energy
-(about \$18/MWh), so in uncongested hours it sits idle and its \$2.0M/MW
-capital is spent for nothing. Look at how your bus's hosting capacity varies
-over the day before you buy one (\cref{sec:hc}).
+\alert{Private generation?} Your generator may run in every hour and be as
+large as your site, so it is both \alert{backup for the tight hours} and, with
+$G = C$, a way to run entirely off the grid. At \$80/MWh or more it costs more
+than baseline grid energy (about \$18/MWh), so the grid operator runs it only
+when the grid cannot serve you or is more expensive; in uncongested hours it
+sits idle and its \$2.0M/MW capital buys insurance. A generator also makes
+your site need less of the network per MW served, which the allocation
+rewards (\cref{sec:projection}). Look at how your bus's hosting capacity
+varies over the day before you size one (\cref{sec:hc}).
 
 \alert{Storage?} With nearly flat prices, there is little to gain from buying
 low and selling high. Like a generator, a battery is mainly useful at a
@@ -1407,9 +1587,9 @@ location where the network is tight in some operating periods. Remember that the
 does not dispatch storage, so it will not show this benefit.
 
 \alert{Other teams.} Your preview runs without them, but the official
-dispatch includes everyone. If the combined plan is infeasible, the projection
-in \cref{sec:projection} cuts the largest requests first, down to a common
-level, and you still pay for everything you submitted.
+dispatch includes everyone. If the combined plan is infeasible, the allocation
+in \cref{sec:projection} serves the most megawatts in total, so sites that
+compete for the same lines as more network-efficient sites are cut first.
 
 \alert{Use Week 1.} Week 1 does not count. Use it to see how your plan is
 treated in the joint evaluation with everyone else.
@@ -1430,41 +1610,42 @@ scores them on all 120 representative hours. Each served MW is worth about
 Payoffs, A / B (\$M) & B small (50\MW) & B large (100\MW)\\
 \midrule
 \multicolumn{3}{@{}l}{\emph{Weeks 1--2 (no energy cost)}}\\
-A small (50\MW) & 1,826 / 1,826 & 1,826 / 2,980\\
-A large (100\MW) & 3,172 / 1,826 & 1,820 / 1,820\\
+A small (50\MW) & 1,826 / 1,826 & 1,826 / 3,255\\
+A large (100\MW) & 3,653 / 1,564 & 3,653 / 1,564\\
 \midrule
 \multicolumn{3}{@{}l}{\emph{Week 3 (energy at LMP)}}\\
-A small (50\MW) & 1,772 / 1,772 & 1,421 / 2,207\\
-A large (100\MW) & 2,426 / 1,394 & 1,363 / 1,333\\
+A small (50\MW) & 1,772 / 1,772 & 1,336 / 2,320\\
+A large (100\MW) & 2,673 / 1,115 & 2,673 / 1,115\\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \begin{itemize}[leftmargin=*]
   \item \alert{Both small.} The grid can serve both sites in full.
-  \item \alert{One large, one small.} The combined plan is infeasible. The
-    small team asked for less than the common level, so it is served in full.
-    The large team gets what is left (89.1\MW{} for B, 92.2\MW{} for A) and
-    still pays for 100\MW. Being the only large team pays off.
-  \item \alert{Both large.} Both teams are cut to the same level, about
-    70.2\MW. Each pays for 100\MW{} but is served only 70\%.
+  \item \alert{B large, A small.} The combined plan is infeasible. The most
+    megawatts are served by keeping A's 50\MW{} and giving B what is left,
+    89.1\MW. B pays only for those 89.1\MW.
+  \item \alert{A large.} At the shared bottleneck a MW at bus 1002 uses a
+    little less of the line than a MW at 1010, so serving A first serves the
+    most in total: A gets its full 100\MW{} and B gets 42.8\MW{}, whether B
+    asked for 50 or 100. B pays only for the 42.8\MW{} it gets.
   \item \alert{Week 3: congestion is expensive.} When the bottleneck is full,
-    the LMP at both buses rises, and energy costs \$400--770M per team instead
-    of about \$55M. Even the small team pays for the large team's crowding.
+    the LMP at both buses rises, and energy costs hundreds of millions of
+    dollars per team instead of about \$55M.
 \end{itemize}
 
-There is no plan that is best whatever the other team does.\footnote{That means, for this two-player game, there is no \alert{dominant strategy} for either player.} If B goes small,
-A should go large (3,172 beats 1,826); if B goes large, A should go small
-(1,826 beats 1,820, and in Week 3, 1,421 beats 1,363). The same holds for B. In
-both weeks the game has two stable outcomes, (large, small) and (small,
-large): the Nash equilibria of this game. It is \alert{a game
-of chicken}: each team wants to be the large one, but if both insist, both
-lose. Three lessons carry over to the real game: asking for more than your
-share of a shared bottleneck is not rewarded; the grid's spare capacity goes
-to whoever does not crowd it; and your best plan depends on what you expect the
-others to do.
+Here A has a plan that is best whatever B does: going large (3,653 beats
+1,826 in Weeks 1--2, and 2,673 beats 1,772 or 1,336 in Week 3). This is a
+\alert{dominant strategy}. B's best reply is large when A is small; when A is
+large, B gets the same 42.8\MW{} either way. So the game settles with A large
+and B served only the room A leaves. Three lessons carry over to the real game:
+the rule rewards the site that serves the most MW per MW of shared network, so
+small differences in location decide who gets the room; asking for more than
+you are allocated costs nothing, but does not get you more either; and your
+best plan depends on where the others build and how their buses share your
+bottlenecks.
 
-\enlargethispage{3pt}% the two-team footnote overflows this page by about 2pt
+
 \subsection{Run controlled experiments}
 Change one thing at a time and record every run:
 
@@ -1509,7 +1690,8 @@ Message & What to do\\
 \msg{one CSV may contain only one team_id} & Use your team ID on every row.\\
 \msg{... must be non-negative} & Use zero or a positive number.\\
 \msg{... must be a finite decimal} & Use a plain number: no units, no blanks, no text.\\
-\msg{generator capacity cannot exceed 0.5 x connection capacity} & Lower $G$ to at most $0.5\,C$, or raise $C$.\\
+\msg{generator capacity cannot exceed connection capacity} & Lower $G$ to at most $C$, or raise $C$.\\
+\msg{total connection capacity cannot exceed 1,000 MW per team} & Lower the $C$ of your sites so they add up to at most 1,000\MW.\\
 \msg{storage energy must equal four times storage power} & Set $B = 4P$, or both to 0.\\
 \msg{CONFIGURATION ERROR: ...} & The command is wrong, not your file. For example, \code{--artifact-dir} must point to an existing scenario folder.\\
 \msg{scenario block validation_status is not passed} & The preview is pointing at an unreleased block. Use a block your instructor has released.\\
@@ -1537,7 +1719,7 @@ first three lines of my CSV are: [paste]. What is wrong and how do I fix it?
   \item The same \code{team_id} is used on every row, and every \code{site_id}
     is unique.
   \item Every \code{bus_id} exists in the block you are submitting for.
-  \item $G \le 0.5\,C$, and storage is either $(0,0)$ or $B = 4P$.
+  \item $G \le C$ at every site, all sites' $C$ add up to at most 1,000\MW, and storage is either $(0,0)$ or $B = 4P$.
   \item For Submission 2, every Submission 1 row is unchanged.
   \item The checker prints \code{VALID} for the exact file you will upload.
   \item You can explain why you chose each bus and capacity.
@@ -1554,7 +1736,7 @@ After every submission the instructor releases:
   \item (private) the \alert{score breakdown}: IT value, energy cost, generator
     operating cost, and the capital costs charged in that submission;
   \item (public) the \alert{service fraction} $\alpha$ of every team;
-  \item (public) whether the \alert{fair projection} was triggered;
+  \item (public) whether the \alert{site allocation} was triggered;
   \item (public) an \alert{interactive grid map} drawn on a schematic layout
     of the network. Each bus is colored by the
     total connection capacity that all teams placed there together, and each
@@ -1565,13 +1747,14 @@ After every submission the instructor releases:
 
 Read them in this order:
 \begin{enumerate}[leftmargin=*]
-  \item \alert{Was the projection triggered?} If not, the combined plan fit
-    the grid and every team has $\alpha = 1$. If it was, compare your
-    $\alpha$ with the other teams'. An $\alpha$ of exactly 0 means your
-    request would have been served less than half and was dropped
-    (\cref{sec:projection}).
-  \item \alert{Is your $\alpha$ above break-even?} A site needs about 41\%
-    served to pay for itself over ten years (\cref{sec:score}).
+  \item \alert{Was the allocation triggered?} If not, the combined plan fit
+    the grid and every site has $\alpha = 1$. If it was, compare your
+    $\alpha$ (your served share of the capacity you requested) with the other
+    teams'. A low $\alpha$ means your sites competed for the same lines as
+    sites that serve more MW per MW of network (\cref{sec:projection}).
+  \item \alert{Did the grid beat running off the grid?} A MW served from the
+    grid nets about \$36.5M, a MW run off the grid about \$24.8M
+    (\cref{sec:score}).
   \item \alert{Which term drives your score?} Usually IT value against site
     cost; in Week 3, check whether congestion made energy expensive.
   \item \alert{How does it compare with your preview?} If much less of your
@@ -1619,11 +1802,11 @@ teams have learned from the results too.
   It scores 0 for that submission (\nameref{asg:rules}). Other teams are
   evaluated without it. Run the checker on the exact file you upload.
 \item[Why is my $\alpha$ zero?]
-  The combined plan did not fit the grid, and at the common level your team
-  would have been served less than half of its request, so the minimum
-  allocation dropped it (\cref{sec:projection}). You still pay capital for
-  what you built. Ask for less at congested buses, or move to buses with more
-  room.
+  The combined plan did not fit the grid, and the most megawatts in total were
+  served by giving the room your sites needed to other sites
+  (\cref{sec:projection}). You pay nothing for capacity you were not
+  allocated. Move to buses with more room, or add a generator or battery so
+  that your site needs less of the network.
 \item[Can other teams see my plan?]
   Not in detail. They can see every team's $\alpha$, and the
   total connection capacity at each bus, not who built what.
@@ -1654,9 +1837,8 @@ IT value & \$1,000 earned for each MWh of your load that is served, over ten yea
 DCOPF & DC optimal power flow, the dispatch the evaluator solves for each operating period. & \cref{sec:model}\\
 LMP & Locational marginal price: the cost of one more MWh at a bus. & \cref{sec:model}\\
 SOC & State of charge: the energy stored in a battery. & \cref{sec:model}\\
-Fair projection & How the evaluator shares the grid when not every request fits. & \cref{sec:projection}\\
-Service fraction $\alpha$ & The share of your requested load that is served. & \cref{sec:projection}\\
-Minimum allocation & A team that would be served less than half of its request gets nothing. & \cref{sec:projection}\\
+Allocation & How the evaluator shares the grid when not every request fits: each site gets a fraction $\alpha$ that maximizes the total served MW. & \cref{sec:projection}\\
+Service fraction $\alpha$ & The share of your requested capacity that is allocated (per site, or for your whole team). & \cref{sec:projection}\\
 Hosting capacity & The most new load a bus can take without making the grid infeasible. & \cref{sec:hc}\\
 Checker & \code{ercot-game-check-csv}; checks your file's format. & \cref{sec:csv}\\
 Preview & \code{ercot-game-preview}; an approximate score for your plan alone. & \cref{sec:preview}\\
@@ -1747,7 +1929,7 @@ $\mathcal H$ meets one axis, so single-bus numbers \alert{do not add up}. When
 two buses share a bottleneck, $\mathcal H$ is much smaller than the box formed
 by their individual hosting capacities: on the game grid at the peak hour, bus
 1002 hosts 123\MW{} alone but only 81\MW{} with 60\MW{} at its neighbor 1010.
-The fair projection in \cref{sec:projection} picks a point in $\mathcal H$ for
+The site allocation in \cref{sec:projection} picks a point in $\mathcal H$ for
 all teams' sites, which is why your service depends on where everyone else
 builds.
 
@@ -1828,7 +2010,7 @@ periods tells you the generator or battery power you would need.
     and no losses.
   \item \alert{Simultaneity.} Single-bus numbers ignore everyone else who is
     connecting at the same time; that is what the region $\mathcal H$ and the
-    fair projection are for.
+    site allocation are for.
 \end{itemize}
 
 \subsection{Computing it}
@@ -1919,9 +2101,10 @@ matrix $\Phi$ (the flow on each branch per MW injected at each bus and withdrawn
 at the reference bus) and branch thermal limits $\mathbf F$; base loads
 $\mathbf d_t$ and fixed DC-line injections $\mathbf s_t$ (vectors over buses);
 and hourly periods $t = 1, \dots, T$ with $T = 120$. Team $i$ has sites $s$ at
-buses $k(s)$ with capacities $C_s, G_s, P_s, B_s$ and service fraction
-$\alpha_i$ ($\alpha_i = 1$ unless the fair projection is needed); $\mathbf e_n$
-is the unit vector of bus $n$.
+buses $k(s)$ with capacities $C_s, G_s, P_s, B_s$ and site fraction
+$\alpha_s$ ($\alpha_s = 1$ unless the allocation of \cref{app:projection} is
+needed; it scales $C_s, G_s, P_s, B_s$ together); $\mathbf e_n$ is the unit
+vector of bus $n$.
 
 \alert{Decision variables, for every operating period $t$.} Existing generation
 $\mathbf p^{\mathrm g}_t$; net bus injections $\mathbf p_t$ and branch flows
@@ -1943,21 +2126,20 @@ The period length is $\Delta t = 1$ hour.
 subject to, for every period $t=24(d-1)+h$:
 \begin{align*}
   & \mathbf p_t = M\,\mathbf p^{\mathrm g}_t
-    + \sum_s \mathbf e_{k(s)} \Big(\sum_m q^m_{s,t} + u_{s,t} - \alpha_{i(s)} C_s\Big)
+    + \sum_s \mathbf e_{k(s)} \Big(\sum_m q^m_{s,t} + u_{s,t} - \alpha_s C_s\Big)
     + \mathbf s_t - \mathbf d_t && \text{(net injections)},\\
   & \mathbf 1^{\top} \mathbf p_t = 0 && \text{(system balance)},\\
   & \mathbf f_t = \Phi\,\mathbf p_t,\quad |\mathbf f_t| \le \mathbf F && \text{(DC flow, limits)},\\
-  & \mathbf p^{\min} \le \mathbf p^{\mathrm g}_t \le \mathbf p^{\max},\qquad 0 \le q^m_{s,t} \le w^m G_s && \forall s, m,\\
-  & e_{s,d,h} = e_{s,d,h-1} - \Delta t\, u_{s,t},\quad 0 \le e_{s,d,h} \le B_s && \forall s,\\
-  & |u_{s,t}| \le P_s,\quad \Delta t\, u_{s,t} \le e_{s,d,h-1} && \forall s,\\
-  & \textstyle\sum_{h=1}^{24} \sum_{m} \Delta t\, q^m_{s,24(d-1)+h} \le 2\,G_s && \forall s,d \quad\text{(run hours)},\\
-  & e_{s,d,0} = 0.5 B_s, \qquad e_{s,d,24} = 0.5 B_s && \forall s,d,\\
-  & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,t} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_i C_s && \forall i, n,
+  & \mathbf p^{\min} \le \mathbf p^{\mathrm g}_t \le \mathbf p^{\max},\qquad 0 \le q^m_{s,t} \le w^m \alpha_s G_s && \forall s, m,\\
+  & e_{s,d,h} = e_{s,d,h-1} - \Delta t\, u_{s,t},\quad 0 \le e_{s,d,h} \le \alpha_s B_s && \forall s,\\
+  & |u_{s,t}| \le \alpha_s P_s,\quad \Delta t\, u_{s,t} \le e_{s,d,h-1} && \forall s,\\
+  & e_{s,d,0} = 0.5\, \alpha_s B_s, \qquad e_{s,d,24} = 0.5\, \alpha_s B_s && \forall s,d,\\
+  & \sum_{s \in \text{team } i,\ k(s)=n} u_{s,t} \le \sum_{s \in \text{team } i,\ k(s)=n} \alpha_s C_s && \forall i, n,
 \end{align*}
 where the last constraint keeps a
 team's batteries from discharging more than that team's load at a bus (a
-team's generators are limited the same way). Batteries and the generators'
-two-hour daily budget couple the 24 hours within each representative day, but
+team's generators are limited the same way). A generator may run in every
+hour. Batteries couple the 24 hours within each representative day, but
 not different days. The evaluator therefore solves one independent linear
 program per day; each day starts and ends at half charge. How it solves these
 daily problems quickly is the subject of \cref{app:benders}. The grid operator (instructor) solves it exactly. The
@@ -1977,15 +2159,15 @@ at its limit, load at a bus that adds to the flow on that line
 ($\Phi_{\ell n} < 0$) pays more, and load at a bus that relieves it pays less.
 Prices are clipped at zero. Team $i$'s grid purchase at
 bus $n$ is the part of its load that its own generation and batteries do not
-cover, $\pi_{i,n,t} = \max\{0,\ \sum_{s} (\alpha_i C_s - \sum_m q^m_{s,t} - u_{s,t})\}$,
+cover, $\pi_{i,n,t} = \max\{0,\ \sum_{s} (\alpha_s C_s - \sum_m q^m_{s,t} - u_{s,t})\}$,
 summed over its sites at $n$. With the ten-year period weights
 $w_t = \Delta t \times d_t \times A$ of \cref{sec:game} ($d_t$ the days per year
 that period $t$'s day stands for, $A = 7.02$),
 \begin{align*}
-  \text{IT value}_i &= 1{,}000 \sum_t w_t \sum_{s \in i} \alpha_i C_s,\\
+  \text{IT value}_i &= 1{,}000 \sum_t w_t \sum_{s \in i} \alpha_s C_s,\\
   \text{energy cost}_i &= \sum_t w_t \sum_n \lambda_{n,t}\, \pi_{i,n,t},\\
   \text{gen.\ operating}_i &= \sum_t w_t \sum_{s \in i} \sum_m c^m q^m_{s,t},\\
-  \text{capital}_i &= \sum_{s \in i,\ \text{new}} \big(25\text{M}\,C_s + 2.0\text{M}\,G_s\\
+  \text{capital}_i &= \sum_{s \in i,\ \text{new}} \alpha_s \big(25\text{M}\,C_s + 2.0\text{M}\,G_s\\
   &\qquad\qquad + 0.4\text{M}\,P_s + 0.25\text{M}\,B_s\big),
 \end{align*}
 where the energy cost applies in Week 3 only, and ``new'' means built in this
@@ -1997,30 +2179,14 @@ site, taken from the Submission 1 dispatch.
 
 A day on the full network is a large linear program: 24 copies of the
 2{,}000-bus DCOPF, about 125{,}000 constraints, tied together only by a few
-devices at the teams' sites. Solving it in one piece is slow, and the fair
-projection (\cref{app:projection}) has to solve it many times, often for load
-levels that do not fit, which a solver needs a long time to prove. The
-evaluator therefore splits each day into a small problem about the devices and
-24 ordinary hourly DCOPFs. This is \alert{Benders
+devices at the teams' sites. Solving it in one piece is slow. When the plans
+fit, the evaluator therefore splits each day into a small problem about the
+batteries and 24 ordinary hourly DCOPFs. This is \alert{Benders
 decomposition}~\cite{benders1962partitioning}.
 
-One important observation is: \alert{A budgeted generator can be viewed as a battery that can only discharge.} A private
-generator with capacity $G$ may run at most two hours a day at full output by our assumption.
-Seen from the grid, that is exactly a battery that starts the day holding
-$2G$\MWh, can discharge at most $G$\MW{} in any hour, cannot recharge, and may
-end the day with energy left over:
-\[
-  e_{0} = 2G,\qquad e_{h} = e_{h-1} - \Delta t\, g_h,\qquad
-  0 \le g_h \le G,\qquad e_{24} \ge 0 .
-\]
-The only differences are that the generator pays its fuel curve
-($c^m$ per MWh in each segment) and has no ``charging'' variable. So the same
-machinery the evaluator already uses for batteries (as discussed above) can handle the two-hour budget.
-
-\alert{Split the day.} Collect the device decisions of the day, the battery
-outputs $u_{s,h}$ and the generator segments $q^m_{s,h}$, in a vector $x$, and
-write $X$ for the set allowed by the daily constraints above (state of charge,
-energy budgets, power limits, and ``serve only your own load''). Once $x$ is
+\alert{Split the day.} Collect the battery outputs of the day, $u_{s,h}$, in a
+vector $x$, and write $X$ for the set allowed by the daily constraints above
+(state of charge, power limits, and ``serve only your own load''). Once $x$ is
 fixed, each hour is a DCOPF in which the devices are fixed injections
 at their buses:
 \[
@@ -2030,8 +2196,9 @@ at their buses:
 the cost of running the grid in hour $h$ (with a large penalty on any load that
 cannot be served, so $\phi_h$ is always defined). The day's problem is then
 \[
-  \min_{x \in X}\ \sum_{s,h,m} c^m q^m_{s,h} + \sum_{h=1}^{24} \phi_h(x).
+  \min_{x \in X}\ \sum_{h=1}^{24} \phi_h(x)
 \]
+(the generators stay in the hourly DCOPFs, priced by their fuel curve).
 Each $\phi_h$ is convex and piecewise linear in $x$, but we do not have a
 formula for it, only the ability to evaluate it by solving one hourly DCOPF.
 
@@ -2046,7 +2213,7 @@ where $x_h$ are the device injections in hour $h$. The small \alert{master
 problem} replaces each $\phi_h$ by a variable $\theta_h$ that must lie above all
 cuts found so far:
 \[
-  \min_{x \in X,\ \theta}\ \sum_{s,h,m} c^m q^m_{s,h} + \sum_h \theta_h
+  \min_{x \in X,\ \theta}\ \sum_h \theta_h
   \quad\text{s.t.}\quad \theta_h \ge \text{every cut of hour } h .
 \]
 The algorithm alternates:
@@ -2054,14 +2221,14 @@ The algorithm alternates:
   \item Solve the master problem. Its value is a \alert{lower bound} on the
     day's cost, and its solution is the next trial point $\hat x$.
   \item Solve the 24 hourly DCOPFs at $\hat x$ (independently, in parallel).
-    Their total cost plus the generators' fuel is an \alert{upper bound}: it is
-    the cost of an actual dispatch.
+    Their total cost is an \alert{upper bound}: it is the cost of an actual
+    dispatch.
   \item Add one new cut per hour to the master and repeat until the two bounds
     agree (to a relative gap of $10^{-7}$).
 \end{enumerate}
 Because every $\phi_h$ is piecewise linear, the loop ends after finitely many
 cuts at the exact optimum of the daily LP; on the game's package it typically
-needs about 20 iterations. The master is small (it has only the devices'
+needs about 20 iterations. The master is small (it has only the batteries'
 variables), and each hourly DCOPF is the same size as a hosting-capacity LP, so
 the whole day solves in seconds instead of the many minutes the one-piece LP can
 take. The LMPs of the full day are recovered from the master's cut multipliers.
@@ -2076,261 +2243,100 @@ scheduling problems are solved in practice.
 
 
 % ---------------------------------------------------------------------------
-\section{The fair projection in detail}\label{app:projection}
+\section{The site allocation in detail}\label{app:projection}
 
-When the combined plan of all valid teams is infeasible, the evaluator reduces
-service. Let $C_{i,s}$ be the connection capacity of team $i$ at site $s$ and
-$r_i = \sum_{s} C_{i,s}$ team $i$'s total request (MW). The evaluator chooses
-one \alert{service fraction} $\alpha_i \in [0, 1]$ per team.
+When the combined plan of all valid teams is infeasible, the evaluator scales
+the sites down. Every site $s$ (of any team) gets its own \alert{fraction}
+$\alpha_s \in [0,1]$. ERCOT does not publish a formula for splitting capacity
+among the loads it studies together~\cite{ercot2026batch}; the game uses the
+rule below so that every team can reproduce it.
 
-\subsection{How a team's service is split among its sites}
+\subsection{What a fraction does}
 
-\begin{keybox}[Every site of a team is scaled by the same fraction]
-Site $s$ of team $i$ is served
+\begin{keybox}[A fraction scales the whole site]
+Site $s$ with fraction $\alpha_s$ is treated exactly as if you had submitted
 \[
-  \alpha_i\, C_{i,s} \ \text{MW in every operating period,}
+  \alpha_s C_s,\quad \alpha_s G_s,\quad \alpha_s P_s,\quad \alpha_s B_s :
 \]
-so the team is served $\sum_{s} \alpha_i C_{i,s} = \alpha_i r_i$\MW{} in total.
-The evaluator does \emph{not} decide how to divide a team's allocation among
-its sites: the split is fixed by the team's own requests. Private generators
-and batteries are not scaled.
+its load is $\alpha_s C_s$ in every period, its generator may produce up to
+$\alpha_s G_s$, and its battery is $\alpha_s P_s$\MW{} and $\alpha_s B_s$\MWh,
+starting and ending each day at $\alpha_s B_s/2$. Capital is charged on the
+scaled capacities. Different sites of the same team can get different
+fractions.
 \end{keybox}
 
-For example, a team that requests 60\MW{} at bus A and 40\MW{} at bus B
-($r_i = 100$\MW) and receives $\alpha_i = 0.7$ is served 42\MW{} at A and
-28\MW{} at B. Even if bus B is the congested one, the evaluator does not move
-the team's 70\MW{} toward A. Three consequences:
+\subsection{The rule}
+
+\paragraph{Stage 1: serve the most.} The evaluator finds the largest total
+served capacity
+\[
+  V^\star = \max_{\boldsymbol\alpha \in [0,1]^S}\ \sum_s \alpha_s C_s
+  \quad\text{s.t. the constraints of \cref{app:model} hold in all 120 periods,}
+\]
+with $\alpha_s$ in place of $\alpha_{i(s)}$ and the generator and battery limits
+scaled as above. This is a linear program: the fractions enter every
+constraint linearly.
+
+\paragraph{Stage 2: break ties evenly.} Usually many fraction vectors serve
+$V^\star$ (for example, two identical sites at the same bus can split the room
+in any way). Among them the evaluator picks
+\[
+  \boldsymbol\alpha^\star = \arg\min_{\boldsymbol\alpha}\ \sum_s C_s (1-\alpha_s)^2
+  \quad\text{s.t.}\quad \sum_s \alpha_s C_s = V^\star \text{ and the constraints above.}
+\]
+The objective is strictly convex in $\boldsymbol\alpha$ and the feasible set is
+convex, so $\boldsymbol\alpha^\star$ is \alert{unique}: the allocation does not
+depend on the solver or on the order of the files. Identical sites at the same
+bus get the same fraction.
+
+\subsection{What the rule rewards}
+
 \begin{itemize}[leftmargin=*]
-  \item \alert{Your mix of sites is your decision.} Moving MW between your own
-    sites happens in your CSV, not in the evaluator.
-  \item \alert{One congested site cuts all of your sites.} The rule below
-    compares teams by their total MW. If one of your sites sits behind a
-    bottleneck, every one of your sites is cut by the same fraction, including
-    those at quiet buses. Keep risky and safe sites in mind when you plan.
-  \item \alert{An oversized site hurts others.} Inflating one site at a
-    congested bus shifts the team's fixed mix toward that bottleneck, which can
-    lower the common level for every team. The minimum allocation (step 3)
-    removes such requests.
+  \item \alert{MW served per MW of network.} Stage 1 counts every served MW
+    the same, wherever it is. A site that needs less of the scarce network for
+    each MW it serves wins the room. Example: a bus with 70\MW{} of room in
+    every hour, site A asks for 60\MW{} with no generator and site B for
+    60\MW{} with a 30\MW{} generator. Serving B in full uses only 30\MW{} of
+    the room, so the rule serves B in full and A at $40/60 = 67\%$: 100\MW{}
+    in total, more than any even split.
+  \item \alert{Off-grid sites are never cut.} A site with $G = C$ needs no
+    network, so it always gets $\alpha_s = 1$. It earns less per MW than a site
+    served from the grid (\cref{sec:score}), which is why it is the reference
+    plan.
+  \item \alert{Location matters through the bottlenecks.} When a line limits
+    several buses, a MW at a bus with a small shift factor on that line uses
+    less of it, so sites there are served first.
+  \item \alert{No minimum allocation.} A site with a small fraction is still
+    served that fraction, and pays only for it.
 \end{itemize}
 
-\subsection{The four steps}
+\subsection{How it is computed}
 
+The fractions are the same in all 120 periods, so they couple all five days;
+within a day, batteries couple the hours. The evaluator solves the two stages
+with a \alert{cutting-plane} method that never builds the 120-period problem in
+one piece:
 \begin{enumerate}[leftmargin=*]
-  \item \alert{Common level.} Find the largest level $t$ such that serving
-    every team $\min(r_i, t)$ is feasible in every operating period. Teams with
-    $r_i \le t$ are served in full.
-  \item \alert{Water-filling.} A team that cannot grow on its own, even by a
-    tiny amount, is \emph{blocked} and keeps its level. The teams that are
-    neither blocked nor fully served raise their common level again, and the
-    step repeats until every team is fully served or blocked. Each level is
-    found by bisection to within 0.1\MW.
-  \item \alert{Minimum allocation.} If some team is served less than half of
-    its request, $\alpha_i < 0.5$, the team with the largest request among them
-    (ties broken by team ID) is dropped to $\alpha_i = 0$, and steps 1--2 are
-    repeated for the remaining teams. This continues until every remaining team
-    gets at least half of its request.
-  \item \alert{Fallback.} If no joint solution is found, the evaluator tries
-    leaving one team out at a time, then each team alone, and records what
-    happened.
+  \item A small \alert{master problem} over the fractions only (a linear program
+    in stage 1, a quadratic program in stage 2) proposes $\hat{\boldsymbol\alpha}$.
+  \item For each representative day, a \alert{load-shedding LP} measures how far
+    $\hat{\boldsymbol\alpha}$ is from fitting: it minimizes the total load that
+    would have to be shed in that day's 24 hours. The shed is a convex,
+    piecewise-linear function of $\boldsymbol\alpha$, and the LP's reduced costs
+    give its slope.
+  \item If a day sheds load, its value and slope give a linear cut
+    $\text{shed}_d(\hat{\boldsymbol\alpha}) + \mathbf g_d^{\top}(\boldsymbol\alpha
+    - \hat{\boldsymbol\alpha}) \le 0$ that every fitting $\boldsymbol\alpha$
+    satisfies but $\hat{\boldsymbol\alpha}$ does not. It is added to the master,
+    and the loop repeats until no day sheds load.
 \end{enumerate}
-
-\subsection{Steps 1 and 2 in detail}
-
-\paragraph{The feasibility test.} Both steps ask one question many times: for
-given fractions $\alpha = (\alpha_1, \dots, \alpha_n)$, is the plan feasible?
-To answer it, the evaluator scales every site to $\alpha_i C_s$ and runs the full
-dispatch of \cref{app:model} over all 120 hours, storage included. The
-answer is ``yes'' if a dispatch exists in every operating period. The search
-below assumes that lowering any team's fraction never makes a feasible plan
-infeasible.
-
-\paragraph{Levels in MW.} Steps 1 and 2 work with a \alert{level} $t$ in MW. At
-level $t$, team $i$ is served $\min(r_i, t)$, that is,
-\[
-  \alpha_i(t) = \min\!\Big(1,\ \frac{t}{r_i}\Big).
-\]
-Teams that are already \alert{frozen} (blocked or fully served) keep their
-fraction while the others move.
-
-\paragraph{Step 1: the common level.} All teams that are not frozen are raised
-together. If serving all of them in full is feasible, they are done. Otherwise
-the evaluator searches for the largest feasible level by \alert{bisection}: it
-keeps a level $t_{\mathrm{lo}}$ known to be feasible and a level
-$t_{\mathrm{hi}}$ known to be infeasible, tests the midpoint, and replaces one
-of them, until $t_{\mathrm{hi}} - t_{\mathrm{lo}}$ is at most the tolerance
-$\tau = \min(0.1\MW,\ 0.1\% \text{ of the largest request})$. The level
-becomes $t_{\mathrm{lo}}$, and every team with $r_i \le t_{\mathrm{lo}}$ is now
-fully served.
-
-\paragraph{Step 2: water-filling.} At the common level, some teams may still be
-able to grow: their sites are not behind the line that stopped the level.
-The evaluator tests each remaining team \alert{alone}: it raises only that team
-to $t_{\mathrm{lo}} + 2\tau$ and runs the feasibility test.
-\begin{itemize}[leftmargin=*]
-  \item If the test fails, the team is \alert{blocked}: it is frozen at its
-    current fraction.
-  \item If the test passes because the team has reached its full request,
-    the team is served in full and frozen.
-  \item Otherwise the team can still grow, and it stays active.
-\end{itemize}
-The active teams then return to step 1, starting from the current level, and
-rise together again. \alert{The loop ends when no team is active.}
-
-\paragraph{The algorithm.} In Python-like pseudocode (the real code is
-\code{_fair_continuous_projection} in
-\code{src/ercot_game/batch_evaluation.py}):
-\begin{lstlisting}[language=tutorialpython]
-def water_fill(requests, feasible, tol):
-    # requests[i] = r_i in MW; feasible(alpha) runs the full dispatch
-    alpha = {i: 0.0 for i in requests}
-    active = {i for i in requests if requests[i] > 0}
-    level = 0.0
-
-    def at(t, teams):                      # raise these teams to level t
-        a = dict(alpha)
-        for i in teams:
-            a[i] = max(alpha[i], min(1.0, t / requests[i]))
-        return a
-
-    while active:
-        top = max(requests[i] for i in active)
-        if feasible(at(top, active)):      # Step 1: everyone active fits
-            level = top
-        else:                              # Step 1: bisection on the level
-            lo, hi = level, top
-            while hi - lo > tol:
-                mid = (lo + hi) / 2
-                if feasible(at(mid, active)):
-                    lo = mid
-                else:
-                    hi = mid
-            level = lo
-        alpha = at(level, active)
-        active = {i for i in active if alpha[i] < 1.0}    # fully served leave
-
-        blocked, filled = set(), set()     # Step 2: test each team alone
-        for i in sorted(active):
-            trial = at(level + 2 * tol, {i})
-            if not feasible(trial):
-                blocked.add(i)
-            elif trial[i] >= 1.0:          # reached its full request
-                full = dict(alpha)
-                full[i] = 1.0
-                if feasible(full):
-                    alpha = full
-                    filled.add(i)
-        if not blocked and not filled:
-            break                          # cannot happen on a convex region
-        active -= blocked | filled
-    return alpha
-\end{lstlisting}
-Step 3 calls \code{water_fill} again without the dropped team, until every
-remaining team gets at least half of its request.
-
-\paragraph{A worked example.} Three teams with one site each: A requests
-60\MW, B and C request 40\MW{} each. Suppose the network allows at most 50\MW{}
-at B and C together (they share a line) and at most 45\MW{} at A.
-\begin{center}
-\small
-\begin{tabular}{@{}llccc@{}}
-\toprule
-Step & What happens & A & B & C\\
-\midrule
-1 & All rise together; at 25\MW{} the B--C line is full & 25 & 25 & 25\\
-2 & Test alone: B and C are blocked, A can still grow & active & blocked & blocked\\
-1 & A rises alone until its own limit, 45\MW & 45 & 25 & 25\\
-2 & Test alone: A is blocked; no team is active & blocked & & \\
-3 & Shares $45/60$, $25/40$, $25/40$ are all at least 50\% & & & \\
-\midrule
- & Served (MW) and $\alpha_i$ & 45 (0.75) & 25 (0.625) & 25 (0.625)\\
-\bottomrule
-\end{tabular}
-\end{center}
-If C had asked for 60\MW{} instead, step 1 would still stop at 25\MW, but C
-would then get only $25/60 = 42\%$ of its request. Step 3 drops C, and the
-rerun serves A 45\MW{} and B its full 40\MW: C's oversized request ends up
-costing only C.
-
-\subsection{Why the rule is max-min fair and strategy-proof}
-
-Steps 1--2 are the \alert{uniform rule}~\cite{sprumont1991division} applied to
-the network. This subsection explains its two defining properties and where
-they stop holding. Write $s_i = \alpha_i r_i$ and
-$\mathcal S$ for the set of feasible service vectors $s$ (those with
-$0 \le s_i \le r_i$ that the network can serve).
-
-\paragraph{Max-min fairness.} A feasible $s^*$ is \alert{max-min fair} if no
-team can be given more without taking something from a team that has the same
-amount or less: for every feasible $s$ with $s_i > s^*_i$, some team $j$ has
-$s^*_j \le s^*_i$ and $s_j < s^*_j$. Equivalently, sort the allocations from
-smallest to largest: no feasible allocation has a larger smallest value, or,
-when those tie, a larger second-smallest, and so on. The worst-off team comes
-first, then the next.
-
-Water-filling builds exactly this allocation. In the first round all teams rise
-together until the common level $t_1$ cannot grow. Each team that is
-\alert{blocked} at $t_1$ sits on a binding constraint, and the only other teams
-on that constraint are at the same level $t_1$ or already fully served below
-it. Giving a blocked team more therefore means taking from a team with no more
-than it has, so no feasible allocation lifts the smallest level above $t_1$
-without hurting someone at or below it. The blocked teams are frozen, and the
-same argument applied to the remaining teams shows that the next level $t_2$ is
-the best possible second tier, and so on. On a compact, convex feasible set a
-max-min fair allocation exists and is unique, and water-filling computes it
-whenever lowering one team's share never makes a feasible allocation
-infeasible~\cite{radunovic2007unified}. The same property guarantees that when the common level
-stops, at least one active team is blocked on its own, which is why testing
-each team alone in step 2 is enough.
-
-\paragraph{Strategy-proofness.} Fix the other teams' requests, and let
-$t^*_i$ be the MW team $i$ would be served if it asked for an unlimited amount.
-On a single shared limit $H$, team $i$ is served
-\[
-  s_i = \min(r_i,\ t^*_i):
-\]
-if $r_i \le t^*_i$ it is served in full, and if $r_i > t^*_i$ the common level
-solves $\sum_{j \ne i} \min(r_j, t) + t = H$, which does not involve $r_i$, so
-it is served $t^*_i$ whatever it asked. Asking for more than you want never
-increases your service, and asking for less only reduces it. If a team wants
-$q$\MW, asking for $q$ gets it $\min(q, t^*_i)$, the closest amount to $q$ it
-can obtain, so telling the truth is a dominant strategy. Sprumont showed that
-the uniform rule is the only rule that is strategy-proof, efficient, and treats
-teams symmetrically~\cite{sprumont1991division}. On the network with one site
-per team the same structure holds: the water-filling follows the same path
-until team $i$ stops, so team $i$ is served $\min(r_i, \tau_i)$, where $\tau_i$
-is the point at which it becomes blocked given the others.
-
-In this game you pay capital on what you \emph{request}, so the request you
-want is the MW you will be served. Since service is $\min(r_i, t^*_i)$, every
-MW requested above $t^*_i$ only adds site cost, and a request above $2t^*_i$ is
-dropped by the minimum allocation. The rule follows ERCOT's batch study for
-large loads in the same spirit: capacity is allocated across a batch of
-requests studied together rather than first come, first served, and a request
-that cannot receive a minimum share of what it asked for receives
-nothing~\cite{ercot2026batch}.
-
-\paragraph{Where the guarantees stop.}
-\begin{itemize}[leftmargin=*]
-  \item \alert{Energy prices.} Strategy-proofness concerns \emph{service}. Your
-    score also includes energy at the LMP, which depends on your own load. At a
-    congested bus, asking slightly less can lower your price by more than the
-    service you give up, so truth-telling is no longer dominant.
-  \item \alert{Several sites per team.} The fraction applies to your whole mix
-    of sites. Changing the mix, for example inflating one site at a congested
-    bus, changes the shape of $\mathcal S$ and can lower the common level for
-    everyone. Strategy-proofness covers the size of your total request, not the
-    choice of sites; the minimum allocation is what removes such requests.
-  \item \alert{Equal MW, not efficiency.} The rule counts a MW at a bus that
-    barely uses a bottleneck the same as a MW at a bus that uses it heavily.
-    This is why, in the two-team example of \cref{sec:twoteam}, both large
-    teams are cut to the same level, and why the total served can fall short of
-    what a planner would achieve. Kelly's proportional
-    fairness~\cite{kelly1998rate}, which maximizes $\sum_i \log(\alpha_i r_i)$,
-    is reported in the results as a diagnostic.
-  \item \alert{Discrete sizes.} With only a few allowed sizes, the best request
-    may not be available, and best responses can jump between sizes; this
-    produces the chicken-style equilibria of the two-team example.
-\end{itemize}
+To avoid jumping between extreme proposals, each proposal is first tested
+halfway towards the last fractions known to fit (\emph{in-out} separation); the
+five days are independent and are solved in parallel.
+The final fractions are then dispatched with one exact LP per day
+(\cref{app:model}). If even the base network cannot be dispatched, the
+evaluator falls back to leaving one team out at a time, then each team alone,
+and records what happened.
 
 % ---------------------------------------------------------------------------
 % Appendices D (A little game theory) and E (The connection game in depth)
@@ -2923,8 +2929,8 @@ Planning horizon & 10 years at 7\% & A data center runs for about ten years; per
 Representative days & 5 days, 120 hours & Four medoid days from clustering the daily load profiles of one year of hourly ACTIVSg2000-based data, plus the peak-load day; weights sum to 365.\\
 Site cost & \$25M/MW & Cost of building an AI data center per MW of IT load: about \$10.7M/MW for the building and up to \$25M/MW with AI fit-out~\cite{jll2026dc}, or \$21--31M/MW including servers~\cite{morganstanley2024dc}.\\
 Generator capital & \$2.0M/MW & Installed cost of on-site gas engines and aeroderivative turbines for data centers, about \$1,700--2,000/kW~\cite{rabobank2026btm}; EIA reference costs are in the same range~\cite{eia2024generatorcosts}.\\
-Generator cap & $G \le 0.5\,C$ & Texas SB~6 (2025) treats on-site generation that can serve at least half of a large load as backup that ERCOT may call on in emergencies~\cite{utilitydive2025sb6}.\\
-Generator run hours & 2 h per day & Air permits limit on-site engines: federal rules allow 100 hours a year of maintenance and testing, of which at most 50 may be non-emergency use~\cite{ecfr6366640,sidley2025rice}, and state permits cap total operation, e.g.\ below 500 hours a year~\cite{georgia2025permit}. Two hours a day (about 730 hours a year) is a teaching choice in that range.\\
+Generator cap & $G \le C$, any hours & A site may carry its whole load on its own generator, which may run in every hour; with $G = C$ it can run off the grid. This makes off-grid operation the reference plan for the absolute points.\\
+Team cap & 1,000\MW{} per submission & An instructional limit on each team's total connection capacity, so that scores stay bounded and comparable with the reference plan.\\
 Generator operating cost & \$80/150/250 per MWh & A rising cost curve for on-site gas generation with a diesel-backup premium; the exact shape is instructional~\cite{eia2025heatrate}.\\
 Storage capital & \$400k/MW + \$250k/MWh & Rounded from the 2028 moderate projection for four-hour batteries~\cite{nrel2023bess}; \$1.4M per MW of four-hour storage.\\
 Grid energy price & LMP from the dispatch & The bus-level dual price of the DCOPF; about \$17--20/MWh before students add load.\\

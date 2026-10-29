@@ -74,7 +74,6 @@ ercot-game-batch run \
   --workers 8 \
   --solver-backend auto \
   --output-mode compact \
-  --projection-iterations 10 \
   --output-dir work/week2/results_submission1
 ```
 
@@ -88,7 +87,6 @@ ercot-game-batch run \
   --workers 8 \
   --solver-backend auto \
   --output-mode compact \
-  --projection-iterations 10 \
   --output-dir work/week2/results_submission2
 ```
 
@@ -114,8 +112,8 @@ the period checks in parallel.) It prints `submission 2 base load validation:
 passed 120 periods` and writes the artifact with a `passed` manifest.
 Give students only per-bus totals from it.
 
-Validation solves every period with the strict single-period DCOPF. The fair
-projection serves teams up to the edge of feasibility, so a carried
+Validation solves every period with the strict single-period DCOPF. The site
+allocation serves teams up to the edge of feasibility, so a carried
 withdrawal can overshoot the boundary by solver noise (about 1e-7 MW), and
 HiGHS then reports `kInfeasible` or `kUnknown`. Such a period is re-checked
 with a phase-one LP: if a demand change of at most 1e-3 MW in total at the
@@ -134,7 +132,8 @@ command stops with `Submission 2 base-load validation failed: ... periods
 contradicting pair is rejected. `--submission-number` (`1` or `2`, default
 `1`) is evaluator-side metadata, not a CSV field.
 
-The production storage route is the exact multi-storage Benders solver.
+The production storage route is the exact multi-storage Benders solver when
+the plans fit; an allocated dispatch uses one exact monolithic LP per day.
 `--solver-backend auto` is the default: it uses Gurobi when `gurobipy` and a
 valid license can be started, and otherwise falls back to HiGHS. Use
 `--solver-backend highs` or `--solver-backend gurobi` to force a backend.
@@ -143,18 +142,14 @@ diagnostics, and hashes without the large per-period dispatch export. Use
 `--output-mode full` when the detailed per-period dispatch is needed for debugging
 or visualization (the grid map reads its line loading).
 
-`--workers N` parallelizes the evaluation without changing its result. When
-the joint request is infeasible, the fair projection runs its independent
-feasibility checks (one per team at each water-filling probe, and the next
-levels of each bisection, evaluated speculatively) in `N` worker processes;
-each check is the same serial dispatch as with one worker and the search uses
-the answers in serial order, so the projected fractions and scores are
-identical for every `N`. Hourly periods without storage or team generators are
-also solved in `N` threads. The Benders recourse inside one dispatch stays
-serial: parallel recourse threads warm-start the recourse models in a
-scheduling-dependent order and can move a projected fraction at solver
-tolerance. Use at most the cores you may occupy (each worker holds one copy of
-the network, about 0.5 GB on the 2,000-bus case).
+`--workers N` parallelizes the evaluation without changing its result: hourly
+periods without storage are solved in `N` threads, and the site allocation
+solves its five daily load-shedding LPs in up to five worker processes (one
+per day, each with its own model, so the fractions do not depend on `N`; the
+tie-break makes them unique). The
+Benders recourse inside one dispatch stays serial: parallel recourse threads
+warm-start the recourse models in a scheduling-dependent order and can move a
+result at solver tolerance. Use at most the cores you may occupy.
 
 `--roster <file>` (one `team_id` per line, or a CSV with a `team_id` column)
 prints `roster: K of N teams submitted; missing: ...` and writes
@@ -196,22 +191,18 @@ team-blue,site-south,1002,15,0,0,0
 Every row is one site. The file has no `period`, hourly `load_mw`,
 `submission_id`, `generator_id`, or `storage_id` columns and no
 horizon rows. `bus_id` must exist in the selected block's `bus.csv`.
-Generator capacity cannot exceed 0.5 x connection capacity, and storage is
-either zero or has energy equal to four times power (B = 4P). Each generator
-may produce at most `generator_daily_energy_hours` (2) x its capacity in MWh
-per representative day; the evaluator enforces this in a coupled daily LP
-(one per representative day, solved together with any storage), the fair
-projection uses the same budgeted feasibility, and each team diagnostic lists
-`generator_energy.generators.<id>.energy_mwh_by_day` next to the daily budget.
+Generator capacity cannot exceed connection capacity (G <= C; a site may run
+off the grid), a generator may run in every hour, the sites of one file add up
+to at most 1,000 MW of connection capacity, and storage is either zero or has
+energy equal to four times power (B = 4P).
 Co-located private generators of different teams share the bus's private
 generation in proportion to their capacity. The LP fixes only each bus's
 total private generation, so after every solve (hourly, Benders daily,
-monolithic daily) the evaluator re-splits that total by capacity G,
-water-filling around each generator's caps (capacity and segment structure,
-its team's own load at the bus, and its daily h x G budget). Bus totals, flows,
-LMPs and the objective are unchanged. If the proportional split would break a
-daily budget, the solver split of that bus-day is kept and listed under
-`generator_split_fallbacks` in the evaluation metadata.
+monolithic daily) the evaluator re-splits that total by capacity G, filling
+around each generator's caps (capacity and segment structure, and its team's
+own load at the bus). Bus totals, flows, LMPs and the objective are unchanged.
+A bus whose proportional split cannot be applied keeps the solver split and is
+listed under `generator_split_fallbacks` in the evaluation metadata.
 
 Run the student-facing checker:
 
@@ -279,12 +270,14 @@ The active coefficients are:
 | Discount rate / planning life | 7% / 10 years | - | Instructor choice; annuity factor A = 7.0236. |
 | Team-generator curve | 80 / 150 / 250 over 25% / 50% / 25% | USD/MWh | Source-informed convex curve for colocated natural-gas engines/turbines with standby/scarcity premium. |
 | Generator capital | 2,000,000 | USD/MW | Installed on-site gas engines/aeroderivative turbines about $1,700–2,000/kW (Rabobank 2026); EIA-based Texas PUC filing figures: aeroderivative about $1,430/kW, internal-combustion engines about $2,240/kW. |
-| Generator cap | 0.5 | fraction of connection capacity | `max_generator_to_connection_ratio`; Texas SB 6 (2025) treats on-site backup able to serve at least 50% of a large load as backup ERCOT may call on in emergencies. |
-| Generator daily run-hour budget | 2 | hours of full output per day | `generator_daily_energy_hours`: sum of g_t x 1 h over each representative day <= 2 x G. Air-permit run-hour caps (federal emergency engines 100 h/yr testing incl. at most 50 h non-emergency; state permits e.g. < 500 h/yr); 2 h/day ≈ 730 h/yr is a teaching choice that makes the generator a peak-shaving device. |
+| Generator cap | 1.0 | fraction of connection capacity | `max_generator_to_connection_ratio`: G <= C, no run-hour limit; a site with G = C runs off the grid. A rules file that sets `generator_daily_energy_hours` is rejected. |
+| Team connection cap | 1,000 | MW per team per submission | `max_team_connection_capacity_mw`; a file above it is rejected. |
+| Reference plan B | 49.67 | billion USD | Final score (sum of W2S1, W2S2, W3S1, W3S2) of one team alone running 1,000 MW off the grid (G = C): 24.84B + 0 + 24.84B + 0; computed analytically (`data/teaching/reference_plan/`). |
 | Connection-site cost | 25,000,000 | USD/MW | AI-data-center facility-capital proxy, not a universal grid-interconnection tariff; informed by JLL and Morgan Stanley. |
 | Storage power capital | 400,000 | USD/MW | Rounded component of NREL's 2028 moderate four-hour projection. |
 | Storage energy capital | 250,000 | USD/MWh | Rounded component of the same NREL projection. |
 | Four-hour storage equivalent | 1,400,000 | USD/MW | Derived from `400,000 * P + 250,000 * (4P)`. |
+| Capital basis | allocated capacities | - | Site, generator and storage capital are charged on alpha C, alpha G, alpha P, alpha B (alpha = 1 unless the site allocation is needed). |
 | Storage operating cost | 0 | USD/MWh | Explicit instructor-chosen zero-cost rule. |
 | Invalid/infeasible fallback score | 0 | USD | Deterministic instructor policy. |
 
@@ -294,50 +287,51 @@ from the selected joint dispatch, not a student-chosen price vector. Existing
 public generators use dataset marginal costs; team-built generators use the
 common convex curve above.
 
-## Fair projection and failure isolation
+## Site allocation and failure isolation
 
 Malformed files are rejected independently so valid teams remain eligible. If
-the valid joint request is infeasible, the evaluator allocates connection
-capacity with the uniform rule (max-min fair in MW):
+the valid joint request is infeasible, the evaluator allocates the sites:
 
-- a common level `t` rises, and team `i` is served `min(r_i, t)`, where `r_i`
-  is its total requested connection MW; all sites of a team are scaled by the
-  same fraction `alpha_i`;
-- a team asking for less than `t` is served in full, so asking for more than
-  the common level earns nothing extra;
-- when `t` is blocked, the teams that can still grow on their own keep rising
-  together (water-filling) until every unfilled team is blocked;
-- minimum allocation: a team served below 50% of its request gets nothing.
-  The largest such request (ties by team id) is dropped and the allocation is
-  recomputed until every remaining team meets the minimum, as in ERCOT's batch
-  study for large loads.
+- every site `s` (of any team) gets a fraction `alpha_s` in [0, 1] that scales
+  its connection capacity, generator capacity, storage power and storage
+  energy together; different sites of one team can get different fractions;
+- stage 1 maximizes the total served capacity `sum_s alpha_s C_s` subject to
+  the joint DCOPF in all 120 periods (storage cycling daily from half full,
+  each team's generator and storage serving only its own load at the bus);
+- stage 2 breaks ties by minimizing `sum_s C_s (1 - alpha_s)^2` at the
+  stage-1 total (within a relative 1e-7); the objective is strictly convex, so
+  the allocation is unique and solver-independent;
+- there is no minimum allocation, and capital is charged on the allocated
+  capacities.
 
-The uniform rule is strategy-proof for one divisible resource (Sprumont,
-1991). On the network, an inflated request at a congested bus does not help
-its team but can lower everyone's level, because one fraction scales all of a
-team's sites; the minimum allocation removes such requests (an earlier
-stress test with a 300 MW request at bus 1002 lowered the level from 73.3 to
-67.9 MW without it). There are no per-site or per-team caps. Each level is
-found by bisection to `min(0.1 MW, 1e-3 x largest request)`; the CLI option
-`--projection-iterations 10` is a lower bound on bisection iterations. The audit records per-team fractions,
-projected load, requested MW, the common level, minimum fraction, tolerance and dropped-team count
-(`cap_policy`),
-the objective (`uniform_rule_max_min_capacity`), and scope. Proportional-fair
-utility is still reported as a diagnostic.
+The rule favors sites that need the least network per MW served: a site with
+G = C needs none and is never cut. The fractions are the same in every period,
+so they couple the five days. They are computed by cutting planes: a small
+master over the fractions (an LP in stage 1, a QP in stage 2) proposes a
+point, and one load-shedding LP per representative day (built once, first
+solved by interior point, then re-solved by warm-started simplex) measures the
+shed; a day that sheds more than 1e-4 MWh returns a cut from its reduced costs.
+The final fractions are dispatched with one exact LP per day. Every cut site
+(alpha < 1) is first scaled by 1 - 1e-4, so the dispatch and the Submission 2
+base load built from it stay strictly inside the binding limits (a site within
+1e-5 of full service is served in full); if the dispatch still fails, every
+fraction is scaled by 1 - 1e-3, then 1 - 1e-2. The
+audit records `site_fraction_by_team`, per-team service fractions (allocated
+over requested capacity), projected load, the objective
+(`utilitarian_max_served_capacity`) and `cap_policy` (`max_total_capacity_mw`,
+`total_capacity_mw`, `requested_capacity_mw`, `iterations`, `cuts`).
+Proportional-fair utility is still reported as a diagnostic. The CLI option
+`--projection-iterations` is accepted for compatibility and unused.
 
-Each feasibility check is a full joint dispatch, and a check that the solver
-cannot decide counts as infeasible. HiGHS presolve occasionally stops with
-`kUnknown` on near-degenerate LPs at the feasibility boundary (the Benders
-master in particular); such a solve is repeated from scratch without
-presolve, then with the primal simplex, before it is treated as unresolved.
-Without this retry a team could be stopped below the common level although
-it could still grow (the rehearsal's team-01, 152.40 MW against a level of
-153.77 MW).
+HiGHS presolve occasionally stops with `kUnknown` on near-degenerate LPs at the
+feasibility boundary (the Benders master in particular); such a solve is
+repeated from scratch without presolve, then with the primal simplex, before it
+is treated as unresolved.
 
-No first-come-first-serve ordering is used. If projection is unavailable, the
-evaluator records deterministic leave-one-team-out and individual fallback
-attempts where possible. A valid team's score is not silently erased by one
-oversized or malformed submission.
+No first-come-first-serve ordering is used. If no allocation exists (the base
+network itself cannot be dispatched), the evaluator records deterministic
+leave-one-team-out and individual fallback attempts where possible. A valid
+team's score is not silently erased by one oversized or malformed submission.
 
 ## Privacy-safe outputs
 
@@ -353,7 +347,10 @@ capacities, and failure details. The classroom writer creates separate outputs:
   (`instructor/team_folder_secret.txt`) is created on the first classroom run
   and reused on resume; `instructor/final_leaderboard.csv` and
   `instructor/round_scores/` map team IDs to folders. Never publish
-  `instructor/`;
+  `instructor/`. When the site allocation ran, the private file's
+  `projection.site_fraction` lists the alpha of each of that team's own sites
+  (the instructor's per-team diagnostics carry the same field); shared files
+  keep only team-level fractions and aggregates;
 - exact competitor plans, raw dispatch JSON, and team-specific failure details
   are not classroom-shared.
 
@@ -374,8 +371,7 @@ per-round scores, folder secret). Use the leaderboard and classroom-safe summari
 the manifest, diagnostics, dispatch files, state file, and evaluation JSON for
 audit.
 
-`leaderboard.csv` ends with `service_fraction` (share of the requested load
-served; below 1 only after the fair projection, empty for rejected or
-infeasible rows) and `dropped` (`True` when the minimum-allocation rule
-served the team nothing, so `served_load_mwh` is 0 although `feasible` is
-`True`).
+`leaderboard.csv` ends with `service_fraction` (share of the requested
+capacity allocated; below 1 only after the site allocation, empty for rejected
+or infeasible rows) and `dropped` (`True` when the allocation gave the team
+nothing, so `served_load_mwh` is 0 although `feasible` is `True`).

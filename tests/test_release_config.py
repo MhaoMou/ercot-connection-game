@@ -5,9 +5,9 @@ import pytest
 from ercot_game.release_config import (
     CANONICAL_ENERGY_COST_BY_WEEK,
     CANONICAL_GENERATOR_CAPITAL_COST_PER_MW,
-    CANONICAL_GENERATOR_DAILY_ENERGY_HOURS,
     CANONICAL_HORIZON,
     CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO,
+    CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW,
     CANONICAL_PREVIEW_STRIDE,
     CANONICAL_STORAGE_BOUNDARY_MODE,
     CANONICAL_TIME_STEP_HOURS,
@@ -24,7 +24,8 @@ def test_canonical_release_is_the_hourly_representative_day_package() -> None:
     assert CANONICAL_TIME_STEP_HOURS == 1
     assert CANONICAL_HORIZON == 120
     assert CANONICAL_STORAGE_BOUNDARY_MODE == "daily_exact_cycle"
-    assert CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO == 0.5
+    assert CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO == 1.0
+    assert CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW == 1_000.0
     assert CANONICAL_PREVIEW_STRIDE == 1
     manifest = require_validated_block(canonical_release_artifact_dir())
     assert manifest["package_version"] == REPRESENTATIVE_PACKAGE_VERSION
@@ -32,7 +33,8 @@ def test_canonical_release_is_the_hourly_representative_day_package() -> None:
     rules = json.loads(canonical_release_rules_path().read_text(encoding="utf-8"))
     assert rules["rules_version"] == "dispatch-scoring-representative-v1"
     assert rules["max_generator_to_connection_ratio"] == CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO
-    assert rules["generator_daily_energy_hours"] == CANONICAL_GENERATOR_DAILY_ENERGY_HOURS
+    assert rules.get("generator_daily_energy_hours") is None
+    assert rules["max_team_connection_capacity_mw"] == CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW
     assert rules["generator_capital_cost_per_mw"] == CANONICAL_GENERATOR_CAPITAL_COST_PER_MW
 
 
@@ -41,7 +43,8 @@ def test_release_json_matches_the_week_schedule_and_energy_switch() -> None:
     assert config["scenario_package"] == "data/processed/activsg2000_representative_v1"
     assert config["horizon"] == CANONICAL_HORIZON
     assert config["max_generator_to_connection_ratio"] == CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO
-    assert config["generator_daily_energy_hours"] == CANONICAL_GENERATOR_DAILY_ENERGY_HOURS
+    assert "generator_daily_energy_hours" not in config
+    assert config["max_team_connection_capacity_mw"] == CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW
     assert config["generator_capital_cost_per_mw"] == CANONICAL_GENERATOR_CAPITAL_COST_PER_MW
     weeks = config["weeks"]
     assert [week["week_id"] for week in weeks] == [match.week_id for match in CLASSROOM_SCHEDULE]

@@ -36,7 +36,7 @@ ACTIVSg2000 hourly source -> 5-day x 24-hour representative package (validated)
         -> student canonical site-level CSV submissions
         -> CSV/catalog validation
         -> daily-cycle joint DCOPF dispatch (per hourly period)
-        -> fair continuous projection if required
+        -> utilitarian site allocation if required
         -> ten-year present-value team score and ranking
 ```
 
@@ -51,13 +51,14 @@ grid energy at the LMP, each weighted per period by `period_weight_hours`
 weights sum to 61,526.57 h, so a fully served MW is worth about \$61.5M of IT
 value). Capital costs are charged once and undiscounted: site cost of \$25M/MW
 of connection capacity, generator capital cost of \$2.0M/MW, and storage
-capital costs of \$400k/MW plus \$250k/MWh. Generator capacity is capped at
-0.5 x connection capacity, and each generator may produce at most 2 h x its
-capacity per representative day (`generator_daily_energy_hours` = 2, a
-run-hour budget like an engine air permit); storage is zero or exactly four
-hours (B = 4P).
-Without energy cost a site breaks even at about 41% served. Storage operating
-cost is not charged, and an invalid submission scores 0.
+capital costs of \$400k/MW plus \$250k/MWh, all on the allocated
+capacities. Generator capacity is capped at the site's connection capacity
+(G <= C, so a site can run off the grid) with no run-hour limit; a team's
+sites add up to at most 1,000 MW of connection capacity per submission;
+storage is zero or exactly four hours (B = 4P). A MW served from the grid nets
+about \$36.5M; a MW run off the grid (G = C, full output every hour) about
+\$24.8M. Storage operating cost is not charged, and an invalid submission
+scores 0.
 
 The five representative days are 2028-01-03 (weight 83.77), 05-10 (99.73),
 07-12 (82.77), 09-10 (97.73), and the peak day 09-15 (weight exactly 1, holding
@@ -106,7 +107,8 @@ ercot-game-check-csv \
   --artifact-dir data/processed/activsg2000_representative_v1
 ```
 
-The checker enforces the release's 0.5 x connection generator cap.
+The checker enforces the release's G <= C generator cap and the 1,000 MW
+team cap.
 
 The active canonical header is exactly seven columns, with one data row per
 site:
@@ -143,7 +145,6 @@ ercot-game-batch run \
   --rules data/teaching/dispatch_scoring_rules_representative_v1.json \
   --week 2 --submission-number 1 \
   --workers 8 \
-  --projection-iterations 10 \
   --output-dir work/week2_sub1
 ```
 
@@ -179,10 +180,12 @@ Hosting capacity on the full package (`ercot-game-hosting-capacity`) solves
 2,000 buses x 120 periods = 240,000 LPs, about 19 minutes with Gurobi
 (32 workers) on a server.
 
-If the joint plan is infeasible in a period, the evaluator applies the uniform
-fair projection: a common MW level rises by water-filling, teams served below
-50% of their request are dropped (largest short request first), and
-deterministic fallback isolation follows only if that fails.
+If the joint plan is infeasible in a period, the evaluator allocates the
+sites: each site gets a fraction alpha in [0, 1] that scales its C, G, P and B;
+the fractions maximize the total served capacity sum alpha C over all 120
+periods, ties broken by minimizing sum C (1 - alpha)^2 (unique), with no
+minimum allocation. Deterministic fallback isolation follows only if no
+allocation exists.
 Malformed submissions are rejected independently so valid teams can still be
 scored. The output directory of the official run is the source of truth for scores.
 

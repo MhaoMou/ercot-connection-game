@@ -2,26 +2,37 @@
 
 The absolute game points are `5 * min(1, max(0, S / (2B)))`, where `S` is a
 team's final score (sum of its four graded submissions) and `B` is the score
-of this reference plan: one 300 MW site at bus 6147, with no generator or
-battery, built in Submission 1 of Weeks 2 and 3 and evaluated alone. It adds
-nothing in Submission 2.
+of this reference plan: one team alone runs 1,000 MW off the grid, a single
+1,000 MW site with a 1,000 MW generator (G = C) and no battery, built in
+Submission 1 of Weeks 2 and 3. It adds nothing in Submission 2.
 
-Bus 6147 ranks about 110th of 2,000 buses by minimum hosting capacity over the
-120 representative hours (2,264 MW), so the site is well inside its limit.
+An off-grid site never draws from the grid, so its score does not depend on
+the bus, on the other teams or on the week's energy price. `B` is computed
+analytically from `dispatch_scoring_rules_representative_v1.json`, with the
+generator at full output in every hour (the 120 period weights sum to
+61,526.57 hours):
 
-| Submission | IT value | Site cost | Energy cost | Score |
-| --- | --- | --- | --- | --- |
-| Week 2, Submission 1 | $18.458B | $7.500B | $0 | $10.958B |
-| Week 3, Submission 1 | $18.458B | $7.500B | $0.329B | $10.629B |
-| Week 2 and 3, Submission 2 | — | — | — | $0 |
+| Term | Per graded submission |
+| --- | --- |
+| IT value: 1,000 MW x 61,526.57 h x $1,000/MWh | $61.5266B |
+| Fuel: 1,000 MW x 61,526.57 h x $157.5/MWh (25% at $80, 50% at $150, 25% at $250) | -$9.6904B |
+| Site cost: 1,000 MW x $25M/MW | -$25.0000B |
+| Generator capital: 1,000 MW x $2.0M/MW | -$2.0000B |
+| Score | $24.8361B |
 
-`B = $21.587B`; full absolute points need `S >= $43.17B`.
+| Graded submission | Score |
+| --- | --- |
+| Week 2, Submission 1 (W2S1) | $24.836B |
+| Week 2, Submission 2 (W2S2) | $0 (no new sites) |
+| Week 3, Submission 1 (W3S1) | $24.836B |
+| Week 3, Submission 2 (W3S2) | $0 (no new sites) |
+| **Final score, B** | **$49.672B** |
 
-Reproduce with the released defaults (representative package and rules):
+`B` is the reference team's final score, the sum of its four graded
+submissions, so it is compared directly with a team's final score `S`; full
+absolute points need `S >= 2B = $99.34B`.
 
-```bash
-ercot-game-batch run --submissions-dir data/teaching/reference_plan \
-  --output-dir results/reference_week2 --week 2 --submission-number 1
-ercot-game-batch run --submissions-dir data/teaching/reference_plan \
-  --output-dir results/reference_week3 --week 3 --submission-number 1
-```
+The batch evaluator is not used for `B`: the grid operator minimizes total
+cost, so it would serve part of this site from the grid whenever grid energy is
+cheaper than the generator's fuel, and the site would no longer run off the
+grid. `team-reference.csv` is the plan itself, for reference.

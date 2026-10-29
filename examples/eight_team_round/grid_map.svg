@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1347" width="1200" height="1347" font-family="Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1347" width="100%" height="100%" style="display:block;max-height:100vh" font-family="Helvetica, Arial, sans-serif">
 <style>.bus:hover,.site:hover{stroke:#111;stroke-width:2}.line:hover{stroke:#0969da;stroke-width:4}.binding{cursor:pointer}text{fill:#24292f}#tip text{fill:#ffffff}.impact{stroke:#0969da !important;stroke-width:2.5 !important}.picked{stroke:#0969da !important;stroke-width:5 !important}.found{stroke:#0969da !important;stroke-width:3 !important}.button{cursor:pointer}.button rect{fill:#f6f8fa;stroke:#8c959f}.button.active rect{fill:#0969da;stroke:#0969da}.button.active text{fill:#ffffff}#labels text{fill:#24292f;pointer-events:none}</style>
 <rect width="1200" height="1347" fill="#ffffff"/>
 <text x="40" y="42" font-size="30" font-weight="bold">Eight-team example</text>
@@ -5262,10 +5262,15 @@
   var W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
   var scale = 1, x = 0, y = 0, drag = null, moved = false;
   var MIN = 1, MAX = 60, LABEL_SCALE = 4;
+  // The map scales to fit the window, so screen points are converted with the
+  // current screen transform (which also accounts for any letterboxing).
   function toView(e) {
-    var r = svg.getBoundingClientRect();
-    return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height];
+    var pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    pt = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return [pt.x, pt.y];
   }
+  function screenScale() { return svg.getScreenCTM().a || 1; }
   function apply() {
     view.setAttribute('transform', 'translate(' + x + ',' + y + ') scale(' + scale + ')');
     labels.setAttribute('display', scale >= LABEL_SCALE ? 'inline' : 'none');
@@ -5292,7 +5297,7 @@
   window.addEventListener('mouseup', function () { drag = null; });
   window.addEventListener('mousemove', function (e) {
     if (!drag) return;
-    var r = svg.getBoundingClientRect(), k = W / r.width;
+    var k = 1 / screenScale();
     var dx = e.clientX - drag[0], dyy = e.clientY - drag[1];
     if (Math.abs(dx) + Math.abs(dyy) > 3) moved = true;
     x = drag[2] + dx * k; y = drag[3] + dyy * k; apply();
@@ -5316,12 +5321,14 @@
     box.setAttribute('width', b.width + 24); box.setAttribute('height', b.height + 16);
     tip.setAttribute('visibility', 'visible'); place(p);
   }
+  // The hover box keeps the same on-screen size however small the map is drawn.
   function place(p) {
-    var w = +box.getAttribute('width'), h = +box.getAttribute('height');
-    var tx = p[0] + 16, ty = p[1] + 16;
-    if (tx + w > W) tx = p[0] - w - 16;
-    if (ty + h > H) ty = p[1] - h - 16;
-    tip.setAttribute('transform', 'translate(' + tx + ',' + ty + ')');
+    var k = 1 / screenScale();
+    var w = +box.getAttribute('width') * k, h = +box.getAttribute('height') * k, d = 16 * k;
+    var tx = p[0] + d, ty = p[1] + d;
+    if (tx + w > W) tx = p[0] - w - d;
+    if (ty + h > H) ty = p[1] - h - d;
+    tip.setAttribute('transform', 'translate(' + tx + ',' + ty + ') scale(' + k + ')');
   }
   svg.addEventListener('mouseover', function (e) {
     var t = e.target.getAttribute && e.target.getAttribute('data-tip');

@@ -87,7 +87,7 @@ def test_demo_rules_are_the_main_release_economics():
     assert demo["scenario_package"] == IEEE14_DEMO_PACKAGE_VERSION
     assert demo["it_value_per_mwh"] == [1000.0] * HORIZON
     assert demo["site_cost_per_mw"] == 25_000_000.0
-    assert demo["max_generator_to_connection_ratio"] == 0.5
+    assert demo["max_generator_to_connection_ratio"] == 1.0
     assert demo["it_value_provenance"]["break_even_served_fraction"] == pytest.approx(0.406, abs=0.001)
     rules = load_scoring_rules(DEMO_RULES, artifact_dir=DEMO, horizon=HORIZON)
     assert rules.storage_boundary_mode == "daily_exact_cycle"
@@ -195,8 +195,9 @@ def test_batch_projects_joint_requests_at_the_shared_bottleneck(tmp_path, capsys
     assert "scope=joint_projection" in capsys.readouterr().out
     evaluation = json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))
     projection = evaluation["projection_diagnostics"]
-    assert projection["objective"] == "uniform_rule_max_min_capacity"
+    assert projection["objective"] == "utilitarian_max_served_capacity"
     projected = projection["projected_capacity_mw_by_team"]
-    # Symmetric requests: the uniform rule gives both teams the same level.
-    assert projected["team-a"] == pytest.approx(projected["team-b"], abs=0.1)
-    assert 15.0 <= projected["team-a"] < 30.0
+    # The allocation maximizes the total served capacity; neither team gets
+    # its full request, and the total stays below the joint request.
+    assert 0.0 < sum(projected.values()) < 60.0
+    assert all(value <= 30.0 + 1e-6 for value in projected.values())

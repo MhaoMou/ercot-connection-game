@@ -203,6 +203,22 @@ def generator_cap_violation(
     )
 
 
+def team_capacity_violation(
+    total_connection_capacity_mw: float,
+    max_team_connection_capacity_mw: float | None,
+) -> str | None:
+    """Return the message when a team's total C exceeds the cap, else ``None``."""
+    if max_team_connection_capacity_mw is None:
+        return None
+    limit = max_team_connection_capacity_mw
+    if total_connection_capacity_mw <= limit + 1e-9 * max(1.0, abs(limit)):
+        return None
+    return (
+        f"total connection capacity cannot exceed {limit:,.10g} MW per team "
+        f"({total_connection_capacity_mw:.10g} MW requested)"
+    )
+
+
 @dataclass(frozen=True)
 class CSVSubmission:
     team_id: str
@@ -302,12 +318,15 @@ def read_student_csv(
     require_complete_horizon: bool = False,
     allow_legacy: bool = False,
     max_generator_to_connection_ratio: float = 1.0,
+    max_team_connection_capacity_mw: float | None = None,
 ) -> CSVSubmission:
     """Read the canonical one-row-per-site student CSV.
 
     ``max_generator_to_connection_ratio`` caps each site's private generator
-    at that fraction of its connection capacity (0.5 in the released rules;
-    the default 1.0 applies no extra cap).
+    at that fraction of its connection capacity (1.0 in the released rules,
+    G <= C).  ``max_team_connection_capacity_mw`` caps the team's total
+    connection capacity over all its sites (1,000 MW in the released rules;
+    ``None`` applies no cap).
 
     The canonical contract has exactly seven columns and does not contain a
     submission ID or hourly rows. ``horizon`` is optional and only controls
@@ -431,6 +450,11 @@ def read_student_csv(
 
     if team_id is None:
         raise ValueError("submission CSV must contain at least one data row")
+    message = team_capacity_violation(
+        sum(site.connection_capacity_mw for site in sites), max_team_connection_capacity_mw
+    )
+    if message:
+        raise ValueError(message)
 
     profile = tuple(1.0 for _ in range(horizon)) if horizon is not None else ()
     connections = tuple(

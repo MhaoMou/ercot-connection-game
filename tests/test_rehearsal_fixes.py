@@ -177,7 +177,7 @@ def _write_plan(path: Path, team_id: str, sites) -> None:
             writer.writerow((team_id, *site))
 
 
-def test_parallel_projection_matches_serial_with_budgeted_generators_and_storage(tmp_path):
+def test_parallel_allocation_matches_serial_with_generators_and_storage(tmp_path):
     subs = tmp_path / "subs"
     subs.mkdir()
     _write_plan(subs / "team-a.csv", "team-a", [("a1", "13", 30, 10, 5, 20)])
@@ -206,7 +206,7 @@ def test_parallel_projection_matches_serial_with_budgeted_generators_and_storage
         (s.team_id, s.score) for s in parallel.team_scores
     ]
     fractions = serial.projection_diagnostics.service_fraction_by_team
-    assert 0.5 < fractions["team-a"] < 1.0 and fractions["team-d"] == 1.0
+    assert 0.5 < fractions["team-a"] <= 1.0 and fractions["team-d"] == 1.0
 
 
 # ----------------------------------------------------------- classroom

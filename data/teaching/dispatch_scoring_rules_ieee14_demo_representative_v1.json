@@ -380,9 +380,9 @@
     7.023581541,
     7.023581541
   ],
-  "max_generator_to_connection_ratio": 0.5,
+  "max_generator_to_connection_ratio": 1.0,
+  "max_team_connection_capacity_mw": 1000.0,
   "generator_capital_cost_per_mw": 2000000.0,
-  "generator_daily_energy_hours": 2.0,
   "site_cost_per_mw": 25000000.0,
   "infeasible_score": 0.0,
   "default_generator_cost_per_mwh": 150.0,
@@ -428,10 +428,7 @@
     "capital_cost_per_kw": 2000.0,
     "capital_cost_basis": "Installed on-site gas engines and aeroderivative turbines cost about $1,700-2,000/kW (Rabobank 2026, https://www.rabobank.com/knowledge/d011524694-the-sprint-data-centers-are-building-a-parallel-energy-system-in-the-us); EIA-based figures in a Texas PUC filing give about $1,430/kW for aeroderivative turbines and $2,240/kW for internal-combustion engines. $2,000/kW is a round instructional value in that range.",
     "operating_cost": "piecewise 80/150/250 $/MWh over 25/50/25% of capacity (unchanged)",
-    "max_generator_to_connection_ratio_basis": "G <= 0.5 x C. Texas SB 6 (2025) treats on-site backup generation that can serve at least 50% of a large load's demand as backup ERCOT may call on in emergencies (https://www.utilitydive.com/news/texas-law-gives-grid-operator-power-to-disconnect-data-centers-during-crisis/751587).",
-    "daily_energy_hours": 2.0,
-    "daily_energy_rule": "sum over the 24 periods of each representative day of g_t x time_step_hours <= generator_daily_energy_hours x G, for every team generator; the evaluator dispatches budgeted generators in one coupled LP per day.",
-    "daily_energy_basis": "Air permits cap the run hours of on-site engines: federal emergency-engine rules allow 100 h/yr of maintenance and testing, of which at most 50 h non-emergency operation, and state permits often cap total operation (e.g. under 500 h/yr in a Georgia EPD draft permit). A 2 h/day budget (about 730 h/yr) is a teaching choice in that range that makes the generator a peak-shaving device rather than baseload."
+    "max_generator_to_connection_ratio_basis": "G <= C: a site's generator may serve its whole load, with no run-hour limit (a site with G = C can run off the grid)."
   },
   "storage_cost_provenance": {
     "currency_year": "2022 USD for capital benchmarks; nominal instructional coefficients",
@@ -439,5 +436,7 @@
     "energy_capital_cost_per_kwh": 250.0,
     "basis": "rounded 2028 moderate four-hour projection from NREL's 2023 utility-scale battery cost update",
     "evaluator_mapping": "Storage operating cost is not charged; one exact daily cycle per representative day, starting and ending at half energy."
-  }
+  },
+  "allocation_rule": "When the submitted plans do not fit the grid together, every site i gets a fraction alpha_i in [0, 1] that scales its connection, generator and storage capacities. The fractions maximize the total served connection capacity sum_i alpha_i C_i over the 120 periods (storage cycling daily); ties are broken by minimizing sum_i C_i (1 - alpha_i)^2, which makes the allocation unique. There is no minimum allocation. Capital is charged on the allocated capacities.",
+  "max_team_connection_capacity_basis": "Each team may request at most 1,000 MW of connection capacity in total per submission. The reference plan for absolute points is 1,000 MW run off the grid (G = C)."
 }

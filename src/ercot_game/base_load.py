@@ -83,8 +83,9 @@ def _site_capacities(plan: TeamPlan) -> dict[str, tuple[str, float]]:
 def site_net_withdrawal_rows(evaluation: Any) -> list[dict[str, Any]]:
     """Return one row per scored site and period with its net grid withdrawal.
 
-    Site load is the team's dispatched load split by connection capacity
-    (the projection scales every site of a team by the same fraction).
+    Site load is the team's dispatched load split by connection capacity of
+    the evaluated plans, which are the allocated plans (each site at alpha x
+    its capacities) when the allocation was used.
     """
     plans = {plan.team_id: plan for plan in getattr(evaluation, "evaluated_plans", ())}
     rows: list[dict[str, Any]] = []

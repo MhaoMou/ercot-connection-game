@@ -79,24 +79,6 @@ class StorageDispatchAsset:
     initial_soc_mwh: float
 
 
-@dataclass(frozen=True)
-class BudgetedGeneratorAsset:
-    """A team generator whose output is limited by an energy budget.
-
-    It is dispatched in the Benders master like a discharge-only storage
-    asset: ``segment_ids``/``segment_costs`` are its piecewise cost segments,
-    ``segment_p_max_mw_by_period[t][k]`` the limit of segment ``k`` in period
-    ``t``, and ``energy_limit_mwh`` the most energy it may produce per cycle.
-    """
-
-    asset_id: str
-    bus_id: str
-    segment_ids: tuple[str, ...]
-    segment_costs: tuple[float, ...]
-    segment_p_max_mw_by_period: tuple[tuple[float, ...], ...]
-    energy_limit_mwh: float
-
-
 def _group_storage_by_owner_bus(
     storage_assets: Sequence[StorageDispatchAsset],
 ) -> dict[tuple[str, str], tuple[StorageDispatchAsset, ...]]:
@@ -187,32 +169,6 @@ def _validate_storage_cycle_hours(storage_cycle_hours: int | None, horizon: int)
     if horizon % storage_cycle_hours:
         raise ValueError("storage_cycle_hours must divide the horizon")
     return storage_cycle_hours
-
-
-def _validate_generator_energy_limits(
-    limits: Mapping[str, tuple[Sequence[str], float]] | None,
-) -> dict[str, tuple[tuple[str, ...], float]]:
-    """Normalize ``{name: (generator_ids, max_mwh)}`` energy limits."""
-    if not limits:
-        return {}
-    if not isinstance(limits, Mapping):
-        raise ValueError("generator_energy_limits_mwh must be a mapping")
-    normalized: dict[str, tuple[tuple[str, ...], float]] = {}
-    for name in sorted(limits):
-        entry = limits[name]
-        try:
-            generator_ids, limit_mwh = entry
-        except (TypeError, ValueError):
-            raise ValueError("generator energy limits must be (generator_ids, max_mwh) pairs") from None
-        if isinstance(generator_ids, (str, bytes)):
-            raise ValueError("generator energy limit IDs must be a sequence of strings")
-        ids = tuple(generator_ids)
-        if not ids or any(not isinstance(item, str) or not item for item in ids):
-            raise ValueError("generator energy limit IDs must be non-empty strings")
-        if not _is_finite_real(limit_mwh) or limit_mwh < 0:
-            raise ValueError("generator energy limits must be finite and non-negative")
-        normalized[str(name)] = (ids, float(limit_mwh))
-    return normalized
 
 
 def _is_finite_real(value: object) -> bool:
@@ -656,16 +612,6 @@ def _run_highs(highs) -> None:
             return
 
 
-# Cost of one MW of balance violation in the elastic recourse used by the
-# budgeted-generator Benders route.  It must exceed every nodal price of a
-# feasible dispatch (generator costs here are at most a few hundred $/MWh), so
-# an elastic optimum uses slack only when the strict recourse is infeasible.
-_ELASTIC_PENALTY_PER_MW = 1.0e6
-# Total balance violation (MW) below which an elastic solution counts as
-# feasible; it absorbs solver tolerance noise at the feasibility boundary.
-_ELASTIC_FEASIBILITY_TOLERANCE_MW = 1.0e-6
-
-
 def _validate(
     buses: tuple[Bus, ...], generators: tuple[Generator, ...], branches: tuple[Branch, ...]
 ) -> tuple[dict[str, Bus], str]:
@@ -855,7 +801,6 @@ class ReusableDCOPFModel:
         enable_candidate_demand_probes: bool = False,
         candidate_demand_bus_id: str | None = None,
         solver_threads: int = 1,
-        enable_elastic_slacks: bool = False,
     ) -> None:
         if not math.isfinite(base_mva) or base_mva <= 0:
             raise ValueError("base_mva must be finite and positive")
@@ -891,7 +836,6 @@ class ReusableDCOPFModel:
         self._balance_row_indices: dict[str, int] = {}
         self._injection_probe_columns: dict[str, object] = {}
         self._candidate_demand_columns: dict[str, object] = {}
-        self._slack_columns: list[object] = []
 
         for generator in self._generators:
             self._generator_columns[generator.generator_id] = self._highs.addVariable(
@@ -940,13 +884,6 @@ class ReusableDCOPFModel:
             candidate = self._candidate_demand_columns.get(bus_id)
             if candidate is not None:
                 add_coefficient(coefficients, candidate, -1.0)
-            if enable_elastic_slacks:
-                # Penalized balance slacks (see solve_elastic); fixed at zero otherwise.
-                surplus = self._highs.addVariable(lb=0.0, ub=0.0, obj=_ELASTIC_PENALTY_PER_MW, name=f"slack-up:{bus_id}")
-                deficit = self._highs.addVariable(lb=0.0, ub=0.0, obj=_ELASTIC_PENALTY_PER_MW, name=f"slack-down:{bus_id}")
-                self._slack_columns.extend((surplus, deficit))
-                add_coefficient(coefficients, surplus, 1.0)
-                add_coefficient(coefficients, deficit, -1.0)
             for generator in self._generators_by_bus.get(bus_id, ()):
                 add_coefficient(coefficients, self._generator_columns[generator.generator_id], 1.0)
             for branch in self._branches_by_bus.get(bus_id, ()):
@@ -1135,39 +1072,6 @@ class ReusableDCOPFModel:
             self._highs.changeColBounds(probe_index, 0.0, 0.0)
         return minimum, maximum
 
-    def solve_elastic(
-        self,
-        demand_mw_by_bus: Mapping[str, float],
-        fixed_injection_mw_by_bus: Mapping[str, float],
-        *,
-        return_summary: bool,
-    ) -> tuple[DCOPFResult | DCOPFRecourseSummary, float]:
-        """Solve with every balance row elastic at ``_ELASTIC_PENALTY_PER_MW``.
-
-        Returns the result (its objective includes the penalty) and the total
-        balance violation in MW.  Requires ``enable_elastic_slacks``.
-        """
-        if not self._slack_columns:
-            raise ValueError("elastic slacks were not enabled for this reusable model")
-        _Highs, _HighsModelStatus, _HighsVarType, highs_inf = _highs()
-        slack_indices = [int(column.index) for column in self._slack_columns]
-        try:
-            for index in slack_indices:
-                self._highs.changeColBounds(index, 0.0, highs_inf)
-            result = self.solve(
-                None,
-                fixed_injection_mw_by_bus=fixed_injection_mw_by_bus,
-                return_result=not return_summary,
-                return_summary=return_summary,
-                demand_mw_by_bus=demand_mw_by_bus,
-            )
-            values = list(self._highs.getSolution().col_value)
-            violation = sum(max(0.0, float(values[index])) for index in slack_indices)
-        finally:
-            for index in slack_indices:
-                self._highs.changeColBounds(index, 0.0, 0.0)
-        return result, violation
-
     def set_time_limit_seconds(self, seconds: float) -> None:
         """Set the HiGHS limit for the next solve on this reusable model."""
         if not _is_finite_real(seconds) or seconds < 0:
@@ -1282,7 +1186,6 @@ class GurobiReusableDCOPFModel:
         enable_candidate_demand_probes: bool = False,
         candidate_demand_bus_id: str | None = None,
         solver_threads: int = 1,
-        enable_elastic_slacks: bool = False,
     ) -> None:
         try:
             import gurobipy as gp
@@ -1352,16 +1255,9 @@ class GurobiReusableDCOPFModel:
             for bus_id in candidate_bus_ids
         }
         generators_by_bus, branches_by_bus = _cached_network_index(self._branches, self._generators)
-        self._slack_columns = []
         self._balance_rows = {}
         for bus_id in self._bus_order:
             expression = gp.LinExpr()
-            if enable_elastic_slacks:
-                surplus = self._model.addVar(lb=0.0, ub=0.0, obj=0.0, name=f"slack-up:{bus_id}")
-                deficit = self._model.addVar(lb=0.0, ub=0.0, obj=0.0, name=f"slack-down:{bus_id}")
-                # Penalized balance slacks (see solve_elastic); fixed at zero otherwise.
-                self._slack_columns.extend((surplus, deficit))
-                expression += surplus - deficit
             for generator in generators_by_bus.get(bus_id, ()):
                 expression += self._generator_columns[generator.generator_id]
             probe = self._injection_probe_columns.get(bus_id)
@@ -1394,8 +1290,6 @@ class GurobiReusableDCOPFModel:
             self._model.addConstr(expression >= -branch.thermal_limit_mw, name=f"line-lower:{branch.branch_id}")
         self._model.update()
         self._base_objective = gp.LinExpr()
-        for column in self._slack_columns:
-            self._base_objective += _ELASTIC_PENALTY_PER_MW * column
         for generator in self._generators:
             self._base_objective += (
                 generator.marginal_cost_per_mwh
@@ -1461,32 +1355,6 @@ class GurobiReusableDCOPFModel:
         if not _is_finite_real(seconds) or seconds < 0:
             raise ValueError("solver time limit must be finite and non-negative")
         self._model.Params.TimeLimit = float(seconds)
-
-    def solve_elastic(
-        self,
-        demand_mw_by_bus: Mapping[str, float],
-        fixed_injection_mw_by_bus: Mapping[str, float],
-        *,
-        return_summary: bool,
-    ) -> tuple[DCOPFResult | DCOPFRecourseSummary, float]:
-        """Gurobi equivalent of :meth:`ReusableDCOPFModel.solve_elastic`."""
-        if not self._slack_columns:
-            raise ValueError("elastic slacks were not enabled for this reusable model")
-        try:
-            for column in self._slack_columns:
-                column.UB = self._gp.GRB.INFINITY
-            result = self.solve(
-                None,
-                fixed_injection_mw_by_bus=fixed_injection_mw_by_bus,
-                return_result=not return_summary,
-                return_summary=return_summary,
-                demand_mw_by_bus=demand_mw_by_bus,
-            )
-            violation = sum(max(0.0, float(column.X)) for column in self._slack_columns)
-        finally:
-            for column in self._slack_columns:
-                column.UB = 0.0
-        return result, violation
 
     def _set_rhs(
         self,
@@ -2143,7 +2011,6 @@ def solve_dcopf_horizon(
     base_mva: float = 1.0,
     wall_time_limit_seconds: float | None = None,
     terminal_soc_policy: str = "minimum_half",
-    generator_energy_limits_mwh: Mapping[str, tuple[Sequence[str], float]] | None = None,
     _return_model: bool = False,
 ) -> DCOPFHorizonResult:
     """Solve a coupled multi-period DCOPF with team-dedicated storage.
@@ -2159,17 +2026,8 @@ def solve_dcopf_horizon(
     required for storage-bearing solves, and each team's total discharge is
     capped separately at each owned storage bus by that team's load at that
     same bus and period.
-
-    ``generator_energy_limits_mwh`` maps a limit name to ``(generator_ids,
-    max_mwh)``: the summed output of those generators over every period of
-    the solved horizon, times ``time_step_hours``, may not exceed
-    ``max_mwh``.  It is used for the daily run-hour budget of team
-    generators (one horizon = one day block).  The default route for
-    budgeted generators is Benders (:func:`solve_prepared_horizon_benders`);
-    this monolithic LP is kept as its reference.
     """
     _validate_terminal_soc_policy(terminal_soc_policy)
-    energy_limits = _validate_generator_energy_limits(generator_energy_limits_mwh)
     if not periods:
         raise ValueError("periods must not be empty")
     if not _is_finite_real(time_step_hours) or time_step_hours <= 0:
@@ -2447,24 +2305,6 @@ def solve_dcopf_horizon(
             highs.addRow(-highs_inf, owner_load, len(coefficients), list(coefficients), list(coefficients.values()))
             owner_load_row_indices[(team_id, bus_id, period_index)] = highs.getNumRow() - 1
 
-    for _limit_name, (limit_generator_ids, limit_mwh) in energy_limits.items():
-        energy_coefficients: dict[int, float] = {}
-        for period_index in range(period_count):
-            for generator_id in limit_generator_ids:
-                column = generator_columns.get((period_index, generator_id))
-                if column is not None:
-                    add_coefficient(energy_coefficients, column, time_step_hours)
-        if energy_coefficients:
-            highs.addRow(
-                -highs_inf,
-                limit_mwh,
-                len(energy_coefficients),
-                list(energy_coefficients),
-                list(energy_coefficients.values()),
-            )
-
-    if energy_limits and _return_model:
-        raise ValueError("generator energy limits are not supported by the reusable horizon model")
     reusable_state = _ReusableHorizonModelState(
         highs=highs,
         highs_model_status=HighsModelStatus,
@@ -2593,7 +2433,6 @@ def solve_dcopf_horizon_benders(
     tighten_feasible_bounds: bool = False,
     terminal_soc_policy: str = "minimum_half",
     storage_cycle_hours: int | None = None,
-    generator_assets: Sequence[BudgetedGeneratorAsset] = (),
 ) -> DCOPFHorizonResult | str:
     """Solve a storage horizon through exact Benders decomposition.
 
@@ -2608,11 +2447,6 @@ def solve_dcopf_horizon_benders(
     storage boundary at every cycle end and resets the next cycle to the
     asset's initial SOC; this avoids restarting Benders for each cycle.
 
-    ``generator_assets`` (energy-budgeted team generators) are master
-    variables too; their budget applies per ``storage_cycle_hours`` cycle
-    (the whole horizon when ``None``).  Such solves are handled by
-    :func:`_solve_dcopf_horizon_benders_budgeted`; storage is then optional.
-
     By default, the master starts with physical storage-power bounds and
     tightens individual hourly bounds only when a recourse solve proves that
     a proposed point is infeasible.  This avoids two auxiliary LPs for every
@@ -2625,28 +2459,6 @@ def solve_dcopf_horizon_benders(
     _validate_terminal_soc_policy(terminal_soc_policy)
     storage_assets = tuple(storage_assets)
     solver_backend = resolve_solver_backend(solver_backend)
-    if generator_assets:
-        # Energy-budgeted generators (with or without storage) use feasibility
-        # cuts instead of bound tightening; see the budgeted solver.
-        return _solve_dcopf_horizon_benders_budgeted(
-            periods=periods,
-            demand_mw_by_period=demand_mw_by_period,
-            storage_assets=storage_assets,
-            generator_assets=tuple(generator_assets),
-            fixed_injection_mw_by_period=fixed_injection_mw_by_period,
-            owner_load_mw_by_team=owner_load_mw_by_team,
-            time_step_hours=time_step_hours,
-            base_mva=base_mva,
-            tolerance=tolerance,
-            max_iterations=max_iterations,
-            return_result=return_result,
-            parallel_workers=parallel_workers,
-            solver_threads=solver_threads,
-            solver_backend=solver_backend,
-            wall_time_limit_seconds=wall_time_limit_seconds,
-            terminal_soc_policy=terminal_soc_policy,
-            storage_cycle_hours=storage_cycle_hours,
-        )
     if len(storage_assets) > 1:
         return _solve_dcopf_horizon_benders_multi(
             periods=periods,
@@ -3547,512 +3359,6 @@ def _solve_dcopf_horizon_benders_multi(
         close_executor()
 
 
-def _solve_dcopf_horizon_benders_budgeted(
-    *,
-    periods: Sequence[tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]]],
-    demand_mw_by_period: Sequence[Mapping[str, float]] | None,
-    storage_assets: Sequence[StorageDispatchAsset],
-    generator_assets: Sequence[BudgetedGeneratorAsset],
-    fixed_injection_mw_by_period: Sequence[Mapping[str, float]] | None,
-    owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None,
-    time_step_hours: float,
-    base_mva: float,
-    tolerance: float,
-    max_iterations: int,
-    return_result: bool,
-    parallel_workers: int,
-    solver_threads: int,
-    solver_backend: str,
-    wall_time_limit_seconds: float | None,
-    terminal_soc_policy: str,
-    storage_cycle_hours: int | None,
-) -> DCOPFHorizonResult | str:
-    """Exact Benders solve with energy-budgeted generators (and storage).
-
-    A budgeted generator is a discharge-only energy device: per cycle of
-    ``storage_cycle_hours`` periods (the whole horizon when ``None``) its
-    output may not exceed ``energy_limit_mwh``.  The master holds its
-    per-period cost segments (with their costs and per-period limits), the
-    cycle energy row, the storage trajectories, and one recourse-cost lower
-    bound per period.  Each hourly recourse is the reusable network DCOPF
-    with every master asset as a fixed injection at its bus.
-
-    A strictly infeasible recourse point is re-solved with elastic balance
-    rows penalized at ``_ELASTIC_PENALTY_PER_MW`` and gives an ordinary
-    optimality cut, so the master solves the penalized problem exactly; the
-    horizon is infeasible when its optimum still needs more than
-    ``_ELASTIC_FEASIBILITY_TOLERANCE_MW`` of total violation.  (Pure
-    feasibility cuts stall on points that the solver calls infeasible within
-    1e-10 MW of the boundary.)  No bound tightening heuristics are used.  The optimum equals the coupled horizon LP of
-    :func:`solve_dcopf_horizon` with ``generator_energy_limits_mwh`` up to
-    ``tolerance`` (relative objective gap).
-    """
-    import numpy  # a highspy dependency
-
-    _validate_terminal_soc_policy(terminal_soc_policy)
-    period_data = tuple(periods)
-    storages = tuple(sorted(storage_assets, key=lambda item: item.storage_id))
-    generators_budgeted = tuple(sorted(generator_assets, key=lambda item: item.asset_id))
-    if not generators_budgeted:
-        raise ValueError("budgeted Benders requires at least one budgeted generator")
-    if not isinstance(max_iterations, int) or max_iterations <= 0:
-        raise ValueError("max_iterations must be a positive integer")
-    if not isinstance(parallel_workers, int) or parallel_workers <= 0:
-        raise ValueError("parallel_workers must be a positive integer")
-    if not isinstance(solver_threads, int) or isinstance(solver_threads, bool) or solver_threads <= 0:
-        raise ValueError("solver_threads must be a positive integer")
-    if solver_backend not in {"highs", "gurobi"}:
-        raise ValueError("solver_backend must be 'highs' or 'gurobi'")
-    if not _is_finite_real(tolerance) or tolerance <= 0:
-        raise ValueError("tolerance must be finite and positive")
-    if not period_data:
-        raise ValueError("periods must not be empty")
-    if not _is_finite_real(time_step_hours) or time_step_hours <= 0:
-        raise ValueError("time_step_hours must be finite and positive")
-    if not _is_finite_real(base_mva) or base_mva <= 0:
-        raise ValueError("base_mva must be finite and positive")
-    if wall_time_limit_seconds is not None and (
-        not _is_finite_real(wall_time_limit_seconds) or wall_time_limit_seconds < 0
-    ):
-        raise ValueError("wall_time_limit_seconds must be finite and non-negative")
-    horizon = len(period_data)
-    cycle_hours = _validate_storage_cycle_hours(storage_cycle_hours, horizon)
-    if demand_mw_by_period is None:
-        demand_values = tuple(
-            {bus.bus_id: float(bus.demand_mw) for bus in buses}
-            for buses, _generators, _branches in period_data
-        )
-    else:
-        demand_values = tuple(dict(values) for values in demand_mw_by_period)
-        if len(demand_values) != horizon:
-            raise ValueError("demand must match the number of periods")
-
-    reference_bus_order = tuple(bus.bus_id for bus in period_data[0][0])
-    reference_generators = tuple(period_data[0][1])
-    reference_branches = tuple(period_data[0][2])
-    bus_ids = set(reference_bus_order)
-    for period_index, (buses, generators, branches) in enumerate(period_data):
-        if tuple(bus.bus_id for bus in buses) != reference_bus_order:
-            raise ValueError(f"Benders requires fixed bus topology at period {period_index}")
-        if tuple(generators) != reference_generators or tuple(branches) != reference_branches:
-            raise ValueError(f"Benders requires fixed generators and branches at period {period_index}")
-        if set(demand_values[period_index]) != bus_ids:
-            raise ValueError("demand must reference exactly the fixed bus topology")
-    fixed = tuple(fixed_injection_mw_by_period or ({},) * horizon)
-    if len(fixed) != horizon or any(not isinstance(item, Mapping) for item in fixed):
-        raise ValueError("fixed injections must match the number of periods")
-    if any(set(item) - bus_ids for item in fixed):
-        raise ValueError("fixed injection references an unknown bus")
-
-    if len({asset.storage_id for asset in storages}) != len(storages):
-        raise ValueError("storage IDs must be unique")
-    for asset in storages:
-        if (
-            not asset.storage_id or not asset.team_id or asset.bus_id not in bus_ids
-            or not all(_is_finite_real(value) for value in (asset.power_mw, asset.energy_mwh, asset.initial_soc_mwh))
-            or asset.power_mw <= 0
-            or asset.energy_mwh <= 0
-            or asset.initial_soc_mwh < 0.5 * asset.energy_mwh
-            or asset.initial_soc_mwh > asset.energy_mwh
-        ):
-            raise ValueError(f"invalid storage asset: {asset.storage_id}")
-    owner_loads: dict[str, tuple[Mapping[str, float], ...]] = {}
-    if storages:
-        if owner_load_mw_by_team is None:
-            raise ValueError("owner load is required when storage assets are present")
-        for team_id in {asset.team_id for asset in storages}:
-            if team_id not in owner_load_mw_by_team:
-                raise ValueError(f"owner load is required for storage team {team_id}")
-            values = tuple(owner_load_mw_by_team[team_id])
-            if len(values) != horizon:
-                raise ValueError(f"owner load for {team_id} must match the number of periods")
-            for period_load in values:
-                if any(not _is_finite_real(amount) or amount < 0 for amount in period_load.values()):
-                    raise ValueError(f"owner load for {team_id} must be finite and non-negative")
-            owner_loads[team_id] = values
-
-    if len({asset.asset_id for asset in generators_budgeted}) != len(generators_budgeted):
-        raise ValueError("budgeted generator IDs must be unique")
-    for asset in generators_budgeted:
-        segments = len(asset.segment_ids)
-        if (
-            not asset.asset_id or asset.bus_id not in bus_ids or segments == 0
-            or len(asset.segment_costs) != segments
-            or len(asset.segment_p_max_mw_by_period) != horizon
-            or any(len(row) != segments for row in asset.segment_p_max_mw_by_period)
-            or any(not _is_finite_real(value) for value in asset.segment_costs)
-            or any(not _is_finite_real(value) or value < 0 for row in asset.segment_p_max_mw_by_period for value in row)
-            or not _is_finite_real(asset.energy_limit_mwh) or asset.energy_limit_mwh < 0
-        ):
-            raise ValueError(f"invalid budgeted generator: {asset.asset_id}")
-
-    started_at = time.perf_counter()
-    deadline = None if wall_time_limit_seconds is None else started_at + float(wall_time_limit_seconds)
-
-    def check_deadline(stage: str) -> None:
-        if deadline is not None and time.perf_counter() >= deadline:
-            raise DCOPFUnresolved(
-                f"Benders wall-time budget exceeded during {stage} after "
-                f"{time.perf_counter() - started_at:.2f}s"
-            )
-
-    executor = (
-        ThreadPoolExecutor(max_workers=parallel_workers, thread_name_prefix="dcopf-recourse")
-        if parallel_workers > 1 else None
-    )
-    worker_state = threading.local()
-
-    def close_executor() -> None:
-        nonlocal executor
-        if executor is not None:
-            executor.shutdown(wait=True)
-            executor = None
-
-    def recourse_model():
-        model = getattr(worker_state, "model", None)
-        if model is None:
-            model = _reusable_dcopf_model(
-                buses=tuple(period_data[0][0]),
-                generators=reference_generators,
-                branches=reference_branches,
-                base_mva=base_mva,
-                solver_threads=solver_threads,
-                solver_backend=solver_backend,
-                enable_elastic_slacks=True,
-            )
-            worker_state.model = model
-        return model
-
-    def map_periods(function, indices=None):
-        indices = range(horizon) if indices is None else indices
-        if executor is None:
-            return [function(index) for index in indices]
-        return list(executor.map(function, indices))
-
-    # Master asset injections: key -> (bus, team or None).  Storage power is
-    # one signed column; a budgeted generator injects the sum of its segments.
-    asset_keys: list[tuple[str, str]] = [("storage", asset.storage_id) for asset in storages]
-    asset_keys += [("generator", asset.asset_id) for asset in generators_budgeted]
-    asset_bus = {("storage", asset.storage_id): asset.bus_id for asset in storages}
-    asset_bus.update({("generator", asset.asset_id): asset.bus_id for asset in generators_budgeted})
-
-    Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
-    master = Highs()
-    master.setOptionValue("output_flag", False)
-    master.setOptionValue("presolve", "on")
-    if solver_threads > 1:
-        master.setOptionValue("parallel", "on")
-        master.setOptionValue("threads", solver_threads)
-    # Recourse cost is bounded below by every network generator at its
-    # cheapest bound (a valid, harmless lower bound for theta).
-    theta_lower = sum(
-        min(generator.marginal_cost_per_mwh * generator.p_min_mw, generator.marginal_cost_per_mwh * generator.p_max_mw)
-        for generator in reference_generators
-    )
-    theta_columns = [
-        master.addVariable(lb=theta_lower, ub=highs_inf, obj=1.0, name=f"recourse-cost:{index}")
-        for index in range(horizon)
-    ]
-    injection_columns: dict[tuple[tuple[str, str], int], tuple[int, ...]] = {}
-    storage_power_columns: dict[tuple[str, int], int] = {}
-    segment_columns: dict[tuple[str, int], tuple[int, ...]] = {}
-
-    def cycle_start(index: int) -> bool:
-        return index == 0 or (cycle_hours is not None and index % cycle_hours == 0)
-
-    def cycle_end(index: int) -> bool:
-        return (cycle_hours is None and index == horizon - 1) or (
-            cycle_hours is not None and (index + 1) % cycle_hours == 0
-        )
-
-    for asset in storages:
-        terminal_lower, terminal_upper = _terminal_soc_bounds(asset, terminal_soc_policy)
-        previous_soc_column = None
-        for index in range(horizon):
-            owner_load = owner_loads[asset.team_id][index].get(asset.bus_id, 0.0)
-            power = master.addVariable(
-                lb=-asset.power_mw, ub=min(asset.power_mw, float(owner_load)), obj=0.0,
-                name=f"storage-power:{asset.storage_id}:{index}",
-            )
-            soc = master.addVariable(
-                lb=terminal_lower if cycle_end(index) else 0.0,
-                ub=terminal_upper if cycle_end(index) else asset.energy_mwh,
-                obj=0.0, name=f"storage-soc:{asset.storage_id}:{index}",
-            )
-            power_index, soc_index = int(power.index), int(soc.index)
-            storage_power_columns[(asset.storage_id, index)] = power_index
-            injection_columns[(("storage", asset.storage_id), index)] = (power_index,)
-            coefficients = {soc_index: 1.0, power_index: time_step_hours}
-            if cycle_start(index):
-                master.addRow(asset.initial_soc_mwh, asset.initial_soc_mwh, 2, list(coefficients), list(coefficients.values()))
-                master.addRow(-highs_inf, asset.initial_soc_mwh, 1, [power_index], [time_step_hours])
-            else:
-                coefficients[previous_soc_column] = -1.0
-                master.addRow(0.0, 0.0, 3, list(coefficients), list(coefficients.values()))
-                master.addRow(-highs_inf, 0.0, 2, [power_index, previous_soc_column], [time_step_hours, -1.0])
-            previous_soc_column = soc_index
-    for (team_id, bus_id), grouped in _group_storage_by_owner_bus(storages).items():
-        for index in range(horizon):
-            columns = [storage_power_columns[(asset.storage_id, index)] for asset in grouped]
-            upper = float(owner_loads[team_id][index].get(bus_id, 0.0))
-            master.addRow(-highs_inf, upper, len(columns), columns, [1.0] * len(columns))
-
-    for asset in generators_budgeted:
-        cycle_columns: list[int] = []
-        for index in range(horizon):
-            columns = tuple(
-                int(master.addVariable(
-                    lb=0.0,
-                    ub=float(asset.segment_p_max_mw_by_period[index][segment]),
-                    obj=float(asset.segment_costs[segment]),
-                    name=f"budgeted-generator:{asset.segment_ids[segment]}:{index}",
-                ).index)
-                for segment in range(len(asset.segment_ids))
-            )
-            segment_columns[(asset.asset_id, index)] = columns
-            injection_columns[(("generator", asset.asset_id), index)] = columns
-            cycle_columns.extend(columns)
-            if cycle_end(index):
-                master.addRow(
-                    -highs_inf, asset.energy_limit_mwh, len(cycle_columns),
-                    cycle_columns, [time_step_hours] * len(cycle_columns),
-                )
-                cycle_columns = []
-
-    optimality_cuts = 0
-    feasibility_cuts = 0
-    recourse_solves = 0
-    recourse_cache_hits = 0
-    counter_lock = threading.Lock()
-    seen_cuts: set[tuple[object, ...]] = set()
-    # Last recourse answer per period: the master often keeps a period's point.
-    last_recourse: dict[int, tuple[tuple[float, ...], object]] = {}
-    # (master row, period, balance duals in bus order) of every cut, used to
-    # recover the coupled LP's nodal prices from the master cut multipliers.
-    cut_records: list[tuple[int, int, object]] = []
-
-    def injections_for(index: int, point: tuple[float, ...]) -> dict[str, float]:
-        injections = dict(fixed[index])
-        for key, value in zip(asset_keys, point):
-            bus_id = asset_bus[key]
-            injections[bus_id] = injections.get(bus_id, 0.0) + value
-        return injections
-
-    def solve_recourse(index: int, point: tuple[float, ...], *, summary: bool):
-        """Return ``(result, violation_mw)``; elastic only if strictly infeasible."""
-        check_deadline(f"recourse period {index}")
-        model = recourse_model()
-        if deadline is not None:
-            model.set_time_limit_seconds(max(0.001, deadline - time.perf_counter()))
-        injections = injections_for(index, point)
-        try:
-            result = model.solve(
-                None,
-                fixed_injection_mw_by_bus=injections,
-                return_result=not summary,
-                return_summary=summary,
-                demand_mw_by_bus=demand_values[index],
-            )
-            return result, 0.0
-        except DCOPFUnresolved:
-            # E.g. HiGHS kUnboundedOrInfeasible or Gurobi INF_OR_UNBD: the
-            # recourse is bounded, so retry elastically unless out of time.
-            if deadline is not None and time.perf_counter() >= deadline:
-                raise
-        except DCOPFInfeasible:
-            pass
-        return model.solve_elastic(demand_values[index], injections, return_summary=summary)
-
-    def solve_summary(index: int, point: tuple[float, ...]):
-        nonlocal recourse_solves, recourse_cache_hits
-        previous = last_recourse.get(index)
-        if previous is not None and previous[0] == point:
-            with counter_lock:
-                recourse_cache_hits += 1
-            return previous[1]
-        answer = solve_recourse(index, point, summary=True)
-        with counter_lock:
-            recourse_solves += 1
-        last_recourse[index] = (point, answer)
-        return answer
-
-    def add_cut(index: int, point: tuple[float, ...], answer) -> bool:
-        """Add the optimality cut of one recourse answer; return whether it is new."""
-        nonlocal optimality_cuts, feasibility_cuts
-        result, violation = answer
-        duals = result.balance_dual_by_bus
-        rhs = float(result.objective_cost)
-        coefficients = {int(theta_columns[index].index): 1.0}
-        # Cut: theta + sum_a dual(bus_a) * x_a >= value + sum_a dual(bus_a) * x0_a
-        for key, value in zip(asset_keys, point):
-            dual = float(duals[asset_bus[key]])
-            rhs += dual * value
-            for column in injection_columns[(key, index)]:
-                coefficients[column] = coefficients.get(column, 0.0) + dual
-        cut_key = (index, round(rhs, 9)) + tuple(
-            (column, round(coefficient, 9)) for column, coefficient in sorted(coefficients.items())
-        )
-        if cut_key in seen_cuts:
-            return False
-        seen_cuts.add(cut_key)
-        master.addRow(rhs, highs_inf, len(coefficients), list(coefficients), list(coefficients.values()))
-        cut_records.append((
-            master.getNumRow() - 1,
-            index,
-            numpy.fromiter((float(duals[bus_id]) for bus_id in reference_bus_order), dtype=float),
-        ))
-        if violation > 0.0:
-            feasibility_cuts += 1
-        else:
-            optimality_cuts += 1
-        return True
-
-    try:
-        zero_point = tuple(0.0 for _ in asset_keys)
-        initial_started = time.perf_counter()
-        for index, answer in enumerate(map_periods(lambda index: solve_summary(index, zero_point))):
-            add_cut(index, zero_point, answer)
-        initial_recourse_seconds = time.perf_counter() - initial_started
-        candidate_recourse_seconds = 0.0
-        iterations = 0
-        while True:
-            if iterations >= max_iterations:
-                raise DCOPFUnresolved(
-                    f"Benders decomposition did not converge within {max_iterations} iterations"
-                )
-            check_deadline("master solve")
-            iterations += 1
-            if deadline is not None:
-                master.setOptionValue("time_limit", max(0.001, deadline - time.perf_counter()))
-            _run_highs(master)
-            status = master.getModelStatus()
-            if status != HighsModelStatus.kOptimal:
-                raise DCOPFUnresolved(f"Benders master unresolved: {status}")
-            solution_cols = list(master.getSolution().col_value)  # one copy
-            points = [
-                tuple(
-                    float(sum(solution_cols[column] for column in injection_columns[(key, index)]))
-                    for key in asset_keys
-                )
-                for index in range(horizon)
-            ]
-            candidate_started = time.perf_counter()
-            answers = map_periods(lambda index: solve_summary(index, points[index]))
-            candidate_recourse_seconds += time.perf_counter() - candidate_started
-            lower_bound = float(master.getObjectiveValue())
-            generator_cost = sum(
-                float(solution_cols[column]) * float(asset.segment_costs[segment])
-                for asset in generators_budgeted
-                for index in range(horizon)
-                for segment, column in enumerate(segment_columns[(asset.asset_id, index)])
-            )
-            upper_bound = generator_cost + sum(result.objective_cost for result, _violation in answers)
-            if upper_bound - lower_bound <= tolerance * max(1.0, abs(upper_bound)):
-                break
-            added = False
-            for index, answer in enumerate(answers):
-                added = add_cut(index, points[index], answer) or added
-            if not added:
-                # Every cut at this point is already in the master, so the
-                # point is optimal up to the master's own tolerances.
-                break
-
-        violation = sum(answer_violation for _result, answer_violation in answers)
-        if violation > _ELASTIC_FEASIBILITY_TOLERANCE_MW:
-            infeasible_periods = [
-                index for index, (_result, answer_violation) in enumerate(answers)
-                if answer_violation > 0.0
-            ]
-            raise DCOPFInfeasible(
-                "budgeted-generator horizon infeasible: minimum balance violation "
-                f"{violation:.6g} MW in periods {infeasible_periods[:10]}"
-            )
-        if not return_result:
-            return "optimal"
-        finalization_started = time.perf_counter()
-
-        def solve_full(index: int) -> DCOPFResult:
-            result, violation = solve_recourse(index, points[index], summary=False)
-            assert isinstance(result, DCOPFResult)
-            if violation > 0.0:
-                result = replace(
-                    result,
-                    objective_cost=round(result.objective_cost - _ELASTIC_PENALTY_PER_MW * violation, 10),
-                )
-            return result
-
-        full_results = map_periods(solve_full)
-        # Nodal prices of the coupled LP: in period t, the balance dual is
-        # sum_c mu_c * pi_c over that period's cuts (mu_c = master cut
-        # multipliers, pi_c = the recourse balance duals of the cut).  The
-        # recourse duals alone would price a budgeted generator's bus as if
-        # its output were fixed, without the budget's opportunity cost.
-        master_row_duals = list(master.getSolution().row_dual)
-        recovered = [numpy.zeros(len(reference_bus_order)) for _ in range(horizon)]
-        for row, index, duals in cut_records:
-            multiplier = float(master_row_duals[row])
-            if multiplier != 0.0:
-                recovered[index] += multiplier * duals
-        period_results = []
-        soc_now = {asset.storage_id: asset.initial_soc_mwh for asset in storages}
-        for index, result in enumerate(full_results):
-            generation = dict(result.generation_mw)
-            objective = float(result.objective_cost)
-            for asset in generators_budgeted:
-                for segment, column in enumerate(segment_columns[(asset.asset_id, index)]):
-                    value = round(float(solution_cols[column]), 10)
-                    generation[asset.segment_ids[segment]] = value
-                    objective += value * float(asset.segment_costs[segment])
-            charge, discharge, soc = {}, {}, {}
-            for asset in storages:
-                if cycle_start(index):
-                    soc_now[asset.storage_id] = asset.initial_soc_mwh
-                power = float(solution_cols[storage_power_columns[(asset.storage_id, index)]])
-                soc_now[asset.storage_id] -= time_step_hours * power
-                soc[asset.storage_id] = soc_now[asset.storage_id]
-                charge[asset.storage_id] = max(-power, 0.0)
-                discharge[asset.storage_id] = max(power, 0.0)
-            period_results.append(replace(
-                result,
-                objective_cost=round(objective, 10),
-                balance_dual_by_bus={
-                    bus_id: round(float(value), 10)
-                    for bus_id, value in zip(reference_bus_order, recovered[index])
-                },
-                generation_mw=generation,
-                storage_charge_mw=charge,
-                storage_discharge_mw=discharge,
-                storage_soc_mwh=soc,
-            ))
-        elapsed = time.perf_counter() - started_at
-        return DCOPFHorizonResult(
-            status="optimal",
-            periods=tuple(period_results),
-            final_soc_mwh_by_storage={
-                asset.storage_id: period_results[-1].storage_soc_mwh[asset.storage_id]
-                for asset in storages
-            },
-            diagnostics=DCOPFBendersDiagnostics(
-                route="benders_budgeted_generators",
-                solver_backend=solver_backend,
-                iterations=iterations,
-                recourse_solves=recourse_solves,
-                optimality_cuts=optimality_cuts,
-                feasibility_cuts=feasibility_cuts,
-                lower_bound=lower_bound,
-                upper_bound=upper_bound,
-                relative_gap=max(0.0, (upper_bound - lower_bound) / max(1.0, abs(upper_bound))),
-                elapsed_seconds=elapsed,
-                initial_recourse_seconds=initial_recourse_seconds,
-                candidate_recourse_seconds=candidate_recourse_seconds,
-                finalization_seconds=time.perf_counter() - finalization_started,
-                recourse_cache_hits=recourse_cache_hits,
-            ),
-        )
-    finally:
-        close_executor()
-
-
 def solve_dcopf_daily_blocks(
     *,
     periods: Sequence[tuple[tuple[Bus, ...], tuple[Generator, ...], tuple[Branch, ...]]],
@@ -4341,7 +3647,6 @@ def solve_prepared_horizon(
     owner_load_mw_by_team: Mapping[str, Sequence[Mapping[str, float]]] | None = None,
     time_step_hours: float = 1.0,
     terminal_soc_policy: str = "minimum_half",
-    generator_energy_limits_mwh: Mapping[str, tuple[Sequence[str], float]] | None = None,
 ) -> DCOPFHorizonResult:
     """Solve prepared periods in one storage-coupled DCOPF model."""
     period_indices = tuple(period_indices)
@@ -4389,56 +3694,7 @@ def solve_prepared_horizon(
         time_step_hours=time_step_hours,
         base_mva=100.0,
         terminal_soc_policy=terminal_soc_policy,
-        generator_energy_limits_mwh=generator_energy_limits_mwh,
     )
-
-
-def _budgeted_generator_assets(
-    energy_limits: Mapping[str, tuple[tuple[str, ...], float]],
-    generators_by_period: tuple[Sequence[Generator], ...],
-) -> tuple[tuple[BudgetedGeneratorAsset, ...], tuple[tuple[Generator, ...], ...]]:
-    """Split energy-limited generators out of the per-period network lists."""
-    limited_ids = {generator_id for ids, _limit in energy_limits.values() for generator_id in ids}
-    if sum(len(ids) for ids, _limit in energy_limits.values()) != len(limited_ids):
-        raise ValueError("a generator may belong to only one energy limit")
-    by_id_by_period = [
-        {generator.generator_id: generator for generator in generators}
-        for generators in generators_by_period
-    ]
-    assets = []
-    for name, (ids, limit_mwh) in energy_limits.items():
-        members = [[by_id[generator_id] for generator_id in ids if generator_id in by_id] for by_id in by_id_by_period]
-        present = [tuple(generator.generator_id for generator in row) for row in members]
-        if any(row != present[0] for row in present) or not present[0]:
-            raise ValueError(f"energy-limited generators of {name} must be present in every period")
-        first = members[0]
-        bus_ids = {generator.bus_id for row in members for generator in row}
-        if len(bus_ids) != 1:
-            raise ValueError(f"energy-limited generators of {name} must share one bus")
-        if any(
-            generator.p_min_mw != 0.0
-            or generator.marginal_cost_per_mwh != first[position].marginal_cost_per_mwh
-            for row in members
-            for position, generator in enumerate(row)
-        ):
-            raise ValueError(f"energy-limited generators of {name} need p_min 0 and a fixed cost")
-        assets.append(
-            BudgetedGeneratorAsset(
-                asset_id=name,
-                bus_id=next(iter(bus_ids)),
-                segment_ids=present[0],
-                segment_costs=tuple(float(generator.marginal_cost_per_mwh) for generator in first),
-                segment_p_max_mw_by_period=tuple(
-                    tuple(float(generator.p_max_mw) for generator in row) for row in members
-                ),
-                energy_limit_mwh=limit_mwh,
-            )
-        )
-    network_generators = tuple(
-        tuple(generator for generator in generators if generator.generator_id not in limited_ids)
-        for generators in generators_by_period
-    )
-    return tuple(assets), network_generators
 
 
 def solve_prepared_horizon_benders(
@@ -4458,15 +3714,8 @@ def solve_prepared_horizon_benders(
     tighten_feasible_bounds: bool = False,
     terminal_soc_policy: str = "minimum_half",
     storage_cycle_hours: int | None = None,
-    generator_energy_limits_mwh: Mapping[str, tuple[Sequence[str], float]] | None = None,
 ) -> DCOPFHorizonResult | str:
-    """Solve prepared periods with the exact storage-aware Benders route.
-
-    ``generator_energy_limits_mwh`` (``{name: (generator_ids, max_mwh)}``,
-    as for :func:`solve_prepared_horizon`) moves those additional
-    generators into the Benders master as energy-budgeted assets; each limit
-    applies per ``storage_cycle_hours`` cycle (whole horizon when ``None``).
-    """
+    """Solve prepared periods with the exact storage-aware Benders route."""
     period_indices = tuple(period_indices)
     if not period_indices:
         raise ValueError("period_indices must not be empty")
@@ -4477,12 +3726,6 @@ def solve_prepared_horizon_benders(
         raise ValueError("additional demand must match the number of periods")
     if len(generators_by_period) != period_count:
         raise ValueError("additional generators must match the number of periods")
-    generator_assets: tuple[BudgetedGeneratorAsset, ...] = ()
-    energy_limits = _validate_generator_energy_limits(generator_energy_limits_mwh)
-    if energy_limits:
-        generator_assets, generators_by_period = _budgeted_generator_assets(
-            energy_limits, generators_by_period
-        )
     artifact_root = str(Path(artifact_dir).resolve())
     artifact = load_prepared_artifact(artifact_root)
     _validate_prepared_demand_schema(artifact, period_indices)
@@ -4533,7 +3776,6 @@ def solve_prepared_horizon_benders(
         tighten_feasible_bounds=tighten_feasible_bounds,
         terminal_soc_policy=terminal_soc_policy,
         storage_cycle_hours=storage_cycle_hours,
-        generator_assets=generator_assets,
     )
     if isinstance(result, DCOPFHorizonResult) and result.diagnostics is not None:
         result = replace(
@@ -4563,7 +3805,6 @@ def solve_prepared_daily_blocks(
     max_iterations: int = 200,
     wall_time_limit_seconds: float | None = None,
     tighten_feasible_bounds: bool = False,
-    generator_energy_limits_mwh: Mapping[str, tuple[Sequence[str], float]] | None = None,
 ) -> DCOPFHorizonResult:
     """Solve storage dispatch as independent exact daily LPs.
 
@@ -4571,14 +3812,7 @@ def solve_prepared_daily_blocks(
     enforces an exact half-full terminal state.  This is intentionally a
     daily-reset policy: storage energy is not carried across block boundaries.
     The returned periods retain the original global period order.
-
-    ``generator_energy_limits_mwh`` applies once per block (a daily energy
-    budget for groups of generators).  Blocks with energy limits are solved
-    as one monolithic LP each; this is the reference route; production uses
-    :func:`solve_prepared_horizon_benders` with ``storage_cycle_hours``.
-    With energy limits, storage is optional.
     """
-    energy_limits = _validate_generator_energy_limits(generator_energy_limits_mwh)
     period_indices = tuple(period_indices)
     if not period_indices:
         raise ValueError("period_indices must not be empty")
@@ -4597,7 +3831,7 @@ def solve_prepared_daily_blocks(
         raise ValueError("storage_solver must be 'benders' or 'monolithic'")
     if not isinstance(parallel_workers, int) or isinstance(parallel_workers, bool) or parallel_workers <= 0:
         raise ValueError("parallel_workers must be a positive integer")
-    if not storage_assets and not energy_limits:
+    if not storage_assets:
         raise ValueError("daily storage evaluation requires at least one storage asset")
     period_count = len(period_indices)
     demands = ({},) * period_count if additional_demand_mw_by_period is None else tuple(additional_demand_mw_by_period)
@@ -4638,7 +3872,7 @@ def solve_prepared_daily_blocks(
             team_id: values[start:end]
             for team_id, values in owner_loads.items()
         }
-        if storage_solver == "monolithic" or energy_limits:
+        if storage_solver == "monolithic":
             block_result = solve_prepared_horizon(
                 artifact_dir,
                 period_indices=block_indices,
@@ -4648,7 +3882,6 @@ def solve_prepared_daily_blocks(
                 owner_load_mw_by_team=block_owner_loads if owner_load_mw_by_team is not None else None,
                 time_step_hours=time_step_hours,
                 terminal_soc_policy="exact_half",
-                generator_energy_limits_mwh=energy_limits,
             )
         else:
             block_result = solve_prepared_horizon_benders(
