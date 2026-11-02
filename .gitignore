@@ -148,3 +148,6 @@ tests/test_hosting_capacity_documentation.py
 
 # Guest lecture (kept locally, not distributed)
 docs/guest_lecture/
+
+# Conference poster (kept locally, not distributed)
+poster/
