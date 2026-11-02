@@ -142,8 +142,8 @@ to the Texas grid as quickly and as profitably as possible. The grid is a
     multiperiod economic dispatch to help integrate more load into the network
     (\cref{sec:model}).
 \end{itemize}
-A team's sites may add up to at most \alert{1,000\MW} of connection capacity
-per submission.
+A team's sites may add up to at most \alert{$x$\,GW} of connection capacity
+per submission, where $x$ will be set once we know how many teams take part.
 
 \paragraph{The game.} You are not alone on the grid. Every team's plan is
 evaluated \alert{together} on the same network, to ensure the feasibility of
@@ -246,8 +246,8 @@ The assignment counts for \alert{40 points} of the final grade:
     Week 2 and Week 3 submission scores.
     \begin{itemize}
       \item \alert{5 absolute points}: $5 \times \min\!\big(1, \max(0,
-        S/(2B))\big)$, where $B = \$49.67$B is the final score $S$ of a
-        reference team that runs 1,000\MW{} off the grid ($G = C$).
+        S/(2B))\big)$, where $B = x \times \$49.67$B is the final score $S$ of a
+        reference team that runs its full $x$\,GW off the grid ($G = C$).
       \item \alert{5 rank points}: 5, 4, 3, 2, or 1 for the top 20\%,
         20--40\%, 40--60\%, 60--80\%, or bottom 20\% of teams.
     \end{itemize}
@@ -606,7 +606,8 @@ Storage power $P$ / energy $B$ & MW / MWh & Optional battery: either both zero, 
 \alert{You only choose sites and four capacities.} The grid operator decides how your
 generator and battery run in each operating period. Your generator and battery serve only
 your own load: they never export to the grid or to another team. The connection
-capacities of all your sites add up to at most \alert{1,000\MW} per submission.
+capacities of all your sites add up to at most \alert{$x$\,GW} per submission
+($x$ is set once we know how many teams take part).
 
 \subsection{Schedule and data}
 The schedule and the timeline are set out in \nameref{asg:rules}
@@ -732,10 +733,10 @@ so it is always served in full. Per MW it earns \$61.5M, pays \$25M of site
 cost and \$2.0M of generator capital, and burns fuel in every hour: at an
 average of \$157.5/MWh on the \$80/\$150/\$250 curve, that is \$9.7M over
 ten years. It nets about \$24.8M per MW, against about \$36.5M for a MW
-served from the grid. A team running its full 1,000\MW{} off the grid scores
-\$24.84B in a submission. Summed over the four graded submissions (W2S1
-\$24.84B, W2S2 \$0, W3S1 \$24.84B, W3S2 \$0, since it adds no sites in
-Submission 2), that is the reference score $B = \$49.67$B for the absolute
+served from the grid. A team running its full $x$\,GW off the grid scores
+$x \times \$24.84$B in a submission. Summed over the four graded submissions (W2S1
+$x \times \$24.84$B, W2S2 \$0, W3S1 $x \times \$24.84$B, W3S2 \$0, since it adds no sites in
+Submission 2), that is the reference score $B = x \times \$49.67$B for the absolute
 points. You beat it by
 getting load onto the grid where the grid has room.
 \end{keybox}
@@ -1391,7 +1392,7 @@ Column & Rule\\
 \code{site_id} & Your own label for the site, unique within the file.\\
 \code{bus_id} & Must exist in the block's \code{bus.csv}.\\
 \code{connection_capacity_mw} & $C \ge 0$, in MW.\\
-\code{generator_capacity_mw} & $0 \le G \le C$, in MW. All your sites' $C$ add up to at most 1,000\MW.\\
+\code{generator_capacity_mw} & $0 \le G \le C$, in MW. All your sites' $C$ add up to at most $x$\,GW.\\
 \code{storage_power_mw} & $P \ge 0$, in MW.\\
 \code{storage_energy_mwh} & $B = 4P$, in MWh (both zero means no battery).\\
 \bottomrule
@@ -1563,7 +1564,7 @@ everyone else built.
 \alert{How big?} A MW served from the grid earns about \$36.5M over ten
 years after site cost; a MW run off the grid on your own generator about
 \$24.8M (\cref{sec:score}). You pay only for the capacity you are allocated,
-and your sites add up to at most 1,000\MW. Grow grid-served capacity in steps
+and your sites add up to at most $x$\,GW. Grow grid-served capacity in steps
 and watch where served load stops keeping up.
 
 \alert{Where?} Since baseline prices are flat, location matters through
@@ -1691,7 +1692,7 @@ Message & What to do\\
 \msg{... must be non-negative} & Use zero or a positive number.\\
 \msg{... must be a finite decimal} & Use a plain number: no units, no blanks, no text.\\
 \msg{generator capacity cannot exceed connection capacity} & Lower $G$ to at most $C$, or raise $C$.\\
-\msg{total connection capacity cannot exceed 1,000 MW per team} & Lower the $C$ of your sites so they add up to at most 1,000\MW.\\
+\msg{total connection capacity cannot exceed ... MW per team} & Lower the $C$ of your sites so they add up to at most $x$\,GW.\\
 \msg{storage energy must equal four times storage power} & Set $B = 4P$, or both to 0.\\
 \msg{CONFIGURATION ERROR: ...} & The command is wrong, not your file. For example, \code{--artifact-dir} must point to an existing scenario folder.\\
 \msg{scenario block validation_status is not passed} & The preview is pointing at an unreleased block. Use a block your instructor has released.\\
@@ -1719,7 +1720,7 @@ first three lines of my CSV are: [paste]. What is wrong and how do I fix it?
   \item The same \code{team_id} is used on every row, and every \code{site_id}
     is unique.
   \item Every \code{bus_id} exists in the block you are submitting for.
-  \item $G \le C$ at every site, all sites' $C$ add up to at most 1,000\MW, and storage is either $(0,0)$ or $B = 4P$.
+  \item $G \le C$ at every site, all sites' $C$ add up to at most $x$\,GW, and storage is either $(0,0)$ or $B = 4P$.
   \item For Submission 2, every Submission 1 row is unchanged.
   \item The checker prints \code{VALID} for the exact file you will upload.
   \item You can explain why you chose each bus and capacity.
@@ -2930,7 +2931,7 @@ Representative days & 5 days, 120 hours & Four medoid days from clustering the d
 Site cost & \$25M/MW & Cost of building an AI data center per MW of IT load: about \$10.7M/MW for the building and up to \$25M/MW with AI fit-out~\cite{jll2026dc}, or \$21--31M/MW including servers~\cite{morganstanley2024dc}.\\
 Generator capital & \$2.0M/MW & Installed cost of on-site gas engines and aeroderivative turbines for data centers, about \$1,700--2,000/kW~\cite{rabobank2026btm}; EIA reference costs are in the same range~\cite{eia2024generatorcosts}.\\
 Generator cap & $G \le C$, any hours & A site may carry its whole load on its own generator, which may run in every hour; with $G = C$ it can run off the grid. This makes off-grid operation the reference plan for the absolute points.\\
-Team cap & 1,000\MW{} per submission & An instructional limit on each team's total connection capacity, so that scores stay bounded and comparable with the reference plan.\\
+Team cap & $x$\,GW per submission & An instructional limit on each team's total connection capacity, so that scores stay bounded and comparable with the reference plan. $x$ will be set once we know how many teams take part.\\
 Generator operating cost & \$80/150/250 per MWh & A rising cost curve for on-site gas generation with a diesel-backup premium; the exact shape is instructional~\cite{eia2025heatrate}.\\
 Storage capital & \$400k/MW + \$250k/MWh & Rounded from the 2028 moderate projection for four-hour batteries~\cite{nrel2023bess}; \$1.4M per MW of four-hour storage.\\
 Grid energy price & LMP from the dispatch & The bus-level dual price of the DCOPF; about \$17--20/MWh before students add load.\\
