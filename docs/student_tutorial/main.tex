@@ -44,7 +44,7 @@
 \newcommand{\alert}[1]{{\color{alertblue}\uline{#1}}}
 
 \hypersetup{colorlinks=true,linkcolor=green,citecolor=green,urlcolor=green,
-  pdftitle={Data-Center Connection Planning Game: Assignment and Student Tutorial},
+  pdftitle={Data-Center Connection Planning Game: Project and Student Tutorial},
   pdfauthor={ECE 51032, Purdue University}}
 
 \lstdefinestyle{tutorialcode}{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},
@@ -81,7 +81,7 @@
 \setlength{\headheight}{15pt}
 \fancyhf{}
 \lhead{Data-Center Connection Planning Game}
-\rhead{Assignment and Tutorial}
+\rhead{Project and Tutorial}
 \cfoot{\thepage\ of \pageref{LastPage}}
 \newcommand{\code}[1]{\path{#1}}
 % Literal text that contains spaces (\path drops them).
@@ -98,22 +98,22 @@
 \captionsetup{font=small,labelfont=bf}
 \setlist{itemsep=2pt,topsep=3pt}
 
-\title{\vspace{-2em}ECE 51032: Computational Methods for Power System Analysis\\ \textbf{Data-Center Connection Planning Game}\\[0.3em]\large Assignment and Student Tutorial}
+\title{\vspace{-2em}ECE 51032: Computational Methods for Power System Analysis\\ \textbf{Data-Center Connection Planning Game}\\[0.3em]\large Project and Student Tutorial}
 \date{\vspace{-1.5em}}
 \author{Purdue University, Fall 2026}
 \begin{document}
 \maketitle
 
-\textbf{Part I} is the official assignment, in two pages. \textbf{Part II}
+\textbf{Part I} is the official project description, in two pages. \textbf{Part II}
 is the tutorial: the game, the model, the tools, and strategy, with a walk
 through your first plan.
 
-\phantomsection\addcontentsline{toc}{part}{Part I: The Assignment}
+\phantomsection\addcontentsline{toc}{part}{Part I: The Project}
 \begin{center}
-\Large\bfseries Part I: The Assignment
+\Large\bfseries Part I: The Project
 \end{center}
 
-% Two-page summary of the assignment. The earlier, longer Part I is kept below
+% Two-page summary of the project. The earlier, longer Part I is kept below
 % between \iffalse and \fi.
 \begingroup
 \setlength{\parskip}{0.25em}
@@ -158,7 +158,7 @@ and a grid map of the total load per bus, but never another team's plan
 % ---------------------------------------------------------------------------
 \assignsection{Teams and communication}{asg:team}
 
-Every team should have \alert{three students}, formed by yourselves. Each team
+Every team should have \alert{three students}, formed by yourselves. You must form a team by {\bf November 15th} for this project (or an alternative project); but forming the team earlier will likely be beneficial. Each team
 will be assigned a fixed \code{team_id} (chosen by yourselves) all game long,
 and one member uploads each file. Questions, announcements, and finding
 teammates go through the \alert{Discord} channel (link:
@@ -169,20 +169,20 @@ encouraged to do so (\cref{sec:ai}). Your team is responsible for every number
 it submits and must be able to explain its plan in the final presentation.
 
 % ---------------------------------------------------------------------------
-\assignsection{The three weeks}{asg:rules}
+\assignsection{The three submission rounds}{asg:rules}
 
-Every week plays the \alert{same game on the same data}: you are developing
+Every submission round plays the \alert{same game on the same data}: you are developing
 data-center siting plans, possibly with co-located generation and storage,
 that will be in effect for the next ten years, made in two submissions per
-week (\cref{fig:timeline}). The practice week (Week 1) \alert{spans two
-calendar weeks}, Nov 16--29, so that it does not overlap with Thanksgiving.
+week (\cref{fig:timeline}). The practice round (Round 1) \alert{spans two
+calendar weeks}, Nov 16--29.
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{@{}l l X X l@{}}
 \toprule
-Week & Dates & Submission 1 due & Submission 2 due & Grid energy cost\\
+Round & Dates & Submission 1 due & Submission 2 due & Grid energy cost\\
 \midrule
-1 (practice) & Nov 16--29 & Fri Nov 20, 11:59 PM & Fri Nov 27, 11:59 PM & none\\
+1 (practice) & Nov 16--29 & Sun Nov 22, 11:59 PM & Sun Nov 29, 11:59 PM & none\\
 2 (graded)   & Nov 30--Dec 6 & Thu Dec 3, 11:59 PM & Sun Dec 6, 11:59 PM & none\\
 3 (graded)   & Dec 7--13 & Thu Dec 10, 11:59 PM & Sun Dec 13, 11:59 PM & at the LMPs\\
 \bottomrule
@@ -239,7 +239,7 @@ against \$25M of site cost. Capital is paid up front and is not discounted.
 % ---------------------------------------------------------------------------
 \assignsection{Grading}{asg:conduct}
 
-The assignment counts for \alert{40 points} of the final grade:
+The project counts for \alert{40 points} of the final grade:
 \begin{itemize}[leftmargin=*]
   \item \alert{30 points}: the presentation, the report, and your work.
   \item \alert{10 points}: your final game score $S$, the sum of your four
@@ -264,7 +264,7 @@ Minghao Mou (\href{mailto:mmou@purdue.edu}{mmou@purdue.edu}) within 7 days of th
 \begin{itemize}[leftmargin=*]
   \item \alert{Part II}: setup (\cref{sec:setup}), an AI-agent walkthrough (\cref{sec:agent}), and strategy (\cref{sec:strategy}).
   \item \alert{Code and data}:
-    \url{https://github.com/MhaoMou/ercot-connection-planning-instructor}.
+    \url{https://github.com/MhaoMou/ercot-connection-game}.
   \item \alert{Discord}: \url{https://discord.gg/5E7cSeH2jj}.
 \end{itemize}
 \endgroup
@@ -552,7 +552,7 @@ results release.
 
 \begin{keybox}[Quick start]
 \begin{enumerate}[leftmargin=*]
-  \item Read Part I, the assignment (\nameref{asg:glance} to
+  \item Read Part I, the project (\nameref{asg:glance} to
     \nameref{asg:conduct}).
   \item Set up the GitHub repository (\cref{sec:setup}).
   \item Try the AI-agent walkthrough on the IEEE 14-bus demo (\cref{sec:agent}).
@@ -572,7 +572,7 @@ results release.
 \endgroup
 \newpage
 
-This part walks you through the assignment from start to finish: what the
+This part walks you through the project from start to finish: what the
 game is, how your plan is scored, how to explore the data, how to write and
 check your submission, and how to use AI tools along the way. The numbers come
 from the scoring-rules files in \code{data/teaching/}, and
@@ -910,7 +910,7 @@ state of charge, and \code{05_csv_validation.ipynb} calls the checker from
 Python.
 
 % ---------------------------------------------------------------------------
-\section{Using AI for this assignment}\label{sec:ai}
+\section{Using AI for this project}\label{sec:ai}
 
 \alert{You are encouraged to use AI tools} such as ChatGPT, Claude, Gemini, GitHub
 Copilot, Claude Code, or Codex. You are still responsible for every number you
@@ -949,7 +949,7 @@ GitHub Copilot is free for verified students, see
 \href{https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/enable-copilot/set-up-for-students}{Access GitHub Copilot for free as a student}.
 
 \subsection{How to write a good prompt}
-The AI knows DCOPF but knows nothing about this assignment. Give it four
+The AI knows DCOPF but knows nothing about this project. Give it four
 things: 
 \begin{itemize}
   \item the \textbf{goal},
@@ -989,7 +989,7 @@ Change line 6 to \code{branches["thermal_limit_mva"]} and run it again.
 \end{aibox}
 
 \subsection{Check what the AI tells you}
-\alert{AI tools are often confidently wrong about assignment-specific details (and this is the reason why you need to provide enough context to AI agents).} They
+\alert{AI tools are often confidently wrong about project-specific details (and this is the reason why you need to provide enough context to AI agents).} They
 might invent a CSV column, assume you schedule the battery yourself, or use
 made-up prices. Before you rely on an answer:
 \begin{itemize}[leftmargin=*]
@@ -1046,7 +1046,7 @@ files'', ``under 150 words''), and asks for the \alert{form} of the answer
 (``a table'', ``show the commands''). After every reply, a box lists what you
 should check yourself before you rely on it.
 
-\subsection{Step 1: understand the assignment}
+\subsection{Step 1: understand the project}
 \begin{promptbox}[Prompt 1]
 I just cloned this repository for my ECE 51032 course project. Read the README
 and Part I of \code{docs/student_tutorial/main.tex} \alert{(context)}, then explain in under 150 words \alert{(constraint)}: what my team submits, how it is scored, and which commands I will use. \alert{(deliverables)}
