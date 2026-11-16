@@ -25,7 +25,7 @@ def test_canonical_release_is_the_hourly_representative_day_package() -> None:
     assert CANONICAL_HORIZON == 120
     assert CANONICAL_STORAGE_BOUNDARY_MODE == "daily_exact_cycle"
     assert CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO == 1.0
-    assert CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW == 1_000.0
+    assert CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW == 500.0
     assert CANONICAL_PREVIEW_STRIDE == 1
     manifest = require_validated_block(canonical_release_artifact_dir())
     assert manifest["package_version"] == REPRESENTATIVE_PACKAGE_VERSION

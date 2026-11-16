@@ -54,7 +54,7 @@ of connection capacity, generator capital cost of \$2.0M/MW, and storage
 capital costs of \$400k/MW plus \$250k/MWh, all on the allocated
 capacities. Generator capacity is capped at the site's connection capacity
 (G <= C, so a site can run off the grid) with no run-hour limit; a team's
-sites add up to at most 1,000 MW of connection capacity per submission;
+sites add up to at most 500 MW of connection capacity per submission;
 storage is zero or exactly four hours (B = 4P). A MW served from the grid nets
 about \$36.5M; a MW run off the grid (G = C, full output every hour) about
 \$24.8M. Storage operating cost is not charged, and an invalid submission
@@ -107,7 +107,7 @@ ercot-game-check-csv \
   --artifact-dir data/processed/activsg2000_representative_v1
 ```
 
-The checker enforces the release's G <= C generator cap and the 1,000 MW
+The checker enforces the release's G <= C generator cap and the 500 MW
 team cap.
 
 The active canonical header is exactly seven columns, with one data row per

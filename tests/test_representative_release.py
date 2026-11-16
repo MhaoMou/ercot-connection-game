@@ -133,7 +133,7 @@ def test_rules_store_the_present_value_weights_and_unchanged_capital_costs():
     assert payload["site_cost_per_mw"] == 25e6
     assert payload["generator_capital_cost_per_mw"] == 2.0e6
     assert payload.get("generator_daily_energy_hours") is None
-    assert payload["max_team_connection_capacity_mw"] == 1_000.0
+    assert payload["max_team_connection_capacity_mw"] == 500.0
     assert payload["storage_capital_cost_per_mw"] == 4e5
     assert payload["storage_capital_cost_per_mwh"] == 2.5e5
     assert payload["storage_boundary_mode"] == "daily_exact_cycle"
@@ -228,11 +228,11 @@ def test_energy_switch_is_independent_of_the_submission_number(submission_number
 # --- generator cap ------------------------------------------------------------------
 
 
-def test_release_caps_the_generator_at_the_connection_and_the_team_at_one_gigawatt(tmp_path, capsys):
+def test_release_caps_the_generator_at_the_connection_and_the_team_at_half_a_gigawatt(tmp_path, capsys):
     ok = _write_plan(tmp_path / "ok.csv", "team-a", [("s1", "1001", 40, 40, 0, 0)])
     over = _write_plan(tmp_path / "over.csv", "team-a", [("s1", "1001", 40, 41, 0, 0)])
     big = _write_plan(
-        tmp_path / "big.csv", "team-a", [("s1", "1001", 600, 600, 0, 0), ("s2", "1002", 401, 0, 0, 0)]
+        tmp_path / "big.csv", "team-a", [("s1", "1001", 300, 300, 0, 0), ("s2", "1002", 201, 0, 0, 0)]
     )
     assert read_student_csv(ok).plan.sites[0].generator_capacity_mw == 40
     with pytest.raises(ValueError, match="generator capacity cannot exceed connection capacity"):
@@ -241,7 +241,7 @@ def test_release_caps_the_generator_at_the_connection_and_the_team_at_one_gigawa
     assert csv_validator.main(["--file", str(over), "--artifact-dir", str(PACKAGE)]) == 1
     assert "cannot exceed connection capacity" in capsys.readouterr().out
     assert csv_validator.main(["--file", str(big), "--artifact-dir", str(PACKAGE)]) == 1
-    assert "1,000 MW per team" in capsys.readouterr().out
+    assert "500 MW per team" in capsys.readouterr().out
     assert csv_validator.main(["--file", str(ok), "--artifact-dir", str(PACKAGE)]) == 0
     capsys.readouterr()
     with pytest.raises(SystemExit):

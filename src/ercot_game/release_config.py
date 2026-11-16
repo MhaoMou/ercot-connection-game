@@ -22,7 +22,7 @@ CANONICAL_STORAGE_BOUNDARY_MODE = "daily_exact_cycle"
 # A site's generator may serve its whole load (G <= C), with no run-hour limit.
 CANONICAL_MAX_GENERATOR_TO_CONNECTION_RATIO = 1.0
 # Total connection capacity a team may request in one submission.
-CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW = 1_000.0
+CANONICAL_MAX_TEAM_CONNECTION_CAPACITY_MW = 500.0
 CANONICAL_GENERATOR_CAPITAL_COST_PER_MW = 2_000_000.0
 CANONICAL_PREVIEW_STRIDE = 1
 # Week number -> whether grid purchases are charged at LMP in both submissions.

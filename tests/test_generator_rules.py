@@ -21,7 +21,7 @@ def test_released_rules_have_no_budget_and_allow_off_grid_sites() -> None:
         assert payload.get("generator_daily_energy_hours") is None
         assert payload["generator_capital_cost_per_mw"] == 2_000_000.0
         assert payload["max_generator_to_connection_ratio"] == 1.0
-        assert payload["max_team_connection_capacity_mw"] == 1_000.0
+        assert payload["max_team_connection_capacity_mw"] == 500.0
         assert "off the grid" in payload["generator_provenance"]["max_generator_to_connection_ratio_basis"]
 
 

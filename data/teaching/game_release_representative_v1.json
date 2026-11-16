@@ -9,7 +9,7 @@
   "planning_horizon_years": 10,
   "storage_boundary_mode": "daily_exact_cycle",
   "max_generator_to_connection_ratio": 1.0,
-  "max_team_connection_capacity_mw": 1000.0,
+  "max_team_connection_capacity_mw": 500.0,
   "generator_capital_cost_per_mw": 2000000.0,
   "preview_stride": 1,
   "solver_backend": "auto",

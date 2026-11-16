@@ -271,8 +271,8 @@ The active coefficients are:
 | Team-generator curve | 80 / 150 / 250 over 25% / 50% / 25% | USD/MWh | Source-informed convex curve for colocated natural-gas engines/turbines with standby/scarcity premium. |
 | Generator capital | 2,000,000 | USD/MW | Installed on-site gas engines/aeroderivative turbines about $1,700–2,000/kW (Rabobank 2026); EIA-based Texas PUC filing figures: aeroderivative about $1,430/kW, internal-combustion engines about $2,240/kW. |
 | Generator cap | 1.0 | fraction of connection capacity | `max_generator_to_connection_ratio`: G <= C, no run-hour limit; a site with G = C runs off the grid. A rules file that sets `generator_daily_energy_hours` is rejected. |
-| Team connection cap | 1,000 | MW per team per submission | `max_team_connection_capacity_mw`; a file above it is rejected. |
-| Reference plan B | 49.67 | billion USD | Final score (sum of W2S1, W2S2, W3S1, W3S2) of one team alone running 1,000 MW off the grid (G = C): 24.84B + 0 + 24.84B + 0; computed analytically (`data/teaching/reference_plan/`). |
+| Team connection cap | 500 | MW per team per submission | `max_team_connection_capacity_mw`; a file above it is rejected. |
+| Reference plan B | 24.84 | billion USD | Final score (sum of W2S1, W2S2, W3S1, W3S2) of one team alone running 500 MW off the grid (G = C): 12.42B + 0 + 12.42B + 0; computed analytically (`data/teaching/reference_plan/`). |
 | Connection-site cost | 25,000,000 | USD/MW | AI-data-center facility-capital proxy, not a universal grid-interconnection tariff; informed by JLL and Morgan Stanley. |
 | Storage power capital | 400,000 | USD/MW | Rounded component of NREL's 2028 moderate four-hour projection. |
 | Storage energy capital | 250,000 | USD/MWh | Rounded component of the same NREL projection. |
