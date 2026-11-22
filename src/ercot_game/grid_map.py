@@ -369,7 +369,11 @@ _MAP_SCRIPT = """
   var NS = 'http://www.w3.org/2000/svg';
   var view = svg.getElementById('view'), labels = svg.getElementById('labels');
   var W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
+  var frame = svg.getElementById('map-frame');
+  var FX = +frame.getAttribute('x'), FY = +frame.getAttribute('y');
+  var FW = +frame.getAttribute('width'), FH = +frame.getAttribute('height');
   var scale = 1, x = 0, y = 0, drag = null, moved = false;
+  function inFrame(p) { return p[0] >= FX && p[0] <= FX + FW && p[1] >= FY && p[1] <= FY + FH; }
   var MIN = 1, MAX = 60, LABEL_SCALE = 4;
   // The map scales to fit the window, so screen points are converted with the
   // current screen transform (which also accounts for any letterboxing).
@@ -393,14 +397,18 @@ _MAP_SCRIPT = """
   // Gentle zoom: the step follows how far the wheel or the two-finger pinch
   // moved, so a small pinch zooms a little (one fixed step per event made
   // trackpads jump).
+  // The map zooms only under the pointer inside its frame; elsewhere the
+  // wheel scrolls the page as usual.
   svg.addEventListener('wheel', function (e) {
+    var p = toView(e);
+    if (!inFrame(p)) return;
     e.preventDefault();
     var dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
-    var p = toView(e);
     zoomAt(p[0], p[1], Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
   }, {passive: false});
   svg.addEventListener('mousedown', function (e) {
     if (e.target.closest && e.target.closest('.ui')) return;
+    if (!inFrame(toView(e))) return;
     drag = [e.clientX, e.clientY, x, y]; moved = false;
   });
   window.addEventListener('mouseup', function () { drag = null; });
@@ -411,10 +419,20 @@ _MAP_SCRIPT = """
     if (Math.abs(dx) + Math.abs(dyy) > 3) moved = true;
     x = drag[2] + dx * k; y = drag[3] + dyy * k; apply();
   });
+  function reset() { scale = 1; x = 0; y = 0; apply(); }
   svg.addEventListener('dblclick', function (e) {
     if (e.target.closest && e.target.closest('.ui')) return;
-    scale = 1; x = 0; y = 0; apply();
+    if (!inFrame(toView(e))) return;
+    reset();
   });
+  // Zoom buttons: zoom about the center of the frame.
+  function onClick(id, action) {
+    var el = svg.getElementById(id);
+    if (el) el.addEventListener('click', function (e) { e.stopPropagation(); action(); });
+  }
+  onClick('zoom-in', function () { zoomAt(FX + FW / 2, FY + FH / 2, 1.5); });
+  onClick('zoom-out', function () { zoomAt(FX + FW / 2, FY + FH / 2, 1 / 1.5); });
+  onClick('zoom-reset', reset);
 
   // Hover boxes.
   var tip = svg.getElementById('tip'), box = tip.querySelector('rect'), text = tip.querySelector('text');
@@ -542,7 +560,7 @@ def render_svg(
     impacts_by_branch: Mapping[str, Sequence[tuple[str, float]]] | None = None,
 ) -> str:
     """Return a self-contained interactive SVG document."""
-    width, margin, panel = 1200, 40, 250
+    width, margin, panel = 1200, 40, 280
     plot = width - 2 * margin
     y_extent = max(
         [y for _, y in positions.values()] + [y for path in background_paths for _, y in path],
@@ -601,8 +619,8 @@ def render_svg(
     out.append(f'<text x="{margin}" y="98" font-size="15" fill="#57606a">{layout_note}</text>')
     out.append(
         f'<text x="{margin}" y="118" font-size="15" fill="#57606a">'
-        "Hover a bus or line for details; scroll or pinch to zoom (bus numbers appear when zoomed in), "
-        "drag to pan, double-click to reset.</text>"
+        "Hover a bus or line for details; zoom with + and \u2212, or scroll or pinch over the map "
+        "(bus numbers appear when zoomed in); drag to pan; Reset or double-click to reset.</text>"
     )
     out.append(
         f'<text id="note" x="{margin}" y="138" font-size="15" fill="#0969da" '
@@ -655,6 +673,19 @@ def render_svg(
             out.append(f'<line x1="{x0}" y1="{legend_y + 18}" x2="{x0 + 44}" y2="{legend_y + 18}" stroke="{color}" stroke-width="{max(stroke, 1.5)}"/>')
             out.append(f'<text x="{x0}" y="{legend_y + 42}" font-size="14">{escape(label)}</text>')
 
+    # The map lives in a frame: zooming and panning are clipped to it.
+    pad = 12
+    frame_x, frame_y = margin - pad, panel - pad
+    frame_w, frame_h = plot + 2 * pad, y_extent * plot + 2 * pad
+    out.append(
+        f'<defs><clipPath id="map-clip"><rect x="{frame_x}" y="{frame_y:.1f}" width="{frame_w}" '
+        f'height="{frame_h:.1f}" rx="8"/></clipPath></defs>'
+    )
+    out.append(
+        f'<rect id="map-frame" x="{frame_x}" y="{frame_y:.1f}" width="{frame_w}" height="{frame_h:.1f}" '
+        'rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>'
+    )
+    out.append('<g clip-path="url(#map-clip)">')
     out.append('<g id="view">')
     for path in background_paths:
         points = " ".join(f"{margin + x * plot:.1f},{panel + y * plot:.1f}" for x, y in path)
@@ -721,7 +752,23 @@ def render_svg(
         )
         label_lines.append(f'<text x="{x + 2.5:.1f}" y="{y - 2.5:.1f}">{escape(bus_id)}</text>')
     out.append('<g id="labels" display="none" font-size="11">' + "".join(label_lines) + "</g>")
-    out.append("</g>")
+    out.append("</g></g>")
+    # Zoom buttons in the frame's top-right corner, above the map.
+    zx = frame_x + frame_w - 10
+    zoom_buttons = (
+        ("zoom-reset", "Reset", 64),
+        ("zoom-out", "\u2212", 36),
+        ("zoom-in", "+", 36),
+    )
+    for button_id, label, button_w in zoom_buttons:
+        zx -= button_w
+        out.append(
+            f'<g id="{button_id}" class="ui button">'
+            f'<rect x="{zx}" y="{frame_y + 10:.1f}" width="{button_w}" height="32" rx="6"/>'
+            f'<text x="{zx + button_w / 2}" y="{frame_y + 32:.1f}" font-size="{15 if button_w > 40 else 22}" '
+            f'text-anchor="middle">{label}</text></g>'
+        )
+        zx -= 6
     out.append('<g id="tip" visibility="hidden" pointer-events="none">'
                '<rect rx="6" fill="#24292f" fill-opacity="0.94"/>'
                '<text font-size="15" xml:space="preserve" style="white-space:pre"/></g>')
