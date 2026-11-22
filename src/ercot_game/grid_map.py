@@ -363,6 +363,40 @@ def _tip_attr(tip: str) -> str:
     return escape(tip).replace("\n", "&#10;")
 
 
+# Type sizes in figure units (the figure is 1200 units wide).
+_TITLE_SIZE = 60
+_SUBTITLE_SIZE = 36
+_TEXT_SIZE = 30
+_SMALL_SIZE = 26
+_LEGEND_SIZE = 28
+_TICK_SIZE = 26
+_LABEL_SIZE = 22
+# The hover box keeps this size on screen (pixels) at any zoom.
+_TIP_SIZE = 22
+
+
+def _wrap(text: str, size: float, width: float) -> list[str]:
+    """Greedy word wrap for SVG text, using an average glyph width."""
+    limit = max(1, int(width / (0.47 * size)))
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > limit and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _site_radius(mw: float, max_mw: float) -> float:
+    """Bubble radius of a bus with served load: its area grows with MW."""
+    return 5.0 + 10.0 * (mw / max_mw) ** 0.5 if max_mw > 0 else 5.0
+
+
 _MAP_SCRIPT = """
 (function () {
   var svg = document.currentScript.ownerSVGElement || document.documentElement;
@@ -374,7 +408,7 @@ _MAP_SCRIPT = """
   var FW = +frame.getAttribute('width'), FH = +frame.getAttribute('height');
   var scale = 1, x = 0, y = 0, drag = null, moved = false;
   function inFrame(p) { return p[0] >= FX && p[0] <= FX + FW && p[1] >= FY && p[1] <= FY + FH; }
-  var MIN = 1, MAX = 60, LABEL_SCALE = 4;
+  var MIN = 1, MAX = 60, LABEL_SCALE = 4, LABEL_SIZE = 22;
   // The map scales to fit the window, so screen points are converted with the
   // current screen transform (which also accounts for any letterboxing).
   function toView(e) {
@@ -384,10 +418,18 @@ _MAP_SCRIPT = """
     return [pt.x, pt.y];
   }
   function screenScale() { return svg.getScreenCTM().a || 1; }
+  var circles = Array.prototype.slice.call(svg.querySelectorAll('circle[data-id]'));
+  var layer = 'load';
+  // Bubbles grow more slowly than the map when zooming in (by the square
+  // root of the zoom), so dense clusters separate instead of merging.
   function apply() {
     view.setAttribute('transform', 'translate(' + x + ',' + y + ') scale(' + scale + ')');
     labels.setAttribute('display', scale >= LABEL_SCALE ? 'inline' : 'none');
-    labels.setAttribute('font-size', (11 / scale).toFixed(3));
+    labels.setAttribute('font-size', (LABEL_SIZE / scale).toFixed(3));
+    var shrink = 1 / Math.sqrt(scale);
+    circles.forEach(function (c) {
+      c.setAttribute('r', (+c.getAttribute('data-' + layer + '-r') * shrink).toFixed(3));
+    });
   }
   function zoomAt(px, py, f) {
     var s = Math.min(MAX, Math.max(MIN, scale * f));
@@ -419,7 +461,25 @@ _MAP_SCRIPT = """
     if (Math.abs(dx) + Math.abs(dyy) > 3) moved = true;
     x = drag[2] + dx * k; y = drag[3] + dyy * k; apply();
   });
-  function reset() { scale = 1; x = 0; y = 0; apply(); }
+  // The buttons zoom smoothly; the wheel and pinch zoom directly.
+  var anim = null;
+  function animateTo(s1, x1, y1) {
+    if (anim) cancelAnimationFrame(anim);
+    var s0 = scale, x0 = x, y0 = y, start = null;
+    function step(now) {
+      if (start === null) start = now;
+      var u = Math.min(1, (now - start) / 220), e = 1 - Math.pow(1 - u, 3);
+      scale = s0 * Math.pow(s1 / s0, e); x = x0 + (x1 - x0) * e; y = y0 + (y1 - y0) * e; apply();
+      anim = u < 1 ? requestAnimationFrame(step) : null;
+    }
+    anim = requestAnimationFrame(step);
+  }
+  function zoomButton(f) {
+    var px = FX + FW / 2, py = FY + FH / 2;
+    var s = Math.min(MAX, Math.max(MIN, scale * f)), k = s / scale;
+    animateTo(s, px - (px - x) * k, py - (py - y) * k);
+  }
+  function reset() { animateTo(1, 0, 0); }
   svg.addEventListener('dblclick', function (e) {
     if (e.target.closest && e.target.closest('.ui')) return;
     if (!inFrame(toView(e))) return;
@@ -430,8 +490,8 @@ _MAP_SCRIPT = """
     var el = svg.getElementById(id);
     if (el) el.addEventListener('click', function (e) { e.stopPropagation(); action(); });
   }
-  onClick('zoom-in', function () { zoomAt(FX + FW / 2, FY + FH / 2, 1.5); });
-  onClick('zoom-out', function () { zoomAt(FX + FW / 2, FY + FH / 2, 1 / 1.5); });
+  onClick('zoom-in', function () { zoomButton(1.6); });
+  onClick('zoom-out', function () { zoomButton(1 / 1.6); });
   onClick('zoom-reset', reset);
 
   // Hover boxes.
@@ -440,12 +500,12 @@ _MAP_SCRIPT = """
     while (text.firstChild) text.removeChild(text.firstChild);
     lines.forEach(function (line, i) {
       var span = document.createElementNS(NS, 'tspan');
-      span.setAttribute('x', 12); span.setAttribute('dy', i ? '1.35em' : '1.15em');
+      span.setAttribute('x', 16); span.setAttribute('dy', i ? '1.35em' : '1.15em');
       if (i === 0) span.setAttribute('font-weight', 'bold');
       span.textContent = line; text.appendChild(span);
     });
     var b = text.getBBox();
-    box.setAttribute('width', b.width + 24); box.setAttribute('height', b.height + 16);
+    box.setAttribute('width', b.width + 32); box.setAttribute('height', b.height + 22);
     tip.setAttribute('visibility', 'visible'); place(p);
   }
   // The hover box keeps the same on-screen size however small the map is drawn.
@@ -469,12 +529,10 @@ _MAP_SCRIPT = """
   });
 
   // Layers: MW served or energy price.
-  var circles = Array.prototype.slice.call(svg.querySelectorAll('circle[data-id]'));
   function setLayer(name) {
-    circles.forEach(function (c) {
-      c.setAttribute('fill', c.getAttribute('data-' + name + '-fill'));
-      c.setAttribute('r', c.getAttribute('data-' + name + '-r'));
-    });
+    layer = name;
+    circles.forEach(function (c) { c.setAttribute('fill', c.getAttribute('data-' + name + '-fill')); });
+    apply();
     ['load', 'price'].forEach(function (n) {
       var legend = svg.getElementById('legend-' + n), button = svg.getElementById('button-' + n);
       if (legend) legend.setAttribute('display', n === name ? 'inline' : 'none');
@@ -560,13 +618,12 @@ def render_svg(
     impacts_by_branch: Mapping[str, Sequence[tuple[str, float]]] | None = None,
 ) -> str:
     """Return a self-contained interactive SVG document."""
-    width, margin, panel = 1200, 40, 280
+    width, margin = 1200, 40
     plot = width - 2 * margin
     y_extent = max(
         [y for _, y in positions.values()] + [y for path in background_paths for _, y in path],
         default=1.0,
     ) or 1.0
-    height = round(panel + y_extent * plot + margin)
     base_load_by_bus = base_load_by_bus or {}
     bus_names = bus_names or {}
     peak_load_by_bus = peak_load_by_bus or {}
@@ -579,16 +636,12 @@ def render_svg(
         name = bus_names.get(bus_id)
         return f"{name} (bus {bus_id})" if name else f"Bus {bus_id}"
 
-    def point(bus_id: str) -> tuple[float, float]:
-        x, y = positions[bus_id]
-        return margin + x * plot, panel + y * plot
-
     max_mw = max(connection_by_bus.values(), default=0.0)
     prices = sorted(average_price_by_bus.values())
     low_price = prices[int(0.02 * (len(prices) - 1))] if prices else 0.0
     high_price = prices[int(0.98 * (len(prices) - 1))] if prices else 0.0
     layout_note = (
-        "Approximate geographic layout (bus locations from the 2016 ACTIVSg2000 release)."
+        "Approximate geographic layout (2016 ACTIVSg2000 bus locations)."
         if layout_kind == "approximate geographic"
         else "Schematic layout, not geographic."
     )
@@ -597,99 +650,127 @@ def render_svg(
         if impacts_by_branch
         else ""
     )
+
+    # Header.  Long lines wrap to the width of the figure.
+    head: list[str] = []
+    cursor = 0.0
+
+    def text_block(text: str, size: int, *, bold: bool = False, fill: str = "#24292f", leading: float = 1.3) -> None:
+        nonlocal cursor
+        for line in _wrap(text, size, plot):
+            cursor += size * leading
+            weight = ' font-weight="bold"' if bold else ""
+            head.append(
+                f'<text x="{margin}" y="{cursor:.0f}" font-size="{size}"{weight} fill="{fill}">{escape(line)}</text>'
+            )
+
+    cursor = 10.0
+    text_block(title, _TITLE_SIZE, bold=True, leading=1.15)
+    if subtitle:
+        text_block(subtitle, _SUBTITLE_SIZE)
+    cursor += 6
+    text_block(layout_note, _TEXT_SIZE, fill="#57606a")
+    text_block(
+        "Hover for details · zoom with + / − or by scrolling · drag to pan",
+        _TEXT_SIZE,
+        fill="#57606a",
+    )
+    # The note under the help text changes when a binding line is clicked,
+    # so it is an HTML block that wraps by itself.
+    note_height = round(2 * _TEXT_SIZE * 1.3) if default_note else 1
+    cursor += 10
+    head.append(
+        f'<foreignObject x="{margin}" y="{cursor:.0f}" width="{plot}" height="{note_height}">'
+        f'<div xmlns="http://www.w3.org/1999/xhtml" id="note" data-default="{escape(default_note)}" '
+        f'style="font:{_TEXT_SIZE}px Helvetica, Arial, sans-serif;line-height:1.3;color:#0969da">'
+        f"{escape(default_note)}</div></foreignObject>"
+    )
+    cursor += note_height + 14
+    # Toolbar: layer buttons and search.
+    bar_y, bar_h = cursor, 56
+    buttons = [("load", "MW served")] + ([("price", "Energy price (LMP)")] if has_prices else [])
+    bx = margin
+    for key, label in buttons:
+        bw = 40 + 16 * len(label)
+        active = " active" if key == "load" else ""
+        head.append(
+            f'<g id="button-{key}" class="ui button{active}"><rect x="{bx}" y="{bar_y:.0f}" width="{bw}" '
+            f'height="{bar_h}" rx="10"/><text x="{bx + bw / 2}" y="{bar_y + bar_h / 2 + 10:.0f}" '
+            f'font-size="{_TEXT_SIZE}" text-anchor="middle">{escape(label)}</text></g>'
+        )
+        bx += bw + 14
+    search_w = min(440, width - margin - bx - 10)
+    head.append(
+        f'<foreignObject class="ui" x="{width - margin - search_w}" y="{bar_y:.0f}" width="{search_w}" '
+        f'height="{bar_h + 2}"><input xmlns="http://www.w3.org/1999/xhtml" id="search" type="search" '
+        'placeholder="Find a bus (number or name), Enter" '
+        f'style="width:100%;box-sizing:border-box;height:{bar_h}px;font-size:{_SMALL_SIZE}px;padding:0 14px;'
+        'border:1.5px solid #8c959f;border-radius:10px"/></foreignObject>'
+    )
+    head.append(
+        f'<text id="search-status" x="{width - margin - search_w}" y="{bar_y + bar_h + 30:.0f}" '
+        f'font-size="{_SMALL_SIZE}" fill="#cf222e"></text>'
+    )
+    pad = 12
+    panel = bar_y + bar_h + 44 + pad
+    height = round(panel + y_extent * plot + margin)
+
+    def point(bus_id: str) -> tuple[float, float]:
+        x, y = positions[bus_id]
+        return margin + x * plot, panel + y * plot
+
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
         'width="100%" height="100%" style="display:block;max-height:100vh" font-family="Helvetica, Arial, sans-serif">',
         "<style>"
+        ".land,.line,circle{vector-effect:non-scaling-stroke}"
         ".bus:hover,.site:hover{stroke:#111;stroke-width:2}"
         ".line:hover{stroke:#0969da;stroke-width:4}.binding{cursor:pointer}"
         "text{fill:#24292f}#tip text{fill:#ffffff}"
-        ".impact{stroke:#0969da !important;stroke-width:2.5 !important}"
+        ".impact{stroke:#0969da !important;stroke-width:3 !important}"
         ".picked{stroke:#0969da !important;stroke-width:5 !important}"
-        ".found{stroke:#0969da !important;stroke-width:3 !important}"
-        ".button{cursor:pointer}.button rect{fill:#f6f8fa;stroke:#8c959f}"
+        ".found{stroke:#0969da !important;stroke-width:4 !important}"
+        ".button{cursor:pointer}.button rect{fill:#f6f8fa;stroke:#8c959f;stroke-width:1.5}"
+        ".button:hover rect{fill:#eaeef2}"
         ".button.active rect{fill:#0969da;stroke:#0969da}.button.active text{fill:#ffffff}"
-        "#labels text{fill:#24292f;pointer-events:none}"
+        "#labels text{fill:#24292f;pointer-events:none;paint-order:stroke;stroke:#ffffff;stroke-width:3px}"
         "</style>",
         f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
-        f'<text x="{margin}" y="42" font-size="30" font-weight="bold">{escape(title)}</text>',
+        *head,
     ]
-    if subtitle:
-        out.append(f'<text x="{margin}" y="72" font-size="18">{escape(subtitle)}</text>')
-    out.append(f'<text x="{margin}" y="98" font-size="15" fill="#57606a">{layout_note}</text>')
-    out.append(
-        f'<text x="{margin}" y="118" font-size="15" fill="#57606a">'
-        "Hover a bus or line for details; zoom with + and \u2212, or scroll or pinch over the map "
-        "(bus numbers appear when zoomed in); drag to pan; Reset or double-click to reset.</text>"
-    )
-    out.append(
-        f'<text id="note" x="{margin}" y="138" font-size="15" fill="#0969da" '
-        f'data-default="{escape(default_note)}">{escape(default_note)}</text>'
-    )
-    # Toolbar: layer buttons and search.
-    bar_y = 152
-    buttons = [("load", "MW served")] + ([("price", "Energy price (LMP)")] if has_prices else [])
-    bx = margin
-    for key, label in buttons:
-        bw = 30 + 9 * len(label)
-        active = " active" if key == "load" else ""
-        out.append(
-            f'<g id="button-{key}" class="ui button{active}"><rect x="{bx}" y="{bar_y}" width="{bw}" height="30" rx="6"/>'
-            f'<text x="{bx + bw / 2}" y="{bar_y + 20}" font-size="15" text-anchor="middle">{escape(label)}</text></g>'
-        )
-        bx += bw + 10
-    out.append(
-        f'<foreignObject class="ui" x="{width - margin - 360}" y="{bar_y}" width="360" height="32">'
-        '<input xmlns="http://www.w3.org/1999/xhtml" id="search" type="search" '
-        'placeholder="Find a bus by number or name, then press Enter" '
-        'style="width:100%;box-sizing:border-box;height:30px;font-size:14px;padding:0 8px;'
-        'border:1px solid #8c959f;border-radius:6px"/></foreignObject>'
-    )
-    out.append(f'<text id="search-status" x="{width - margin - 360}" y="{bar_y + 48}" font-size="13" fill="#cf222e"></text>')
-    # Legends.
-    legend_y = 205
-    out.append(f'<g id="legend-load"><text x="{margin}" y="{legend_y}" font-size="15" font-weight="bold">'
-               "New data-center load served at bus (all teams)</text>")
-    for i, fraction in enumerate((0.0, 0.25, 0.5, 0.75, 1.0)):
-        cx = margin + 12 + i * 52
-        out.append(f'<circle cx="{cx}" cy="{legend_y + 18}" r="8" fill="{_bus_color(fraction * max_mw, max_mw)}"/>')
-        out.append(f'<text x="{cx}" y="{legend_y + 42}" font-size="14" text-anchor="middle">{fraction * max_mw:.0f}</text>')
-    out.append(f'<text x="{margin + 268}" y="{legend_y + 42}" font-size="14">MW</text></g>')
-    if has_prices:
-        out.append(f'<g id="legend-price" display="none"><text x="{margin}" y="{legend_y}" font-size="15" '
-                   f'font-weight="bold">Average energy price over {hours} h</text>')
-        for i, fraction in enumerate((0.0, 0.25, 0.5, 0.75, 1.0)):
-            value = low_price + fraction * (high_price - low_price)
-            cx = margin + 12 + i * 52
-            out.append(f'<circle cx="{cx}" cy="{legend_y + 18}" r="8" fill="{_price_color(value, low_price, high_price)}"/>')
-            out.append(f'<text x="{cx}" y="{legend_y + 42}" font-size="14" text-anchor="middle">{value:.0f}</text>')
-        out.append(f'<text x="{margin + 268}" y="{legend_y + 42}" font-size="14">$/MWh</text></g>')
-    if loading_by_branch is not None:
-        lx = margin + 420
-        out.append(f'<text x="{lx}" y="{legend_y}" font-size="15" font-weight="bold">Peak line loading over {hours} h</text>')
-        for i, (label, value) in enumerate((("< 50%", 0.0), ("50-80%", 0.6), ("80-99%", 0.9), ("at limit", 1.0))):
-            color, stroke = _line_style(value)
-            x0 = lx + i * 105
-            out.append(f'<line x1="{x0}" y1="{legend_y + 18}" x2="{x0 + 44}" y2="{legend_y + 18}" stroke="{color}" stroke-width="{max(stroke, 1.5)}"/>')
-            out.append(f'<text x="{x0}" y="{legend_y + 42}" font-size="14">{escape(label)}</text>')
 
     # The map lives in a frame: zooming and panning are clipped to it.
-    pad = 12
     frame_x, frame_y = margin - pad, panel - pad
     frame_w, frame_h = plot + 2 * pad, y_extent * plot + 2 * pad
+    gradients = ['<linearGradient id="grad-load">']
+    for i in range(11):
+        gradients.append(f'<stop offset="{i / 10:.1f}" stop-color="{_bus_color(i / 10 * max_mw, max_mw)}"/>')
+    gradients.append("</linearGradient>")
+    if has_prices:
+        gradients.append('<linearGradient id="grad-price">')
+        for i in range(11):
+            value = low_price + i / 10 * (high_price - low_price)
+            gradients.append(
+                f'<stop offset="{i / 10:.1f}" stop-color="{_price_color(value, low_price, high_price)}"/>'
+            )
+        gradients.append("</linearGradient>")
     out.append(
-        f'<defs><clipPath id="map-clip"><rect x="{frame_x}" y="{frame_y:.1f}" width="{frame_w}" '
-        f'height="{frame_h:.1f}" rx="8"/></clipPath></defs>'
+        "<defs>" + "".join(gradients) +
+        f'<clipPath id="map-clip"><rect x="{frame_x}" y="{frame_y:.1f}" width="{frame_w}" '
+        f'height="{frame_h:.1f}" rx="12"/></clipPath>'
+        '<filter id="card-shadow" x="-10%" y="-10%" width="120%" height="130%">'
+        '<feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.15"/></filter>'
+        "</defs>"
     )
     out.append(
         f'<rect id="map-frame" x="{frame_x}" y="{frame_y:.1f}" width="{frame_w}" height="{frame_h:.1f}" '
-        'rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>'
+        'rx="12" fill="#fbfcfd" stroke="#d0d7de" stroke-width="1.5"/>'
     )
     out.append('<g clip-path="url(#map-clip)">')
     out.append('<g id="view">')
     for path in background_paths:
         points = " ".join(f"{margin + x * plot:.1f},{panel + y * plot:.1f}" for x, y in path)
-        out.append(f'<polygon points="{points}" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/>')
+        out.append(f'<polygon class="land" points="{points}" fill="#f1f3f5" stroke="#8c959f" stroke-width="1.5"/>')
     ordered = sorted(
         branches,
         key=lambda b: (loading_by_branch or {}).get(b.branch_id, (0.0, 0))[0],
@@ -734,10 +815,10 @@ def render_svg(
                 f"\n  highest {peak_price_by_bus.get(bus_id, average_price_by_bus[bus_id]):,.2f} $/MWh"
             )
         if mw > 0:
-            css, radius, fill = "site", 3.5 + 6.5 * (mw / max_mw) ** 0.5, _bus_color(mw, max_mw)
-            stroke = ' stroke="#5c0016" stroke-width="0.8"'
+            css, radius, fill = "site", _site_radius(mw, max_mw), _bus_color(mw, max_mw)
+            stroke = ' stroke="#ffffff" stroke-width="1.2"'
         else:
-            css, radius, fill, stroke = "bus", 2.2, "#8c959f", ""
+            css, radius, fill, stroke = "bus", 2.0, "#a3acb6", ""
         price_fill = (
             _price_color(average_price_by_bus[bus_id], low_price, high_price)
             if bus_id in average_price_by_bus
@@ -751,27 +832,93 @@ def render_svg(
             f'data-price-fill="{price_fill}" data-price-r="{price_r:.1f}" data-tip="{_tip_attr(tip)}"/>'
         )
         label_lines.append(f'<text x="{x + 2.5:.1f}" y="{y - 2.5:.1f}">{escape(bus_id)}</text>')
-    out.append('<g id="labels" display="none" font-size="11">' + "".join(label_lines) + "</g>")
+    out.append(f'<g id="labels" display="none" font-size="{_LABEL_SIZE}">' + "".join(label_lines) + "</g>")
     out.append("</g></g>")
+
+    # Legend card in the frame's bottom-left corner.  It is outside the
+    # zoomed group, so it stays put while the map zooms and pans.
+    card: list[str] = []
+    card_w, inner = 480, 22
+    cy = 0.0
+
+    def color_bar(key: str, heading: str, ticks: Sequence[tuple[float, str]], gradient: str, hidden: bool) -> float:
+        rows = [f'<g id="legend-{key}"' + (' display="none"' if hidden else "") + ">"]
+        rows.append(f'<text x="{inner}" y="{_LEGEND_SIZE}" font-size="{_LEGEND_SIZE}" font-weight="bold">{escape(heading)}</text>')
+        bar_top, bar_w = _LEGEND_SIZE + 14, card_w - 2 * inner
+        rows.append(f'<rect x="{inner}" y="{bar_top}" width="{bar_w}" height="20" rx="4" fill="url(#{gradient})" '
+                    'stroke="#8c959f" stroke-width="0.8"/>')
+        for fraction, label in ticks:
+            tx = inner + fraction * bar_w
+            anchor = "start" if fraction == 0 else "end" if fraction == 1 else "middle"
+            rows.append(f'<line x1="{tx:.1f}" y1="{bar_top + 20}" x2="{tx:.1f}" y2="{bar_top + 27}" stroke="#57606a"/>')
+            rows.append(f'<text x="{tx:.1f}" y="{bar_top + 27 + _TICK_SIZE}" font-size="{_TICK_SIZE}" '
+                        f'text-anchor="{anchor}" fill="#57606a">{escape(label)}</text>')
+        bottom = bar_top + 27 + _TICK_SIZE + 6
+        if key == "load" and max_mw > 0:
+            # Bubble sizes at a quarter, half and all of the largest bus.
+            sx = inner
+            sy = bottom + 22
+            rows.append(f'<text x="{sx}" y="{sy + 9}" font-size="{_TICK_SIZE}" fill="#57606a">size</text>')
+            sx += 70
+            for fraction in (0.25, 0.5, 1.0):
+                radius = _site_radius(fraction * max_mw, max_mw)
+                rows.append(f'<circle cx="{sx + radius:.1f}" cy="{sy}" r="{radius:.1f}" '
+                            f'fill="{_bus_color(fraction * max_mw, max_mw)}" stroke="#ffffff" stroke-width="1.2"/>')
+                rows.append(f'<text x="{sx + 2 * radius + 6:.1f}" y="{sy + 8}" font-size="{_TICK_SIZE}" '
+                            f'fill="#57606a">{fraction * max_mw:,.0f}</text>')
+                sx += 2 * radius + 100
+            bottom = sy + 24
+        rows.append("</g>")
+        card.extend(rows)
+        return bottom
+
+    load_ticks = [(f, f"{f * max_mw:,.0f}") for f in (0.0, 0.25, 0.5, 0.75, 1.0)]
+    cy = color_bar("load", "Load served, MW (all teams)", load_ticks, "grad-load", hidden=False)
+    if has_prices:
+        price_ticks = [
+            (f, f"{low_price + f * (high_price - low_price):,.0f}") for f in (0.0, 0.25, 0.5, 0.75, 1.0)
+        ]
+        cy = max(cy, color_bar("price", f"Average price, $/MWh ({hours} h)", price_ticks, "grad-price", hidden=True))
+    if loading_by_branch is not None:
+        cy += 18
+        card.append(f'<text x="{inner}" y="{cy + _LEGEND_SIZE:.0f}" font-size="{_LEGEND_SIZE}" font-weight="bold">'
+                    f"Peak line loading over {hours} h</text>")
+        cy += _LEGEND_SIZE + 14
+        for i, (label, value) in enumerate((("< 50%", 0.0), ("50-80%", 0.6), ("80-99%", 0.9), ("at limit", 1.0))):
+            color, stroke = _line_style(value)
+            lx = inner + (i % 2) * 215
+            ly = cy + (i // 2) * 34 + 14
+            card.append(f'<line x1="{lx}" y1="{ly:.0f}" x2="{lx + 48}" y2="{ly:.0f}" stroke="{color}" '
+                        f'stroke-width="{max(stroke * 2, 3)}" stroke-linecap="round"/>')
+            card.append(f'<text x="{lx + 60}" y="{ly + 8:.0f}" font-size="{_TICK_SIZE}">{escape(label)}</text>')
+        cy += 2 * 34
+    card_h = cy + inner
+    card_x = frame_x + 16
+    card_y = frame_y + frame_h - 16 - card_h
+    out.append(f'<g id="legend-card" class="ui" transform="translate({card_x},{card_y:.1f})">'
+               f'<rect width="{card_w}" height="{card_h:.0f}" rx="12" fill="#ffffff" fill-opacity="0.94" '
+               'stroke="#d0d7de" stroke-width="1.2" filter="url(#card-shadow)"/>'
+               f'<g transform="translate(0,{inner - 4})">' + "".join(card) + "</g></g>")
+
     # Zoom buttons in the frame's top-right corner, above the map.
-    zx = frame_x + frame_w - 10
+    zx = frame_x + frame_w - 16
     zoom_buttons = (
-        ("zoom-reset", "Reset", 64),
-        ("zoom-out", "\u2212", 36),
-        ("zoom-in", "+", 36),
+        ("zoom-reset", "Reset", 120, _TEXT_SIZE),
+        ("zoom-out", "−", 64, 44),
+        ("zoom-in", "+", 64, 44),
     )
-    for button_id, label, button_w in zoom_buttons:
+    for button_id, label, button_w, size in zoom_buttons:
         zx -= button_w
         out.append(
             f'<g id="{button_id}" class="ui button">'
-            f'<rect x="{zx}" y="{frame_y + 10:.1f}" width="{button_w}" height="32" rx="6"/>'
-            f'<text x="{zx + button_w / 2}" y="{frame_y + 32:.1f}" font-size="{15 if button_w > 40 else 22}" '
+            f'<rect x="{zx}" y="{frame_y + 16:.1f}" width="{button_w}" height="64" rx="12" filter="url(#card-shadow)"/>'
+            f'<text x="{zx + button_w / 2}" y="{frame_y + 48 + size * 0.36:.1f}" font-size="{size}" '
             f'text-anchor="middle">{label}</text></g>'
         )
-        zx -= 6
+        zx -= 10
     out.append('<g id="tip" visibility="hidden" pointer-events="none">'
-               '<rect rx="6" fill="#24292f" fill-opacity="0.94"/>'
-               '<text font-size="15" xml:space="preserve" style="white-space:pre"/></g>')
+               '<rect rx="8" fill="#24292f" fill-opacity="0.95"/>'
+               f'<text font-size="{_TIP_SIZE}" xml:space="preserve" style="white-space:pre"/></g>')
     out.append(f"<script><![CDATA[{_MAP_SCRIPT}]]></script>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
