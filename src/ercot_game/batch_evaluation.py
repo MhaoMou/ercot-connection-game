@@ -1056,6 +1056,13 @@ def _allocation_sites(
     return tuple(sites)
 
 
+# The site allocation starts each day's LP with network rows in this many
+# hours of least generation reserve and adds hours until the full day fits
+# (tools.activsg2000.allocation._Day); the allocation is the same, about
+# five times faster on the 11-team test.  None solves every hour throughout.
+ALLOCATION_SCREENED_HOURS: int | None = 4
+
+
 def _utilitarian_allocation(
     artifact_dir: str | Path,
     plans: Sequence[TeamPlan],
@@ -1064,6 +1071,7 @@ def _utilitarian_allocation(
     *,
     time_step_hours: float = 1.0,
     workers: int = 1,
+    screened_hours: int | None = None,
     **dispatch_options,
 ) -> FairProjectionResult | None:
     """Allocate the sites when the full plans do not fit together.
@@ -1098,6 +1106,7 @@ def _utilitarian_allocation(
             workers=workers,
             solver_backend=dispatch_options.get("storage_solver_backend", "auto"),
             solver_threads=dispatch_options.get("storage_solver_threads", 1),
+            screened_hours=screened_hours,
         )
     except (DCOPFInfeasible, DCOPFUnresolved, ValueError, OSError):
         return None
@@ -1407,6 +1416,7 @@ def evaluate_csv_batch(
     submission_number: int | None = None,
     energy_cost_enabled: bool | None = None,
     reserved_site_ids_by_team: Mapping[str, Iterable[str]] | None = None,
+    allocation_screened_hours: int | None = ALLOCATION_SCREENED_HOURS,
 ) -> BatchEvaluation:
     """Collect and score valid submissions with deterministic failure isolation.
 
@@ -1603,6 +1613,7 @@ def evaluate_csv_batch(
                 storage_solver_backend=storage_solver_backend,
                 storage_wall_time_limit_seconds=storage_wall_time_limit_seconds,
                 storage_max_iterations=storage_max_iterations,
+                screened_hours=allocation_screened_hours,
             )
             if projection is not None:
                 dispatch = projection.dispatch

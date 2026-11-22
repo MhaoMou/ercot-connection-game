@@ -71,10 +71,15 @@ class AllocationResult:
     iterations: int
     cuts: int
     max_shed_mwh: float
+    full_checks: int = 0
+    active_hours: int | None = None
 
 
 # A day fits when its LP sheds at most this much energy (MWh).
 SHED_TOLERANCE_MWH = 1e-4
+# With hour screening, an hour of the full LP that sheds more than this
+# (MWh) joins the screened LP.
+HOUR_SHED_TOLERANCE_MWH = 1e-7
 # Stage 2 keeps the total served capacity within this share of stage 1.
 TOTAL_RELATIVE_TOLERANCE = 1e-7
 MAX_ITERATIONS = 500
@@ -98,6 +103,7 @@ class _DayModel:
         base_mva: float,
         solver_backend: str = "highs",
         solver_threads: int = 1,
+        active_offsets: frozenset[int] | None = None,
     ) -> None:
         if solver_backend not in {"highs", "gurobi"}:
             raise ValueError("solver_backend must be 'highs' or 'gurobi'")
@@ -156,9 +162,20 @@ class _DayModel:
 
         previous_soc: dict[int, int] = {}
         last = len(period_offsets) - 1
+        # Shed columns of each hour with network rows, to report which hours
+        # do not fit (see hour_shed).
+        self.shed_columns_by_offset: dict[int, list[int]] = {}
         for position, (offset, (buses, generators, branches, fixed)) in enumerate(
             zip(period_offsets, prepared_periods)
         ):
+            if active_offsets is not None and offset not in active_offsets:
+                # A screened-out hour keeps only the storage state of charge,
+                # the generator limits and the "serve only your own load"
+                # rows; its network rows are dropped, which relaxes the day.
+                self._add_site_rows(
+                    sites, offset, position, last, None, owners, previous_soc, time_step_hours, add, row, column, inf
+                )
+                continue
             reference = next((bus.bus_id for bus in buses if bus.reference), buses[0].bus_id)
             angle = {
                 bus.bus_id: column(-inf, inf)
@@ -168,8 +185,11 @@ class _DayModel:
             balance: dict[str, dict[int, float]] = {bus.bus_id: {} for bus in buses}
             for generator in generators:
                 add(balance[generator.bus_id], column(generator.p_min_mw, generator.p_max_mw), 1.0)
+            shed_columns = self.shed_columns_by_offset.setdefault(offset, [])
             for bus in buses:
-                add(balance[bus.bus_id], column(0.0, inf, 1.0), 1.0)  # shed
+                shed_column = column(0.0, inf, 1.0)
+                shed_columns.append(shed_column)
+                add(balance[bus.bus_id], shed_column, 1.0)  # shed
             for branch in branches:
                 susceptance = branch.susceptance_pu * base_mva / angle_scale
                 flow: dict[int, float] = {}
@@ -183,44 +203,56 @@ class _DayModel:
                     add(balance[branch.from_bus_id], angle[branch.to_bus_id], susceptance)
                 row(-branch.thermal_limit_mw, branch.thermal_limit_mw, flow)
 
-            owner_rows: dict[tuple[str, str], dict[int, float]] = {key: {} for key in owners}
-            for index, site in enumerate(sites):
-                alpha = self.alpha_columns[index]
-                load = site.load_mw_by_period[offset]
-                add(balance[site.bus_id], alpha, -load)
-                owner = owner_rows.get((site.team_id, site.bus_id))
-                if owner is not None:
-                    add(owner, alpha, -load)
-                if site.generator_mw > 0.0:
-                    generation = column(0.0, inf)
-                    add(balance[site.bus_id], generation, 1.0)
-                    add(owner, generation, 1.0)
-                    row(-inf, 0.0, {generation: 1.0, alpha: -site.generator_mw})
-                if site.storage_power_mw > 0.0:
-                    power = column(-inf, inf)  # positive discharges
-                    soc = column(0.0, inf)
-                    add(balance[site.bus_id], power, 1.0)
-                    add(owner, power, 1.0)
-                    row(-inf, 0.0, {power: 1.0, alpha: -site.storage_power_mw})
-                    row(0.0, inf, {power: 1.0, alpha: site.storage_power_mw})
-                    row(-inf, 0.0, {soc: 1.0, alpha: -site.storage_energy_mwh})
-                    # soc_t = soc_{t-1} - dt * power_t, starting half full.
-                    energy = {soc: 1.0, power: time_step_hours}
-                    if position == 0:
-                        add(energy, alpha, -0.5 * site.storage_energy_mwh)
-                    else:
-                        add(energy, previous_soc[index], -1.0)
-                    row(0.0, 0.0, energy)
-                    if position == last:
-                        row(0.0, 0.0, {soc: 1.0, alpha: -0.5 * site.storage_energy_mwh})
-                    previous_soc[index] = soc
+            self._add_site_rows(
+                sites, offset, position, last, balance, owners, previous_soc, time_step_hours, add, row, column, inf
+            )
             for bus in buses:
                 rhs = bus.demand_mw - fixed.get(bus.bus_id, 0.0)
                 row(rhs, rhs, balance[bus.bus_id])
-            for coefficients in owner_rows.values():
-                row(-inf, 0.0, coefficients)
         if solver_backend == "gurobi":
             self._load_gurobi(solver_threads)
+
+    def _add_site_rows(
+        self, sites, offset, position, last, balance, owners, previous_soc, time_step_hours, add, row, column, inf
+    ) -> None:
+        """The sites' columns and rows of one hour.  ``balance`` is ``None``
+        for an hour without network rows."""
+        owner_rows: dict[tuple[str, str], dict[int, float]] = {key: {} for key in owners}
+        for index, site in enumerate(sites):
+            alpha = self.alpha_columns[index]
+            load = site.load_mw_by_period[offset]
+            if balance is not None:
+                add(balance[site.bus_id], alpha, -load)
+            owner = owner_rows.get((site.team_id, site.bus_id))
+            if owner is not None:
+                add(owner, alpha, -load)
+            if site.generator_mw > 0.0:
+                generation = column(0.0, inf)
+                if balance is not None:
+                    add(balance[site.bus_id], generation, 1.0)
+                add(owner, generation, 1.0)
+                row(-inf, 0.0, {generation: 1.0, alpha: -site.generator_mw})
+            if site.storage_power_mw > 0.0:
+                power = column(-inf, inf)  # positive discharges
+                soc = column(0.0, inf)
+                if balance is not None:
+                    add(balance[site.bus_id], power, 1.0)
+                add(owner, power, 1.0)
+                row(-inf, 0.0, {power: 1.0, alpha: -site.storage_power_mw})
+                row(0.0, inf, {power: 1.0, alpha: site.storage_power_mw})
+                row(-inf, 0.0, {soc: 1.0, alpha: -site.storage_energy_mwh})
+                # soc_t = soc_{t-1} - dt * power_t, starting half full.
+                energy = {soc: 1.0, power: time_step_hours}
+                if position == 0:
+                    add(energy, alpha, -0.5 * site.storage_energy_mwh)
+                else:
+                    add(energy, previous_soc[index], -1.0)
+                row(0.0, 0.0, energy)
+                if position == last:
+                    row(0.0, 0.0, {soc: 1.0, alpha: -0.5 * site.storage_energy_mwh})
+                previous_soc[index] = soc
+        for coefficients in owner_rows.values():
+            row(-inf, 0.0, coefficients)
 
     def _load_gurobi(self, solver_threads: int) -> None:
         import gurobipy as gp
@@ -308,6 +340,97 @@ class _DayModel:
         value = float(self.highs.getInfo().objective_function_value)
         return value, [float(reduced_costs[column]) for column in self.alpha_columns]
 
+    def hour_shed(self) -> dict[int, float]:
+        """Shed (MWh) of each hour with network rows at the last solve."""
+        if self.backend == "gurobi":
+            values = self._model.getAttr("X", self._vars)
+        else:
+            values = self.highs.getSolution().col_value
+        return {
+            offset: float(sum(values[column] for column in columns))
+            for offset, columns in self.shed_columns_by_offset.items()
+        }
+
+
+def _reserve_order(prepared_periods, offsets) -> list[int]:
+    """The day's hours from the least to the most generation reserve
+    (online capacity minus net demand)."""
+    reserve = {}
+    for offset, (buses, generators, _branches, fixed) in zip(offsets, prepared_periods):
+        net_demand = sum(bus.demand_mw for bus in buses) - sum(fixed.values())
+        reserve[offset] = sum(generator.p_max_mw for generator in generators) - net_demand
+    return sorted(offsets, key=lambda offset: (reserve[offset], offset))
+
+
+class _Day:
+    """One day of the allocation: a screened LP and, on demand, the full LP.
+
+    With ``screened_hours`` set, the screened LP has network rows only in an
+    active set of hours, starting with the ``screened_hours`` hours of least
+    generation reserve.  Every other hour keeps its storage and own-load rows,
+    so the screened LP is a relaxation: its shed is at most the full shed,
+    and its cuts are valid for the full day.  :meth:`full` checks a point
+    against the full LP and returns the hours that shed load, which the
+    caller adds with :meth:`activate`.  Without screening both are the
+    same full LP.
+    """
+
+    def __init__(
+        self, artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads,
+        screened_hours,
+    ) -> None:
+        artifact = load_prepared_artifact(artifact_root)
+        self.prepared = tuple(
+            _prepared_period_inputs(
+                artifact_root, artifact, period_index=period_indices[offset], validate_artifact=False
+            )
+            for offset in offsets
+        )
+        self.sites = sites
+        self.offsets = tuple(offsets)
+        self.options = dict(time_step_hours=time_step_hours, base_mva=100.0, solver_backend=solver_backend,
+                            solver_threads=solver_threads)
+        self.full_model = None
+        if screened_hours is None or screened_hours >= len(self.offsets):
+            self.active = None
+            self.screened = self._model(None)
+            self.full_model = self.screened
+        else:
+            self.active = frozenset(_reserve_order(self.prepared, self.offsets)[:screened_hours])
+            self.screened = self._model(self.active)
+
+    def _model(self, active) -> _DayModel:
+        return _DayModel(self.prepared, self.sites, self.offsets, active_offsets=active, **self.options)
+
+    def shed(self, alphas):
+        return self.screened.shed(alphas)
+
+    def full(self, alphas):
+        """Shed and gradient of the full LP, and the hours that shed load."""
+        if self.full_model is None:
+            self.full_model = self._model(None)
+        shed, gradient = self.full_model.shed(alphas)
+        hours = []
+        if shed > SHED_TOLERANCE_MWH:
+            by_hour = self.full_model.hour_shed()
+            hours = [offset for offset, value in by_hour.items() if value > HOUR_SHED_TOLERANCE_MWH]
+            if not hours:
+                hours = [max(by_hour, key=by_hour.get)]
+        return shed, gradient, hours
+
+    def activate(self, hours) -> int:
+        """Add hours to the screened LP; return the number of active hours."""
+        if self.active is None:
+            return len(self.offsets)
+        new = self.active | frozenset(hours)
+        if new != self.active:
+            self.active = new
+            if len(new) == len(self.offsets):
+                self.screened = self.full_model if self.full_model is not None else self._model(None)
+            else:
+                self.screened = self._model(new)
+        return len(self.active)
+
 
 def _build_day(
     artifact_root: str,
@@ -317,39 +440,31 @@ def _build_day(
     time_step_hours: float,
     solver_backend: str = "highs",
     solver_threads: int = 1,
-) -> _DayModel:
-    artifact = load_prepared_artifact(artifact_root)
-    prepared = tuple(
-        _prepared_period_inputs(
-            artifact_root, artifact, period_index=period_indices[offset], validate_artifact=False
-        )
-        for offset in offsets
-    )
-    return _DayModel(
-        prepared,
-        sites,
-        offsets,
-        time_step_hours=time_step_hours,
-        base_mva=100.0,
-        solver_backend=solver_backend,
-        solver_threads=solver_threads,
+    screened_hours: int | None = None,
+) -> _Day:
+    return _Day(
+        artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads,
+        screened_hours,
     )
 
 
 def _day_worker(
-    connection, artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads
+    connection, artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads,
+    screened_hours,
 ) -> None:
-    """Keep one day's LP in this process and answer shed queries."""
+    """Keep one day's LPs in this process and answer queries."""
     try:
         day = _build_day(
-            artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads
+            artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads,
+            screened_hours,
         )
         connection.send(("ready", None))
         while True:
-            alphas = connection.recv()
-            if alphas is None:
+            message = connection.recv()
+            if message is None:
                 break
-            connection.send(("ok", day.shed(alphas)))
+            method, argument = message
+            connection.send(("ok", getattr(day, method)(argument)))
     except Exception as exc:  # reported to the parent, which raises
         connection.send(("error", repr(exc)))
     finally:
@@ -373,6 +488,7 @@ class _DayPool:
         workers: int,
         solver_backend: str = "highs",
         solver_threads: int = 1,
+        screened_hours: int | None = None,
     ) -> None:
         self.days = []
         self.processes = []
@@ -380,7 +496,8 @@ class _DayPool:
         if workers <= 1 or len(blocks) == 1:
             self.days = [
                 _build_day(
-                    artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads
+                    artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads,
+                    screened_hours,
                 )
                 for offsets in blocks
             ]
@@ -401,6 +518,7 @@ class _DayPool:
                     time_step_hours,
                     solver_backend,
                     solver_threads,
+                    screened_hours,
                 ),
                 daemon=True,
             )
@@ -418,12 +536,26 @@ class _DayPool:
             raise DCOPFUnresolved(f"allocation day worker failed: {payload}")
         return payload
 
-    def shed(self, alphas: list[float]) -> list[tuple[float, list[float]]]:
+    def _call(self, method: str, arguments: list) -> list:
         if self.days:
-            return [day.shed(alphas) for day in self.days]
-        for connection in self.connections:
-            connection.send(list(alphas))
+            return [getattr(day, method)(argument) for day, argument in zip(self.days, arguments)]
+        for connection, argument in zip(self.connections, arguments):
+            connection.send((method, argument))
         return [self._receive(connection) for connection in self.connections]
+
+    def _count(self) -> int:
+        return len(self.days) or len(self.connections)
+
+    def shed(self, alphas: list[float]) -> list[tuple[float, list[float]]]:
+        """Shed and gradient of each day's screened LP."""
+        return self._call("shed", [list(alphas)] * self._count())
+
+    def full(self, alphas: list[float]) -> list[tuple[float, list[float], list[int]]]:
+        """Shed, gradient and shedding hours of each day's full LP."""
+        return self._call("full", [list(alphas)] * self._count())
+
+    def activate(self, hours_by_day: list[list[int]]) -> list[int]:
+        return self._call("activate", hours_by_day)
 
     def close(self) -> None:
         for connection in self.connections:
@@ -482,6 +614,7 @@ def allocate_sites(
     workers: int = 1,
     solver_backend: str = "highs",
     solver_threads: int = 1,
+    screened_hours: int | None = None,
 ) -> AllocationResult | None:
     """Return the unique utilitarian allocation, or ``None`` when even the
     base network (every alpha zero) does not fit.
@@ -493,7 +626,10 @@ def allocate_sites(
     With ``workers`` > 1 the blocks are solved in parallel processes.
     ``solver_backend`` (``highs``, ``gurobi`` or ``auto``: Gurobi when
     licensed) solves the daily LPs, each with ``solver_threads`` threads;
-    the master problem always uses HiGHS.
+    the master problem always uses HiGHS.  ``screened_hours`` (None: off)
+    starts each day's LP with network rows in only that many hours of least
+    generation reserve and adds the hours that shed load at the candidate
+    allocation (see :class:`_Day`); the result is the same allocation.
     """
     period_indices = tuple(period_indices)
     if not period_indices:
@@ -519,8 +655,13 @@ def allocate_sites(
     backend = resolve_solver_backend(solver_backend)
     if not isinstance(solver_threads, int) or isinstance(solver_threads, bool) or solver_threads <= 0:
         raise ValueError("solver_threads must be a positive integer")
+    if screened_hours is not None and (
+        not isinstance(screened_hours, int) or isinstance(screened_hours, bool) or screened_hours <= 0
+    ):
+        raise ValueError("screened_hours must be a positive integer or None")
     pool = _DayPool(
-        artifact_root, sites, period_indices, blocks, time_step_hours, workers, backend, solver_threads
+        artifact_root, sites, period_indices, blocks, time_step_hours, workers, backend, solver_threads,
+        screened_hours,
     )
     try:
         return _allocate(sites, requested, pool)
@@ -571,9 +712,42 @@ def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | Non
             if not cut_violations(alphas):
                 return alphas
 
+    full_checks = 0
+    active_hours: int | None = None
+
+    def full_violations(alphas: list[float]) -> bool:
+        """Check ``alphas`` against every day's full LP; cut every day that
+        does not fit and add its shedding hours to its screened LP."""
+        nonlocal max_shed, full_checks, active_hours
+        full_checks += 1
+        violated = False
+        max_shed = 0.0
+        hours_by_day = []
+        for shed, gradient, hours in pool.full(alphas):
+            max_shed = max(max_shed, shed)
+            if shed > SHED_TOLERANCE_MWH:
+                cuts.append((gradient, sum(g * a for g, a in zip(gradient, alphas)) - shed))
+                violated = True
+            hours_by_day.append(hours)
+        if violated:
+            active_hours = sum(pool.activate(hours_by_day))
+        return violated
+
+    def solve_stage(minimum_total: float | None, core: list[float]) -> list[float] | None:
+        """Converge on the screened LPs until the point fits the full LPs.
+
+        The screened LPs relax the full ones, so their cuts stay valid and
+        an optimum of the screened problem that fits the full LPs is an
+        optimum of the full problem.  ``core`` must fit the full LPs.
+        """
+        while True:
+            alphas = converge(minimum_total, core)
+            if alphas is None or not full_violations(alphas):
+                return alphas
+
     # The master becomes infeasible only when no alpha >= 0 fits, i.e. the
     # base network itself cannot be dispatched.
-    stage_one = converge(None, [0.0] * len(sites))
+    stage_one = solve_stage(None, [0.0] * len(sites))
     if stage_one is None:
         return None
     best_total = sum(c * a for c, a in zip(capacities, stage_one))
@@ -583,7 +757,7 @@ def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | Non
         stage_one = [0.0] * len(capacities)
         best_total = 0.0
     minimum_total = best_total * (1.0 - TOTAL_RELATIVE_TOLERANCE)
-    alphas = converge(minimum_total, stage_one) if 0.0 < best_total < requested else stage_one
+    alphas = solve_stage(minimum_total, stage_one) if 0.0 < best_total < requested else stage_one
     if alphas is None:
         raise DCOPFUnresolved("allocation tie-break found no point at the stage-1 total")
     return AllocationResult(
@@ -594,4 +768,6 @@ def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | Non
         iterations=iterations,
         cuts=len(cuts),
         max_shed_mwh=max_shed,
+        full_checks=full_checks,
+        active_hours=active_hours,
     )

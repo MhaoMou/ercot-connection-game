@@ -30,7 +30,7 @@ PERIODS = tuple(range(HORIZON))
 HEADER = ",".join(CANONICAL_CSV_COLUMNS)
 
 
-def _artifact(root: Path, base_load_at_site_bus) -> Path:
+def _artifact(root: Path, base_load_at_site_bus, base_load_at_bus_1=lambda t: 0.0) -> Path:
     """Two buses joined by one 100 MW line; sites sit at bus 2.
 
     The hosting capacity of bus 2 in hour t is 100 MW minus
@@ -51,7 +51,9 @@ def _artifact(root: Path, base_load_at_site_bus) -> Path:
     )
     (root / "generator_catalog.csv").write_text(generators, encoding="utf-8")
     (root / "generator_limits.csv").write_text(generators, encoding="utf-8")
-    rows = ["period,1,2"] + [f"{t},0.0,{float(base_load_at_site_bus(t))}" for t in PERIODS]
+    rows = ["period,1,2"] + [
+        f"{t},{float(base_load_at_bus_1(t))},{float(base_load_at_site_bus(t))}" for t in PERIODS
+    ]
     (root / "demand_bus.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
     clear_prepared_artifact_cache()
     return root
@@ -268,3 +270,60 @@ def test_allocate_sites_rejects_an_unknown_backend(tmp_path) -> None:
     sites = [AllocationSite("a", "s1", "2", 10.0, (10.0,) * HORIZON)]
     with pytest.raises(ValueError, match="solver_backend"):
         allocate_sites(_flat(tmp_path), sites, period_indices=PERIODS, solver_backend="cplex")
+
+
+def _misleading_reserve(tmp_path: Path) -> Path:
+    # The line binds in the evening (25 MW of base load behind it), but the
+    # system has the least generation reserve at night (900 MW at bus 1),
+    # so hour screening starts with the wrong hours.
+    return _artifact(
+        tmp_path / "misleading",
+        lambda t: 25.0 if t % 24 in (18, 19) else 0.0,
+        lambda t: 900.0 if t % 24 in (2, 3) else 0.0,
+    )
+
+
+@pytest.mark.parametrize("backend", _backends())
+@pytest.mark.parametrize("workers", [1, 2])
+@pytest.mark.parametrize("screened_hours", [1, 3])
+def test_hour_screening_gives_the_same_allocation(tmp_path, backend, workers, screened_hours) -> None:
+    artifact = _misleading_reserve(tmp_path)
+    sites = [
+        AllocationSite("a", "s1", "2", 90.0, (90.0,) * HORIZON),
+        AllocationSite("b", "s1", "2", 60.0, (60.0,) * HORIZON, generator_mw=30.0),
+        AllocationSite("c", "s1", "2", 40.0, (40.0,) * HORIZON, storage_power_mw=10.0, storage_energy_mwh=40.0),
+    ]
+    options = dict(period_indices=PERIODS, workers=workers, solver_backend=backend)
+    full = allocate_sites(artifact, sites, **options)
+    screened = allocate_sites(artifact, sites, screened_hours=screened_hours, **options)
+    if screened_hours == 1:
+        # The night hour comes first; the evening hours must be added.
+        assert screened.active_hours is not None and screened.active_hours > 2
+    assert screened.max_shed_mwh <= 1e-4
+    assert screened.total_capacity_mw == pytest.approx(full.total_capacity_mw, rel=1e-6)
+    for key, alpha in full.alpha_by_site.items():
+        assert screened.alpha_by_site[key] == pytest.approx(alpha, abs=1e-5)
+
+
+def test_a_screened_out_hour_keeps_its_storage_and_own_load_rows(tmp_path) -> None:
+    # Screened to the night hours, the evening line limit is gone: the day
+    # fits at full size, yet the battery still cannot export.
+    artifact = _misleading_reserve(tmp_path)
+    sites = [AllocationSite("a", "s1", "2", 100.0, (100.0,) * 24, storage_power_mw=10.0, storage_energy_mwh=40.0)]
+    prepared_artifact = load_prepared_artifact(str(artifact.resolve()))
+    prepared = tuple(
+        _prepared_period_inputs(str(artifact.resolve()), prepared_artifact, period_index=t, validate_artifact=False)
+        for t in range(24)
+    )
+    screened = _DayModel(prepared, sites, range(24), time_step_hours=1.0, base_mva=100.0,
+                         active_offsets=frozenset({2, 3}))
+    full = _DayModel(prepared, sites, range(24), time_step_hours=1.0, base_mva=100.0)
+    assert screened.shed([1.0])[0] == pytest.approx(0.0, abs=1e-7)
+    assert full.shed([1.0])[0] > 1.0
+    assert set(full.hour_shed()) == set(range(24))
+
+
+def test_allocate_sites_rejects_a_bad_screened_hours(tmp_path) -> None:
+    sites = [AllocationSite("a", "s1", "2", 10.0, (10.0,) * HORIZON)]
+    with pytest.raises(ValueError, match="screened_hours"):
+        allocate_sites(_flat(tmp_path), sites, period_indices=PERIODS, screened_hours=0)

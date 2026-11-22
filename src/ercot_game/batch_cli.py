@@ -13,6 +13,7 @@ import sys
 from typing import NoReturn
 
 from .batch_evaluation import (
+    ALLOCATION_SCREENED_HOURS,
     evaluate_csv_batch,
     load_scoring_rules,
     write_classroom_outputs,
@@ -50,6 +51,16 @@ class _ArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
         self.exit(2, f"{self.prog}: error: {message}\n")
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be an integer") from None
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
 
 
 def _positive_int(value: str) -> int:
@@ -230,6 +241,13 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         default=1,
         help="native solver threads per reusable recourse model; avoid combining large values with --workers",
+    )
+    run_parser.add_argument(
+        "--allocation-screened-hours",
+        type=_nonnegative_int,
+        default=ALLOCATION_SCREENED_HOURS,
+        help="hours per day the site allocation starts from before adding the hours that do not fit "
+        f"(default {ALLOCATION_SCREENED_HOURS}; same allocation, faster); 0 solves every hour throughout",
     )
     run_parser.add_argument(
         "--roster",
@@ -724,6 +742,7 @@ def _run(args: argparse.Namespace) -> int:
         submission_number=args.submission_number,
         energy_cost_enabled=energy_cost_enabled,
         reserved_site_ids_by_team=reserved_site_ids,
+        allocation_screened_hours=args.allocation_screened_hours or None,
     )
     write_batch_outputs(
         result,

@@ -146,7 +146,14 @@ or visualization (the grid map reads its line loading).
 periods without storage are solved in `N` threads, and the site allocation
 solves its five daily load-shedding LPs in up to five worker processes (one
 per day, each with its own model, so the fractions do not depend on `N`; the
-tie-break makes them unique). The
+tie-break makes them unique). `--solver-backend` and `--solver-threads` also
+apply to these daily LPs (`auto`: Gurobi when licensed, otherwise HiGHS).
+The allocation first solves each day with network rows in only its
+`--allocation-screened-hours` hours of least generation reserve (default 4).
+It checks each converged point against the full 24-hour LPs and adds the hours
+that shed load, until the full LPs fit. The allocation is the same as solving
+every hour throughout, which `--allocation-screened-hours 0` does; on the
+11-team test it was about five times faster (98 s against 460 s). The
 Benders recourse inside one dispatch stays serial: parallel recourse threads
 warm-start the recourse models in a scheduling-dependent order and can move a
 result at solver tolerance. Use at most the cores you may occupy.
