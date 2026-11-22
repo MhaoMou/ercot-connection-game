@@ -38,6 +38,7 @@ from .dcopf import (
     _run_highs,
     _validate_prepared_demand_schema,
     load_prepared_artifact,
+    resolve_solver_backend,
 )
 
 
@@ -95,30 +96,51 @@ class _DayModel:
         *,
         time_step_hours: float,
         base_mva: float,
+        solver_backend: str = "highs",
+        solver_threads: int = 1,
     ) -> None:
-        Highs, HighsModelStatus, _HighsVarType, inf = _highs()
-        self.status_type = HighsModelStatus
-        highs = Highs()
-        highs.setOptionValue("output_flag", False)
-        # The first solve starts from scratch: interior point with presolve
-        # (and crossover to a basis) is several times faster there.  Later
-        # solves only change the alpha bounds and warm-start the simplex.
-        highs.setOptionValue("solver", "ipm")
-        highs.setOptionValue("presolve", "on")
-        highs.setOptionValue("parallel", "off")
-        self.highs = highs
+        if solver_backend not in {"highs", "gurobi"}:
+            raise ValueError("solver_backend must be 'highs' or 'gurobi'")
+        self.backend = solver_backend
         self.solved = False
         angle_scale = 1000.0
+        inf = math.inf
 
         def add(coefficients: dict[int, float], column: int, value: float) -> None:
             coefficients[column] = coefficients.get(column, 0.0) + value
 
-        def row(lower: float, upper: float, coefficients: dict[int, float]) -> None:
-            highs.addRow(lower, upper, len(coefficients), list(coefficients), list(coefficients.values()))
+        if solver_backend == "highs":
+            Highs, HighsModelStatus, _HighsVarType, inf = _highs()
+            self.status_type = HighsModelStatus
+            highs = Highs()
+            highs.setOptionValue("output_flag", False)
+            # The first solve starts from scratch: interior point with presolve
+            # (and crossover to a basis) is several times faster there.  Later
+            # solves only change the alpha bounds and warm-start the simplex.
+            highs.setOptionValue("solver", "ipm")
+            highs.setOptionValue("presolve", "on")
+            highs.setOptionValue("parallel", "off")
+            self.highs = highs
 
-        def column(lower: float, upper: float, cost: float = 0.0) -> int:
-            highs.addVariable(lb=lower, ub=upper, obj=cost)
-            return highs.getNumCol() - 1
+            def row(lower: float, upper: float, coefficients: dict[int, float]) -> None:
+                highs.addRow(lower, upper, len(coefficients), list(coefficients), list(coefficients.values()))
+
+            def column(lower: float, upper: float, cost: float = 0.0) -> int:
+                highs.addVariable(lb=lower, ub=upper, obj=cost)
+                return highs.getNumCol() - 1
+
+        else:
+            # Gurobi: record the same columns and rows, then load them as one
+            # sparse matrix (see _load_gurobi).
+            self._column_data: list[tuple[float, float, float]] = []
+            self._row_data: list[tuple[float, float, dict[int, float]]] = []
+
+            def row(lower: float, upper: float, coefficients: dict[int, float]) -> None:
+                self._row_data.append((lower, upper, coefficients))
+
+            def column(lower: float, upper: float, cost: float = 0.0) -> int:
+                self._column_data.append((lower, upper, cost))
+                return len(self._column_data) - 1
 
         self.alpha_columns = [column(0.0, 0.0) for _ in sites]
         sites_by_bus: dict[str, list[int]] = {}
@@ -197,9 +219,80 @@ class _DayModel:
                 row(rhs, rhs, balance[bus.bus_id])
             for coefficients in owner_rows.values():
                 row(-inf, 0.0, coefficients)
+        if solver_backend == "gurobi":
+            self._load_gurobi(solver_threads)
+
+    def _load_gurobi(self, solver_threads: int) -> None:
+        import gurobipy as gp
+        import numpy as np
+        import scipy.sparse as sp
+
+        self._gp = gp
+        columns = self._column_data
+        model = gp.Model("allocation_day")
+        model.Params.OutputFlag = 0
+        model.Params.Threads = solver_threads
+        # First solve from scratch with barrier (and crossover to a basis);
+        # later solves only change the alpha bounds and warm-start the dual
+        # simplex from the previous basis (see shed).
+        model.Params.Method = 2
+        big = gp.GRB.INFINITY
+        x = model.addMVar(
+            len(columns),
+            lb=np.array([-big if math.isinf(lb) else lb for lb, _ub, _c in columns]),
+            ub=np.array([big if math.isinf(ub) else ub for _lb, ub, _c in columns]),
+            obj=np.array([cost for _lb, _ub, cost in columns]),
+        )
+        # Split ranged rows (branch limits) into two one-sided rows.
+        senses: list[str] = []
+        rhs: list[float] = []
+        row_index: list[int] = []
+        col_index: list[int] = []
+        values: list[float] = []
+
+        def emit(sense: str, bound: float, coefficients: dict[int, float]) -> None:
+            position = len(senses)
+            senses.append(sense)
+            rhs.append(bound)
+            row_index.extend([position] * len(coefficients))
+            col_index.extend(coefficients)
+            values.extend(coefficients.values())
+
+        for lower, upper, coefficients in self._row_data:
+            if lower == upper:
+                emit("=", lower, coefficients)
+                continue
+            if not math.isinf(lower):
+                emit(">", lower, coefficients)
+            if not math.isinf(upper):
+                emit("<", upper, coefficients)
+        matrix = sp.csr_matrix((values, (row_index, col_index)), shape=(len(senses), len(columns)))
+        model.addMConstr(matrix, x, np.array(senses), np.array(rhs))
+        model.update()
+        self._model = model
+        self._vars = x.tolist()
+        del self._column_data, self._row_data
+
+    def _shed_gurobi(self, alphas: Sequence[float]) -> tuple[float, list[float]]:
+        gp = self._gp
+        alpha_vars = [self._vars[column] for column in self.alpha_columns]
+        for var, alpha in zip(alpha_vars, alphas):
+            var.LB = alpha
+            var.UB = alpha
+        self._model.optimize()
+        status = self._model.Status
+        if status != gp.GRB.OPTIMAL:
+            raise DCOPFUnresolved(f"allocation day LP unresolved: Gurobi status {status}")
+        if not self.solved:
+            self.solved = True
+            self._model.Params.Method = 1
+        reduced_costs = self._model.getAttr("RC", alpha_vars)
+        return float(self._model.ObjVal), [float(value) for value in reduced_costs]
 
     def shed(self, alphas: Sequence[float]) -> tuple[float, list[float]]:
         """Return the minimum shed (MWh) at ``alphas`` and its gradient."""
+        if self.backend == "gurobi":
+            return self._shed_gurobi(alphas)
         for column, alpha in zip(self.alpha_columns, alphas):
             self.highs.changeColBounds(column, alpha, alpha)
         _run_highs(self.highs)
@@ -216,7 +309,15 @@ class _DayModel:
         return value, [float(reduced_costs[column]) for column in self.alpha_columns]
 
 
-def _build_day(artifact_root: str, sites, period_indices, offsets, time_step_hours: float) -> _DayModel:
+def _build_day(
+    artifact_root: str,
+    sites,
+    period_indices,
+    offsets,
+    time_step_hours: float,
+    solver_backend: str = "highs",
+    solver_threads: int = 1,
+) -> _DayModel:
     artifact = load_prepared_artifact(artifact_root)
     prepared = tuple(
         _prepared_period_inputs(
@@ -224,13 +325,25 @@ def _build_day(artifact_root: str, sites, period_indices, offsets, time_step_hou
         )
         for offset in offsets
     )
-    return _DayModel(prepared, sites, offsets, time_step_hours=time_step_hours, base_mva=100.0)
+    return _DayModel(
+        prepared,
+        sites,
+        offsets,
+        time_step_hours=time_step_hours,
+        base_mva=100.0,
+        solver_backend=solver_backend,
+        solver_threads=solver_threads,
+    )
 
 
-def _day_worker(connection, artifact_root, sites, period_indices, offsets, time_step_hours) -> None:
+def _day_worker(
+    connection, artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads
+) -> None:
     """Keep one day's LP in this process and answer shed queries."""
     try:
-        day = _build_day(artifact_root, sites, period_indices, offsets, time_step_hours)
+        day = _build_day(
+            artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads
+        )
         connection.send(("ready", None))
         while True:
             alphas = connection.recv()
@@ -250,13 +363,25 @@ class _DayPool:
     on the number of workers.
     """
 
-    def __init__(self, artifact_root, sites, period_indices, blocks, time_step_hours, workers: int) -> None:
+    def __init__(
+        self,
+        artifact_root,
+        sites,
+        period_indices,
+        blocks,
+        time_step_hours,
+        workers: int,
+        solver_backend: str = "highs",
+        solver_threads: int = 1,
+    ) -> None:
         self.days = []
         self.processes = []
         self.connections = []
         if workers <= 1 or len(blocks) == 1:
             self.days = [
-                _build_day(artifact_root, sites, period_indices, offsets, time_step_hours)
+                _build_day(
+                    artifact_root, sites, period_indices, offsets, time_step_hours, solver_backend, solver_threads
+                )
                 for offsets in blocks
             ]
             return
@@ -267,7 +392,16 @@ class _DayPool:
             parent, child = context.Pipe()
             process = context.Process(
                 target=_day_worker,
-                args=(child, artifact_root, sites, period_indices, offsets, time_step_hours),
+                args=(
+                    child,
+                    artifact_root,
+                    sites,
+                    period_indices,
+                    offsets,
+                    time_step_hours,
+                    solver_backend,
+                    solver_threads,
+                ),
                 daemon=True,
             )
             process.start()
@@ -346,6 +480,8 @@ def allocate_sites(
     time_step_hours: float = 1.0,
     block_periods: int = 24,
     workers: int = 1,
+    solver_backend: str = "highs",
+    solver_threads: int = 1,
 ) -> AllocationResult | None:
     """Return the unique utilitarian allocation, or ``None`` when even the
     base network (every alpha zero) does not fit.
@@ -355,6 +491,9 @@ def allocate_sites(
     block of ``block_periods`` periods, starting and ending half full; without
     storage the periods are independent and the last block may be shorter.
     With ``workers`` > 1 the blocks are solved in parallel processes.
+    ``solver_backend`` (``highs``, ``gurobi`` or ``auto``: Gurobi when
+    licensed) solves the daily LPs, each with ``solver_threads`` threads;
+    the master problem always uses HiGHS.
     """
     period_indices = tuple(period_indices)
     if not period_indices:
@@ -377,7 +516,12 @@ def allocate_sites(
         tuple(range(start, min(start + block_periods, len(period_indices))))
         for start in range(0, len(period_indices), block_periods)
     ]
-    pool = _DayPool(artifact_root, sites, period_indices, blocks, time_step_hours, workers)
+    backend = resolve_solver_backend(solver_backend)
+    if not isinstance(solver_threads, int) or isinstance(solver_threads, bool) or solver_threads <= 0:
+        raise ValueError("solver_threads must be a positive integer")
+    pool = _DayPool(
+        artifact_root, sites, period_indices, blocks, time_step_hours, workers, backend, solver_threads
+    )
     try:
         return _allocate(sites, requested, pool)
     finally:

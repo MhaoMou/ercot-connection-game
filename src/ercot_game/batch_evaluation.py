@@ -1096,6 +1096,8 @@ def _utilitarian_allocation(
             time_step_hours=time_step_hours,
             block_periods=block_periods,
             workers=workers,
+            solver_backend=dispatch_options.get("storage_solver_backend", "auto"),
+            solver_threads=dispatch_options.get("storage_solver_threads", 1),
         )
     except (DCOPFInfeasible, DCOPFUnresolved, ValueError, OSError):
         return None

@@ -122,7 +122,16 @@ def test_the_allocation_is_deterministic(tmp_path) -> None:
     assert first.diagnostics.site_fraction_by_team == second.diagnostics.site_fraction_by_team
 
 
-def test_cut_gradients_match_finite_differences(tmp_path) -> None:
+def _backends() -> list[str]:
+    try:
+        import gurobipy  # noqa: F401
+    except ImportError:
+        return ["highs"]
+    return ["highs", "gurobi"]
+
+
+@pytest.mark.parametrize("backend", _backends())
+def test_cut_gradients_match_finite_differences(tmp_path, backend) -> None:
     artifact = _flat(tmp_path)
     sites = [
         AllocationSite("a", "s1", "2", 90.0, (90.0,) * 24),
@@ -134,7 +143,7 @@ def test_cut_gradients_match_finite_differences(tmp_path) -> None:
         _prepared_period_inputs(str(artifact.resolve()), prepared_artifact, period_index=t, validate_artifact=False)
         for t in range(24)
     )
-    day = _DayModel(prepared, sites, range(24), time_step_hours=1.0, base_mva=100.0)
+    day = _DayModel(prepared, sites, range(24), time_step_hours=1.0, base_mva=100.0, solver_backend=backend)
     point = [0.9, 0.8, 0.7]
     shed, gradient = day.shed(point)
     assert shed > 0.0
@@ -235,3 +244,27 @@ def test_no_room_gives_every_site_zero(tmp_path) -> None:
     result = allocate_sites(artifact, sites, period_indices=PERIODS)
     assert result is not None
     assert result.alpha_by_site == {("a", "s1"): 0.0, ("b", "s1"): 0.0}
+
+
+@pytest.mark.skipif(len(_backends()) < 2, reason="gurobipy is not installed")
+@pytest.mark.parametrize("workers", [1, 2])
+def test_gurobi_and_highs_give_the_same_allocation(tmp_path, workers) -> None:
+    artifact = _dip(tmp_path)
+    sites = [
+        AllocationSite("a", "s1", "2", 90.0, (90.0,) * HORIZON),
+        AllocationSite("b", "s1", "2", 60.0, (60.0,) * HORIZON, generator_mw=30.0),
+        AllocationSite("c", "s1", "2", 40.0, (40.0,) * HORIZON, storage_power_mw=10.0, storage_energy_mwh=40.0),
+    ]
+    results = {
+        backend: allocate_sites(artifact, sites, period_indices=PERIODS, workers=workers, solver_backend=backend)
+        for backend in ("highs", "gurobi")
+    }
+    assert results["gurobi"].total_capacity_mw == pytest.approx(results["highs"].total_capacity_mw, rel=1e-6)
+    for key, alpha in results["highs"].alpha_by_site.items():
+        assert results["gurobi"].alpha_by_site[key] == pytest.approx(alpha, abs=1e-5)
+
+
+def test_allocate_sites_rejects_an_unknown_backend(tmp_path) -> None:
+    sites = [AllocationSite("a", "s1", "2", 10.0, (10.0,) * HORIZON)]
+    with pytest.raises(ValueError, match="solver_backend"):
+        allocate_sites(_flat(tmp_path), sites, period_indices=PERIODS, solver_backend="cplex")
