@@ -1509,40 +1509,28 @@ def _reusable_dcopf_model(*, solver_backend: str, **kwargs):
     raise ValueError("solver_backend must be 'highs' or 'gurobi'")
 
 
-def solve_dcopf(
-    *,
+def _build_period_lp(
     buses: tuple[Bus, ...],
     generators: tuple[Generator, ...],
     branches: tuple[Branch, ...],
-    fixed_injection_mw_by_bus: dict[str, float] | None = None,
-    base_mva: float = 1.0,
-) -> DCOPFResult:
-    """Solve one fixed-load linear DCOPF period with HiGHS.
-
-    Load is inelastic in the dispatch game. If generation, imports, and
-    network limits cannot serve it, ``DCOPFInfeasible`` is raised; the solver
-    does not introduce load-shedding or curtailment variables.
-    """
-    Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
-    bus_by_id, reference = _validate(buses, generators, branches)
-    injections = fixed_injection_mw_by_bus or {}
-    if set(injections) - set(bus_by_id):
-        raise ValueError("fixed injection references an unknown bus")
-    if any(not math.isfinite(value) for value in injections.values()):
-        raise ValueError("fixed injections must be finite")
-    if not math.isfinite(base_mva) or base_mva <= 0:
-        raise ValueError("base_mva must be finite and positive")
-
-    bus_ids = [bus.bus_id for bus in buses]
-    non_reference = [bus_id for bus_id in bus_ids if bus_id != reference]
+    reference: str,
+    injections: Mapping[str, float],
+    base_mva: float,
+):
+    """Assemble one period's DCOPF LP in HiGHS: generator columns, then
+    angle columns, then one balance row per bus, then one flow row per
+    branch.  Returns ``(highs, generator_columns, angle_columns,
+    balance_row_indices, angle_scale)``."""
+    Highs, _HighsModelStatus, _HighsVarType, highs_inf = _highs()
+    non_reference = [bus.bus_id for bus in buses if bus.bus_id != reference]
     generators_by_bus, branches_by_bus = _cached_network_index(branches, generators)
     # Scale the free angle variables to keep the LP coefficients well
     # conditioned.  The source artifact contains very small reactances, so
     # using raw radians with ``susceptance * base_mva`` can produce
     # coefficients spanning five orders of magnitude.  ``scaled_angle`` is
     # still an angle in radians divided by this constant; flows and returned
-    # angles are converted back below.  This is numerically equivalent to
-    # the unscaled DCOPF.
+    # angles are converted back by the caller.  This is numerically
+    # equivalent to the unscaled DCOPF.
     angle_scale = 1000.0
     highs = Highs()
     highs.setOptionValue("output_flag", False)
@@ -1598,7 +1586,188 @@ def solve_dcopf(
         if branch.to_bus_id != reference:
             add_coefficient(coefficients, angle_columns[branch.to_bus_id], -susceptance_mw_per_rad / angle_scale)
         highs.addRow(-branch.thermal_limit_mw, branch.thermal_limit_mw, len(coefficients), list(coefficients), list(coefficients.values()))
+    return highs, generator_columns, angle_columns, balance_row_indices, angle_scale
 
+
+# The proportional split may raise the period's cost by at most this share
+# (plus PROPORTIONAL_SPLIT_COST_ABSOLUTE_TOLERANCE dollars) over the LP optimum.
+PROPORTIONAL_SPLIT_COST_RELATIVE_TOLERANCE = 1e-9
+PROPORTIONAL_SPLIT_COST_ABSOLUTE_TOLERANCE = 1e-6
+
+
+@lru_cache(maxsize=1)
+def _gurobi_available_cached() -> bool:
+    return gurobi_is_available()
+
+
+def _solve_split_qp_gurobi(highs, group_columns) -> list[float] | None:
+    """Solve the split QP assembled in ``highs`` (LP rows and bounds, zero
+    linear cost) with Gurobi's barrier, adding the objective
+    ``sum (sum of a group's columns)^2 / capacity``.  HiGHS's active-set QP
+    solver fails on some full-network periods; the barrier does not.
+
+    The model goes to Gurobi through HiGHS's MPS writer, which keeps each
+    branch limit as one ranged row; splitting those rows into two one-sided
+    rows left the barrier in numerical trouble on full-network periods.
+    Returns the column values in HiGHS column order, or ``None`` if Gurobi
+    does not reach an optimum.
+    """
+    import tempfile
+
+    import gurobipy as gp
+
+    count = highs.getNumCol()
+    names = [highs.getColName(column)[1] for column in range(count)]
+    with tempfile.TemporaryDirectory() as directory:
+        path = str(Path(directory) / "split.mps")
+        highs.writeModel(path)
+        with gp.Env(empty=True) as environment:
+            environment.setParam("OutputFlag", 0)
+            environment.start()
+            with gp.read(path, env=environment) as model:
+                model.Params.Threads = 1
+                model.Params.Method = 2
+                by_name = {variable.VarName: variable for variable in model.getVars()}
+                variables = [by_name[name] for name in names]
+                objective = gp.QuadExpr()
+                for capacity, columns in group_columns:
+                    total = gp.quicksum(variables[column] for column in columns)
+                    objective += (total * total) / capacity
+                model.setObjective(objective, gp.GRB.MINIMIZE)
+                model.optimize()
+                if model.Status != gp.GRB.OPTIMAL:
+                    return None
+                return [float(variable.X) for variable in variables]
+
+
+def proportional_generator_split(
+    *,
+    buses: tuple[Bus, ...],
+    generators: tuple[Generator, ...],
+    branches: tuple[Branch, ...],
+    fixed_injection_mw_by_bus: Mapping[str, float] | None = None,
+    base_mva: float = 1.0,
+    generation_mw: Mapping[str, float],
+    groups: Sequence[tuple[float, Sequence[str]]],
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]] | None:
+    """Make the split of an optimal dispatch among grouped generators unique.
+
+    ``generation_mw`` is an optimal dispatch of this period's LP.  Each group
+    is one generator ``(capacity, segment_ids)``; its output is the sum of its
+    segments.  Among all dispatches whose cost does not exceed that of
+    ``generation_mw`` (up to a 1e-9 relative tolerance), this solves
+
+        min  sum_groups (sum of the group's segments)^2 / capacity
+
+    which runs equally priced generators at the same fraction of their
+    capacity wherever bounds and the network allow, and is strictly convex
+    in the group outputs, so the result does not depend on generator IDs or
+    their order.  Generators outside the groups may move within the optimal
+    face.  The balance duals of the original LP stay valid prices for the
+    new dispatch (it is optimal for the same LP).  Returns ``(generation,
+    angles, flows)``, or ``None`` when the QP does not solve.
+    """
+    _Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
+    bus_by_id, reference = _validate(buses, generators, branches)
+    injections = dict(fixed_injection_mw_by_bus or {})
+    if set(injections) - set(bus_by_id):
+        raise ValueError("fixed injection references an unknown bus")
+    by_id = {generator.generator_id: generator for generator in generators}
+    for capacity, segment_ids in groups:
+        if not math.isfinite(capacity) or capacity <= 0:
+            raise ValueError("group capacity must be finite and positive")
+        if set(segment_ids) - set(by_id):
+            raise ValueError("group references an unknown generator")
+    cost = sum(
+        float(generation_mw.get(generator.generator_id, 0.0)) * generator.marginal_cost_per_mwh
+        for generator in generators
+    )
+    cost_cap = cost + PROPORTIONAL_SPLIT_COST_RELATIVE_TOLERANCE * abs(cost) + PROPORTIONAL_SPLIT_COST_ABSOLUTE_TOLERANCE
+    highs, generator_columns, angle_columns, _balance, angle_scale = _build_period_lp(
+        buses, generators, branches, reference, injections, base_mva
+    )
+    columns = [int(variable.index) for variable in generator_columns.values()]
+    costs = [by_id[generator_id].marginal_cost_per_mwh for generator_id in generator_columns]
+    nonzero = [(column, value) for column, value in zip(columns, costs) if value != 0.0]
+    highs.addRow(-highs_inf, cost_cap, len(nonzero), [c for c, _ in nonzero], [v for _, v in nonzero])
+    for column in columns:
+        highs.changeColCost(column, 0.0)
+    # Hessian of (1/2) x'Qx: Q = (2 / capacity) * ones on each group's
+    # segment block, stored as the lower triangle in column-major order.
+    entries: dict[int, list[tuple[int, float]]] = {}
+    for capacity, segment_ids in groups:
+        block = sorted(int(generator_columns[segment_id].index) for segment_id in segment_ids)
+        for position, column in enumerate(block):
+            entries.setdefault(column, []).extend((row, 2.0 / capacity) for row in block[position:])
+    dimension = highs.getNumCol()
+    start, index, value = [0], [], []
+    for column in range(dimension):
+        for row, coefficient in sorted(entries.get(column, ())):
+            index.append(row)
+            value.append(coefficient)
+        start.append(len(index))
+    group_columns = [
+        (capacity, sorted(int(generator_columns[segment_id].index) for segment_id in segment_ids))
+        for capacity, segment_ids in groups
+    ]
+    solution = _solve_split_qp_gurobi(highs, group_columns) if _gurobi_available_cached() else None
+    if solution is None:
+        if index:
+            highs.passHessian(dimension, len(index), 1, start, index, value)
+        # HiGHS regularizes every QP variable by default (1e-7), which biases
+        # the split by about 1e-5 MW and makes it depend on the scaling.
+        highs.setOptionValue("qp_regularization_value", 0.0)
+        _run_highs(highs)
+        if highs.getModelStatus() != HighsModelStatus.kOptimal:
+            return None
+        solution = list(highs.getSolution().col_value)
+    generation = {
+        generator_id: round(solution[int(variable.index)], 10)
+        for generator_id, variable in generator_columns.items()
+    }
+    raw_angles = {reference: 0.0}
+    raw_angles.update({
+        bus_id: solution[int(variable.index)] / angle_scale
+        for bus_id, variable in angle_columns.items()
+        if bus_id != reference
+    })
+    angles = {bus_id: round(angle, 10) for bus_id, angle in raw_angles.items()}
+    flows = {
+        branch.branch_id: round(
+            branch.susceptance_pu * base_mva * (raw_angles[branch.from_bus_id] - raw_angles[branch.to_bus_id]), 10
+        )
+        for branch in branches
+    }
+    return generation, angles, flows
+
+
+def solve_dcopf(
+    *,
+    buses: tuple[Bus, ...],
+    generators: tuple[Generator, ...],
+    branches: tuple[Branch, ...],
+    fixed_injection_mw_by_bus: dict[str, float] | None = None,
+    base_mva: float = 1.0,
+) -> DCOPFResult:
+    """Solve one fixed-load linear DCOPF period with HiGHS.
+
+    Load is inelastic in the dispatch game. If generation, imports, and
+    network limits cannot serve it, ``DCOPFInfeasible`` is raised; the solver
+    does not introduce load-shedding or curtailment variables.
+    """
+    Highs, HighsModelStatus, _HighsVarType, highs_inf = _highs()
+    bus_by_id, reference = _validate(buses, generators, branches)
+    injections = fixed_injection_mw_by_bus or {}
+    if set(injections) - set(bus_by_id):
+        raise ValueError("fixed injection references an unknown bus")
+    if any(not math.isfinite(value) for value in injections.values()):
+        raise ValueError("fixed injections must be finite")
+    if not math.isfinite(base_mva) or base_mva <= 0:
+        raise ValueError("base_mva must be finite and positive")
+
+    highs, generator_columns, angle_columns, balance_row_indices, angle_scale = _build_period_lp(
+        buses, generators, branches, reference, injections, base_mva
+    )
     _run_highs(highs)
     model_status = highs.getModelStatus()
     if model_status == getattr(HighsModelStatus, "kModelEmpty", None):

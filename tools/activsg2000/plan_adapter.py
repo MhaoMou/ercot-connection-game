@@ -19,6 +19,9 @@ from .dcopf import (
     DCOPFResult,
     Generator,
     StorageDispatchAsset,
+    _prepared_period_inputs,
+    load_prepared_artifact,
+    proportional_generator_split,
     solve_prepared_daily_blocks,
     solve_prepared_horizon,
     solve_prepared_horizon_benders,
@@ -529,6 +532,7 @@ def evaluate_plans_with_prepared_dcopf(
     }
 
     colocated_groups = _colocated_generator_groups(ordered_plans, connection_by_team)
+    generator_groups = _team_generator_groups(ordered_plans)
     split_fallbacks: list[dict[str, object]] = []
 
     def solve_period(
@@ -566,6 +570,15 @@ def evaluate_plans_with_prepared_dcopf(
             additional_demand_mw_by_bus=aggregate_demand,
             additional_generators=candidates,
         )
+        (dispatch,), network_fallbacks = _network_generator_tie_break(
+            artifact_dir,
+            (dispatch,),
+            (candidates,),
+            generator_groups,
+            period_indices=(period_index,),
+            demand_by_period=(aggregate_demand,),
+        )
+        split_fallbacks.extend(network_fallbacks)
         (dispatch,), fallbacks = _colocated_generator_tie_break(
             (dispatch,), (candidates,), colocated_groups, period_indices=(period_index,)
         )
@@ -827,12 +840,31 @@ def _evaluate_batch_with_central_storage(
     if len(horizon_result.periods) != len(period_indices):
         raise ValueError("horizon DCOPF returned a different number of periods")
 
-    tie_broken_periods, split_fallbacks = _colocated_generator_tie_break(
+    storage_injection_by_period = []
+    for dcopf in horizon_result.periods:
+        injection: dict[str, float] = {}
+        for _team_id, _storage_id, solver_storage_id, bus_id, _power, _energy, _soc in storage_records:
+            injection[bus_id] = injection.get(bus_id, 0.0) + (
+                dcopf.storage_discharge_mw.get(solver_storage_id, 0.0)
+                - dcopf.storage_charge_mw.get(solver_storage_id, 0.0)
+            )
+        storage_injection_by_period.append(injection)
+    network_periods, network_fallbacks = _network_generator_tie_break(
+        artifact_dir,
         horizon_result.periods,
+        candidates_by_period,
+        _team_generator_groups(ordered_plans),
+        period_indices=period_indices,
+        demand_by_period=aggregate_demand_by_period,
+        storage_injection_by_period=storage_injection_by_period,
+    )
+    tie_broken_periods, colocated_fallbacks = _colocated_generator_tie_break(
+        network_periods,
         candidates_by_period,
         _colocated_generator_groups(ordered_plans, connection_by_team),
         period_indices=period_indices,
     )
+    split_fallbacks = network_fallbacks + colocated_fallbacks
     storage_by_solver_id = {
         solver_storage_id: (team_id, storage_id, bus_id)
         for team_id, storage_id, solver_storage_id, bus_id, _power_mw, _energy_mwh, _initial_soc in storage_records
@@ -1003,6 +1035,116 @@ def _proportional_bus_split(
     if abs(sum(split.values()) - total) > _SPLIT_TOLERANCE_MW or abs(new_cost - old_cost) > 1e-6 * max(1.0, abs(old_cost)):
         return None
     return split
+
+
+def _team_generator_groups(
+    ordered_plans: Sequence[TeamPlan],
+) -> tuple[tuple[float, tuple[str, ...]], ...]:
+    """Every team generator with positive capacity as ``(G, segment_ids)``."""
+    return tuple(
+        (
+            float(generator.capacity_mw),
+            tuple(
+                _student_generator_segment_id(plan.team_id, generator.generator_id, segment=segment)
+                for segment in range(1, len(TEAM_GENERATOR_COST_CURVE) + 1)
+            ),
+        )
+        for plan in ordered_plans
+        for generator in sorted(plan.generators, key=lambda item: item.generator_id)
+        if generator.capacity_mw > 0.0
+    )
+
+
+def _team_generation_is_degenerate(
+    generation_mw: dict[str, float],
+    groups: Sequence[tuple[float, tuple[str, ...]]],
+    candidate_by_id: dict[str, Generator],
+) -> bool:
+    """True when some cost segment is shared by two or more team generators
+    and is neither empty nor full in total, so the LP may split it among
+    them in more than one way."""
+    by_cost: dict[float, list[float]] = {}
+    for _capacity, segment_ids in groups:
+        for segment_id in segment_ids:
+            candidate = candidate_by_id.get(segment_id)
+            if candidate is None or candidate.p_max_mw <= _SPLIT_TOLERANCE_MW:
+                continue
+            entry = by_cost.setdefault(candidate.marginal_cost_per_mwh, [0.0, 0.0, 0.0])
+            entry[0] += 1
+            entry[1] += generation_mw.get(segment_id, 0.0)
+            entry[2] += candidate.p_max_mw
+    return any(
+        count >= 2 and _SPLIT_TOLERANCE_MW < total < limit - _SPLIT_TOLERANCE_MW
+        for count, total, limit in by_cost.values()
+    )
+
+
+def _network_generator_tie_break(
+    artifact_dir: str | Path,
+    dcopfs: Sequence[DCOPFResult],
+    candidates_by_period: Sequence[Sequence[Generator]],
+    groups: Sequence[tuple[float, tuple[str, ...]]],
+    *,
+    period_indices: Sequence[int],
+    demand_by_period: Sequence[dict[str, float]],
+    storage_injection_by_period: Sequence[dict[str, float]] | None = None,
+) -> tuple[tuple[DCOPFResult, ...], tuple[dict[str, object], ...]]:
+    """Deterministic split of team generation across the whole network.
+
+    Equally priced team generators are interchangeable whenever the network
+    lets their output move, at the same bus or not, so the LP's split among
+    them depends on the solver's variable order (and hence on site IDs).
+    For each period where that can happen, the period LP is solved again
+    with its cost held at the optimum and storage at its solved schedule,
+    minimizing sum (output / G)^2 * G (see
+    :func:`proportional_generator_split`).  Prices, the objective and storage
+    are kept; generation, angles and flows come from the new optimal
+    dispatch.  A period whose second solve fails keeps the LP split and is
+    reported as a fallback.
+    """
+    if not groups:
+        return tuple(dcopfs), ()
+    artifact = load_prepared_artifact(str(Path(artifact_dir).resolve()))
+    results = list(dcopfs)
+    fallbacks: list[dict[str, object]] = []
+    for offset, (period_index, dcopf) in enumerate(zip(period_indices, dcopfs)):
+        candidates = tuple(candidates_by_period[offset])
+        candidate_by_id = {candidate.generator_id: candidate for candidate in candidates}
+        live = tuple(
+            (capacity, tuple(segment_id for segment_id in segment_ids if segment_id in candidate_by_id))
+            for capacity, segment_ids in groups
+            if any(segment_id in candidate_by_id for segment_id in segment_ids)
+        )
+        if not _team_generation_is_degenerate(dcopf.generation_mw, live, candidate_by_id):
+            continue
+        buses, generators, branches, fixed = _prepared_period_inputs(
+            artifact_dir,
+            artifact,
+            period_index=period_index,
+            additional_demand_mw_by_bus=demand_by_period[offset],
+            additional_generators=candidates,
+            validate_artifact=False,
+        )
+        injections = dict(fixed)
+        for bus_id, amount in (storage_injection_by_period[offset] if storage_injection_by_period else {}).items():
+            injections[bus_id] = injections.get(bus_id, 0.0) + amount
+        split = proportional_generator_split(
+            buses=buses,
+            generators=generators,
+            branches=branches,
+            fixed_injection_mw_by_bus=injections,
+            base_mva=100.0,
+            generation_mw=dcopf.generation_mw,
+            groups=live,
+        )
+        if split is None:
+            fallbacks.append(
+                {"bus_id": "network", "first_period_index": period_index, "periods": 1, "reason": "qp_unsolved"}
+            )
+            continue
+        generation, angles, flows = split
+        results[offset] = replace(dcopf, generation_mw=generation, angle_by_bus=angles, flow_mw_by_branch=flows)
+    return tuple(results), tuple(fallbacks)
 
 
 def _colocated_generator_tie_break(
