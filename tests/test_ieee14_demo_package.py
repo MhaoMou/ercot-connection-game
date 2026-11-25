@@ -197,7 +197,7 @@ def test_batch_projects_joint_requests_at_the_shared_bottleneck(tmp_path, capsys
     projection = evaluation["projection_diagnostics"]
     assert projection["objective"] == "utilitarian_max_grid_request"
     projected = projection["projected_capacity_mw_by_team"]
-    # The allocation maximizes the total served capacity; neither team gets
+    # The allocation maximizes the total grid request served; neither team gets
     # its full request, and the total stays below the joint request.
     assert 0.0 < sum(projected.values()) < 60.0
     assert all(value <= 30.0 + 1e-6 for value in projected.values())

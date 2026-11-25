@@ -148,8 +148,9 @@ capacity per submission.
 \paragraph{The game.} You are not alone on the grid. Every team's plan is
 evaluated \alert{together} on the same network, to ensure the feasibility of
 the grid during real time operation. If the plans do not all fit, the plans
-will be curtailed down systematically to \alert{maximize the total load
-interconnected} (\cref{sec:projection}). So the best place to build depends on
+will be curtailed down systematically to \alert{maximize the total grid load
+interconnected}, where a site's grid load is its connection capacity minus its
+own generator capacity, $C - G$ (\cref{sec:projection}). So the best place to build depends on
 where the other teams build: a bus that looks empty may be crowded once
 everyone picks it. After each submission you see every team's service fraction
 and a grid map of the total load per bus, but never another team's plan
@@ -785,10 +786,11 @@ served. It \alert{allocates} the sites:
 \end{enumerate}
 
 This changes the question you should ask. Your served load depends on what
-everyone else builds. The rule serves the \emph{most megawatts}, so it favors
-sites that need the least of the scarce network per MW served: a site whose
-generator or battery covers its own peak hours, or a site at a bus where a MW
-of load loads the bottleneck lines less. A site that competes for the same
+everyone else builds. The rule serves the \emph{most grid megawatts}, so it
+favors sites that need the least of the scarce network per grid MW requested: a
+site whose battery shifts its draw away from the tightest hours, or a site at a
+bus where a MW of load loads the bottleneck lines less. Your own generator
+lowers what you ask the grid for, but it does not buy priority. A site that competes for the same
 lines with such sites can be cut a lot. So the question is not only ``how much
 load can my site take?'' but also ``how much room will be left for me once the
 other teams have built, and what do they expect me to do?''
@@ -830,6 +832,13 @@ For a site at bus $k$ in period $t$, the evaluator adds:
 Your grid purchase rate in period $t$ is $\alpha C - g_t - p_t$. The generator and
 battery can only cover your own team's load at that bus; they cannot push power
 back into the grid.
+
+All team generators have the same cost curve, so the dispatch can have
+several equally cheap solutions that differ only in which team generator runs.
+The evaluator then picks the one that runs equally priced generators at the
+same share of their capacity, as far as the network allows. This choice is
+unique, so your score does not depend on your \code{site_id}s or on the order
+of your rows.
 
 \subsection{Storage}
 Each battery follows the model below, with hourly steps and 100\% efficiency.
@@ -1807,11 +1816,12 @@ teams have learned from the results too.
   It scores 0 for that submission (\nameref{asg:rules}). Other teams are
   evaluated without it. Run the checker on the exact file you upload.
 \item[Why is my $\alpha$ zero?]
-  The combined plan did not fit the grid, and the most megawatts in total were
-  served by giving the room your sites needed to other sites
+  The combined plan did not fit the grid, and the most grid megawatts in total
+  were served by giving the room your sites needed to other sites
   (\cref{sec:projection}). You pay nothing for capacity you were not
-  allocated. Move to buses with more room, or add a generator or battery so
-  that your site needs less of the network.
+  allocated. Move to buses with more room, or add a battery that shifts your
+  draw away from the tightest hours, or a generator that lowers what you ask
+  the grid for.
 \item[Can other teams see my plan?]
   Not in detail. They can see every team's $\alpha$, and the
   total connection capacity at each bus, not who built what.
@@ -1842,7 +1852,7 @@ IT value & \$1,000 earned for each MWh of your load that is served, over ten yea
 DCOPF & DC optimal power flow, the dispatch the evaluator solves for each operating period. & \cref{sec:model}\\
 LMP & Locational marginal price: the cost of one more MWh at a bus. & \cref{sec:model}\\
 SOC & State of charge: the energy stored in a battery. & \cref{sec:model}\\
-Allocation & How the evaluator shares the grid when not every request fits: each site gets a fraction $\alpha$ that maximizes the total served MW. & \cref{sec:projection}\\
+Allocation & How the evaluator shares the grid when not every request fits: each site gets a fraction $\alpha$, chosen to maximize the total grid request served, $\sum \alpha (C - G)$. & \cref{sec:projection}\\
 Service fraction $\alpha$ & The share of your requested capacity that is allocated (per site, or for your whole team). & \cref{sec:projection}\\
 Hosting capacity & The most new load a bus can take without making the grid infeasible. & \cref{sec:hc}\\
 Checker & \code{ercot-game-check-csv}; checks your file's format. & \cref{sec:csv}\\

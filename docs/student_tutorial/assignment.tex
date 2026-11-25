@@ -73,8 +73,9 @@ capacity per submission.
 \paragraph{The game.} You are not alone on the grid. Every team's plan is
 evaluated \alert{together} on the same network, to ensure the feasibility of
 the grid during real time operation. If the plans do not all fit, the plans
-will be curtailed down systematically to \alert{maximize the total load
-interconnected} (\S2.2 of the tutorial). So the best place to build depends on
+will be curtailed down systematically to \alert{maximize the total grid load
+interconnected}, where a site's grid load is its connection capacity minus its
+own generator capacity, $C - G$ (\S2.2 of the tutorial). So the best place to build depends on
 where the other teams build: a bus that looks empty may be crowded once
 everyone picks it. After each submission you see every team's service fraction
 and a grid map of the total load per bus, but never another team's plan
