@@ -210,11 +210,12 @@ classroom dispatch.
 Allocation is evaluator policy, not a student control. When the joint request
 is infeasible, every site s (of any team) gets a fraction alpha_s in [0, 1]
 that scales its connection, generator and storage capacities together. Stage 1
-maximizes the total served capacity sum_s alpha_s C_s subject to the joint
-DCOPF in all 120 periods (storage cycling daily, each team's generator and
-storage serving only its own load). Stage 2 breaks ties by minimizing
-sum_s C_s (1 - alpha_s)^2 at the stage-1 total; the objective is strictly
-convex, so the allocation is unique. There is no minimum allocation, and
+maximizes the total grid request served, sum_s alpha_s (C_s - G_s), subject to
+the joint DCOPF in all 120 periods (storage cycling daily, each team's
+generator and storage serving only its own load). The generator is behind the
+meter; storage is dispatched by the grid and is not subtracted. Stage 2 breaks
+ties by minimizing sum_s (C_s - G_s) (1 - alpha_s)^2 at the stage-1 total; the
+objective is strictly convex, so the allocation is unique. There is no minimum allocation, and
 capital is charged on the allocated capacities. The fractions are computed by
 cutting planes: a small master over alpha (LP in stage 1, QP in stage 2) and
 one load-shedding LP per representative day whose reduced costs give a cut;
@@ -222,8 +223,8 @@ the final fractions are dispatched with one exact LP per day.
 
 | Parameter | Value | Units | Origin | Rationale / reference |
 |---|---:|---|---|---|
-| Allocation rule | maximize total served capacity, one fraction per site | policy | INSTRUCTOR-CHOSEN | Utilitarian: favors sites that need the least network per MW served (generators, batteries, buses with small shift factors on the bottleneck). ERCOT publishes no formula for splitting capacity among studied loads ([ERCOT batch process](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf)). |
-| Tie-break | minimize sum C (1 - alpha)^2 at the stage-1 total | policy | INSTRUCTOR-CHOSEN | Unique allocation, independent of the solver; identical sites at one bus get the same fraction. |
+| Allocation rule | maximize total grid request served, sum alpha (C - G), one fraction per site | policy | INSTRUCTOR-CHOSEN | Utilitarian over grid MW: a site's generator is behind the meter and does not buy priority; favors sites that use the least of the bottleneck per grid MW (buses with small shift factors on it, batteries). ERCOT publishes no formula for splitting capacity among studied loads ([ERCOT batch process](https://www.ercot.com/files/docs/2026/06/18/Trending-Topics-ERCOT-s-New-Batch-Connection-Process-for-Large-Electricity-Users-v2.pdf)). |
+| Tie-break | minimize sum (C - G) (1 - alpha)^2 at the stage-1 total | policy | INSTRUCTOR-CHOSEN | Unique allocation, independent of the solver; sites that tie in stage 1 get the same fraction. |
 | Minimum allocation | none | fraction of request | INSTRUCTOR-CHOSEN | A small fraction is still served and pays only for itself. |
 | Shed tolerance | 1e-4 | MWh per day | INSTRUCTOR-CHOSEN | A day fits when its load-shedding LP sheds at most this much. |
 | Allocation margin | 1e-4 | fraction of alpha | INSTRUCTOR-CHOSEN | Every cut site (alpha < 1) is scaled by 1 - 1e-4 so the dispatch, and a Submission 2 base load built from it, stays strictly inside the binding limits; a site within 1e-5 of full service is served in full. If the final dispatch still fails, all fractions are scaled by 1 - 1e-3, then 1 - 1e-2. |

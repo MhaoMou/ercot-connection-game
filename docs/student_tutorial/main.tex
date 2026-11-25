@@ -768,13 +768,17 @@ served. It \alert{allocates} the sites:
     fraction $\alpha_i \in [0,1]$. It scales the site's connection capacity,
     generator and battery together: the site is treated as if you had
     submitted $\alpha_i C_i$, $\alpha_i G_i$, $\alpha_i P_i$ and $\alpha_i B_i$.
-  \item \alert{Serve the most.} The fractions maximize the total served
-    capacity $\sum_i \alpha_i C_i$ over all sites, subject to the joint
-    dispatch being feasible in all 120 periods.
+  \item \alert{Serve the most grid request.} Your generator is behind the
+    meter: it serves your own site, so a site asks the grid for only
+    $C_i - G_i$. The fractions maximize the total grid request served,
+    $\sum_i \alpha_i (C_i - G_i)$ over all sites, subject to the joint
+    dispatch being feasible in all 120 periods. Batteries are dispatched by
+    the grid and are not subtracted.
   \item \alert{Break ties evenly.} Among the fractions that serve the most,
     the evaluator picks the one closest to serving everyone in full (it
-    minimizes $\sum_i C_i (1-\alpha_i)^2$). This choice is unique, so the
-    result does not depend on the solver.
+    minimizes $\sum_i (C_i - G_i)(1-\alpha_i)^2$), so sites that tie get the
+    same fraction. This choice is unique, so the result does not depend on
+    the solver.
   \item \alert{Pay for what you get.} Capital is charged on the allocated
     capacities. There is no minimum allocation: a small fraction is still
     served.
@@ -1589,7 +1593,7 @@ does not dispatch storage, so it will not show this benefit.
 
 \alert{Other teams.} Your preview runs without them, but the official
 dispatch includes everyone. If the combined plan is infeasible, the allocation
-in \cref{sec:projection} serves the most megawatts in total, so sites that
+in \cref{sec:projection} serves the most grid megawatts in total, so sites that
 compete for the same lines as more network-efficient sites are cut first.
 
 \alert{Use Week 1.} Week 1 does not count. Use it to see how your plan is
@@ -1624,7 +1628,7 @@ A large (100\MW) & 2,673 / 1,115 & 2,673 / 1,115\\
 \begin{itemize}[leftmargin=*]
   \item \alert{Both small.} The grid can serve both sites in full.
   \item \alert{B large, A small.} The combined plan is infeasible. The most
-    megawatts are served by keeping A's 50\MW{} and giving B what is left,
+    grid megawatts are served by keeping A's 50\MW{} and giving B what is left,
     89.1\MW. B pays only for those 89.1\MW.
   \item \alert{A large.} At the shared bottleneck a MW at bus 1002 uses a
     little less of the line than a MW at 1010, so serving A first serves the
@@ -1640,7 +1644,7 @@ Here A has a plan that is best whatever B does: going large (3,653 beats
 \alert{dominant strategy}. B's best reply is large when A is small; when A is
 large, B gets the same 42.8\MW{} either way. So the game settles with A large
 and B served only the room A leaves. Three lessons carry over to the real game:
-the rule rewards the site that serves the most MW per MW of shared network, so
+the rule rewards the site that serves the most grid MW per MW of the shared bottleneck, so
 small differences in location decide who gets the room; asking for more than
 you are allocated costs nothing, but does not get you more either; and your
 best plan depends on where the others build and how their buses share your
@@ -1752,7 +1756,7 @@ Read them in this order:
     the grid and every site has $\alpha = 1$. If it was, compare your
     $\alpha$ (your served share of the capacity you requested) with the other
     teams'. A low $\alpha$ means your sites competed for the same lines as
-    sites that serve more MW per MW of network (\cref{sec:projection}).
+    sites that use less of the bottleneck per grid MW (\cref{sec:projection}).
   \item \alert{Did the grid beat running off the grid?} A MW served from the
     grid nets about \$36.5M, a MW run off the grid about \$24.8M
     (\cref{sec:score}).
@@ -2268,10 +2272,11 @@ fractions.
 
 \subsection{The rule}
 
-\paragraph{Stage 1: serve the most.} The evaluator finds the largest total
-served capacity
+\paragraph{Stage 1: serve the most grid request.} A site's own generator is
+behind the meter, so the site asks the grid for $w_s = C_s - G_s$. The
+evaluator finds the largest total grid request served
 \[
-  V^\star = \max_{\boldsymbol\alpha \in [0,1]^S}\ \sum_s \alpha_s C_s
+  V^\star = \max_{\boldsymbol\alpha \in [0,1]^S}\ \sum_s \alpha_s w_s
   \quad\text{s.t. the constraints of \cref{app:model} hold in all 120 periods,}
 \]
 with $\alpha_s$ in place of $\alpha_{i(s)}$ and the generator and battery limits
@@ -2282,31 +2287,35 @@ constraint linearly.
 $V^\star$ (for example, two identical sites at the same bus can split the room
 in any way). Among them the evaluator picks
 \[
-  \boldsymbol\alpha^\star = \arg\min_{\boldsymbol\alpha}\ \sum_s C_s (1-\alpha_s)^2
-  \quad\text{s.t.}\quad \sum_s \alpha_s C_s = V^\star \text{ and the constraints above.}
+  \boldsymbol\alpha^\star = \arg\min_{\boldsymbol\alpha}\ \sum_s w_s (1-\alpha_s)^2
+  \quad\text{s.t.}\quad \sum_s \alpha_s w_s = V^\star \text{ and the constraints above.}
 \]
 The objective is strictly convex in $\boldsymbol\alpha$ and the feasible set is
 convex, so $\boldsymbol\alpha^\star$ is \alert{unique}: the allocation does not
-depend on the solver or on the order of the files. Identical sites at the same
-bus get the same fraction.
+depend on the solver or on the order of the files. Sites that tie in stage 1
+get the same fraction. (A site with $G_s = C_s$ has $w_s = 0$; the evaluator
+gives it a tiny weight so that its fraction is determined, and it is always 1.)
 
 \subsection{What the rule rewards}
 
 \begin{itemize}[leftmargin=*]
-  \item \alert{MW served per MW of network.} Stage 1 counts every served MW
-    the same, wherever it is. A site that needs less of the scarce network for
-    each MW it serves wins the room. Example: a bus with 70\MW{} of room in
-    every hour, site A asks for 60\MW{} with no generator and site B for
-    60\MW{} with a 30\MW{} generator. Serving B in full uses only 30\MW{} of
-    the room, so the rule serves B in full and A at $40/60 = 67\%$: 100\MW{}
-    in total, more than any even split.
+  \item \alert{Grid MW, not total MW.} Stage 1 counts every MW served from
+    the grid the same; the MW your own generator covers do not buy priority.
+    Example: a bus with 70\MW{} of room in every hour, site A asks for
+    60\MW{} with no generator and site B for 60\MW{} with a 30\MW{}
+    generator. A asks the grid for 60\MW{} and B for 30\MW{}; every split
+    that fills the 70\MW{} serves the same grid request, so the tie-break
+    gives both the same fraction, $70/90 = 78\%$: A gets 46.7\MW{}, and B
+    gets 46.7\MW{}, 23.3\MW{} of it from the grid.
   \item \alert{Off-grid sites are never cut.} A site with $G = C$ needs no
     network, so it always gets $\alpha_s = 1$. It earns less per MW than a site
     served from the grid (\cref{sec:score}), which is why it is the reference
     plan.
   \item \alert{Location matters through the bottlenecks.} When a line limits
     several buses, a MW at a bus with a small shift factor on that line uses
-    less of it, so sites there are served first.
+    less of it, so sites there are served first. A battery can also help: it
+    is dispatched by the grid and can shift a site's draw away from the
+    tightest hours.
   \item \alert{No minimum allocation.} A site with a small fraction is still
     served that fraction, and pays only for it.
 \end{itemize}
@@ -2431,7 +2440,7 @@ $u_i(\sigma_i^*, \sigma_{-i}^*) \ge u_i(\sigma_i, \sigma_{-i}^*)$ for every team
 $i$ and every $\sigma_i \in \Sigma_i$.
 
 Two features make this game unusual. First, the shared network constraint
-$\sum_i \alpha_i C_i \in \mathcal H$ is enforced by the \alert{evaluator}, not by
+on the allocated sites is enforced by the \alert{evaluator}, not by
 the teams: every team may submit anything, so this is an ordinary Nash game
 rather than a generalized Nash game with coupled constraints. Second, $u_i$ is
 neither concave nor continuous: the site choice is discrete, and the minimum

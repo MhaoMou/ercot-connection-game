@@ -182,9 +182,10 @@ Hosting capacity on the full package (`ercot-game-hosting-capacity`) solves
 
 If the joint plan is infeasible in a period, the evaluator allocates the
 sites: each site gets a fraction alpha in [0, 1] that scales its C, G, P and B;
-the fractions maximize the total served capacity sum alpha C over all 120
-periods, ties broken by minimizing sum C (1 - alpha)^2 (unique), with no
-minimum allocation. Deterministic fallback isolation follows only if no
+the fractions maximize the total grid request served, sum alpha (C - G), over
+all 120 periods (the generator is behind the meter; storage is not
+subtracted), ties broken by minimizing sum (C - G) (1 - alpha)^2 (unique),
+with no minimum allocation. Deterministic fallback isolation follows only if no
 allocation exists.
 Malformed submissions are rejected independently so valid teams can still be
 scored. The output directory of the official run is the source of truth for scores.

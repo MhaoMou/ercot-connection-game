@@ -289,7 +289,7 @@ class ProjectionDiagnostics:
     total_projected_load_mwh: float
     proportional_fair_utility: float
     total_load_tolerance_mwh: float
-    objective: str = "utilitarian_max_served_capacity"
+    objective: str = "utilitarian_max_grid_request"
     cap_policy: dict[str, float] = field(default_factory=dict)
     site_fraction_by_team: dict[str, dict[str, float]] = field(default_factory=dict)
 
@@ -1179,9 +1179,10 @@ def _utilitarian_allocation(
             _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
             sum(requested_loads.values()) * _FAIR_PROJECTION_TOTAL_LOAD_TOLERANCE,
         ),
-        objective="utilitarian_max_served_capacity",
+        objective="utilitarian_max_grid_request",
         cap_policy={
             "max_total_capacity_mw": allocation.max_total_capacity_mw,
+            "max_grid_capacity_mw": allocation.max_grid_capacity_mw,
             "total_capacity_mw": sum(projected_capacity.values()),
             "requested_capacity_mw": allocation.requested_capacity_mw,
             "iterations": float(allocation.iterations),

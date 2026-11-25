@@ -195,7 +195,7 @@ def test_batch_projects_joint_requests_at_the_shared_bottleneck(tmp_path, capsys
     assert "scope=joint_projection" in capsys.readouterr().out
     evaluation = json.loads((output_dir / "evaluation.json").read_text(encoding="utf-8"))
     projection = evaluation["projection_diagnostics"]
-    assert projection["objective"] == "utilitarian_max_served_capacity"
+    assert projection["objective"] == "utilitarian_max_grid_request"
     projected = projection["projected_capacity_mw_by_team"]
     # The allocation maximizes the total served capacity; neither team gets
     # its full request, and the total stays below the joint request.

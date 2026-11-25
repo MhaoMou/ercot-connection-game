@@ -15,8 +15,8 @@ screening estimate, never the official score.
 Team generators may run in every hour, as in the evaluator.
 
 When the plans exceed the hosting capacity of a checked hour, the preview
-applies the evaluator's site allocation (the most served capacity, ties
-split evenly) to the same storage-free dispatch instead of failing, and
+applies the evaluator's site allocation (the most grid request served,
+ties split evenly) to the same storage-free dispatch instead of failing, and
 reports each team's service fraction.  Storage can only raise the official
 fraction, so the allocated preview stays conservative for a single team.
 """

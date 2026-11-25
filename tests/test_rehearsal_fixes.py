@@ -206,7 +206,9 @@ def test_parallel_allocation_matches_serial_with_generators_and_storage(tmp_path
         (s.team_id, s.score) for s in parallel.team_scores
     ]
     fractions = serial.projection_diagnostics.service_fraction_by_team
-    assert 0.5 < fractions["team-a"] <= 1.0 and fractions["team-d"] == 1.0
+    # Own generation buys no priority: the generator-backed sites are cut
+    # like the others when the grid is short.
+    assert 0.5 < fractions["team-a"] <= 1.0 and 0.5 < fractions["team-d"] <= 1.0
 
 
 # ----------------------------------------------------------- classroom

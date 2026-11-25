@@ -5,15 +5,22 @@ fraction ``alpha_i`` in [0, 1].  The fraction scales the site's connection
 capacity C, generator capacity G, storage power P and storage energy B.  The
 allocation solves
 
-* stage 1: maximize the total served capacity ``sum_i alpha_i C_i`` subject to
-  the DCOPF of every period (load ``alpha_i C_i`` served in every period, the
-  site's generator up to ``alpha_i G_i`` and its storage within
-  ``alpha_i P_i`` and ``alpha_i B_i``, each team's generator and storage
-  serving only that team's load at the bus);
+* stage 1: maximize the total grid request served, ``sum_i alpha_i w_i`` with
+  ``w_i = C_i - G_i``, subject to the DCOPF of every period (load
+  ``alpha_i C_i`` served in every period, the site's generator up to
+  ``alpha_i G_i`` and its storage within ``alpha_i P_i`` and ``alpha_i B_i``,
+  each team's generator and storage serving only that team's load at the
+  bus).  A site's own generator is behind the meter: it serves the site, so
+  only ``C_i - G_i`` counts as a request to the grid.  Storage is dispatched
+  by the grid operator and is not subtracted;
 * stage 2 (tie-break): among the stage-1 optima, minimize
-  ``sum_i C_i (1 - alpha_i)^2``.  The objective is strictly convex in alpha,
+  ``sum_i w_i (1 - alpha_i)^2``.  The objective is strictly convex in alpha,
   so the allocation is unique and does not depend on the solver's choice
-  among optimal vertices.
+  among optimal vertices; sites that tie in stage 1 get the same alpha.
+
+A site with ``G_i = C_i`` asks nothing of the grid; its weight is floored at
+``GRID_WEIGHT_FLOOR * C_i`` so that its alpha is still determined (it is 1,
+since such a site can always serve itself).
 
 ``alpha`` is the same in every period, so the periods are coupled only
 through alpha (and, within a day, through storage).  The problem is solved by
@@ -73,14 +80,19 @@ class AllocationResult:
     max_shed_mwh: float
     full_checks: int = 0
     active_hours: int | None = None
+    # Stage-1 optimum: the most grid request, sum alpha (C - G), that fits.
+    max_grid_capacity_mw: float = 0.0
 
 
+# Weight of a site whose generator covers its whole connection (G = C),
+# as a share of C, so that its alpha is determined.
+GRID_WEIGHT_FLOOR = 1e-6
 # A day fits when its LP sheds at most this much energy (MWh).
 SHED_TOLERANCE_MWH = 1e-4
 # With hour screening, an hour of the full LP that sheds more than this
 # (MWh) joins the screened LP.
 HOUR_SHED_TOLERANCE_MWH = 1e-7
-# Stage 2 keeps the total served capacity within this share of stage 1.
+# Stage 2 keeps the total grid request served within this share of stage 1.
 TOTAL_RELATIVE_TOLERANCE = 1e-7
 MAX_ITERATIONS = 500
 # A best total below this (MW) means nothing fits: all fractions are zero.
@@ -570,8 +582,13 @@ class _DayPool:
                 process.terminate()
 
 
+def grid_weight_mw(site: AllocationSite) -> float:
+    """A site's request to the grid, ``C - G``, floored for off-grid sites."""
+    return max(site.capacity_mw - site.generator_mw, GRID_WEIGHT_FLOOR * site.capacity_mw)
+
+
 def _solve_master(
-    capacities: Sequence[float],
+    weights_mw: Sequence[float],
     cuts: Sequence[tuple[list[float], float]],
     *,
     minimum_total: float | None,
@@ -581,19 +598,19 @@ def _solve_master(
     Highs, HighsModelStatus, _HighsVarType, inf = _highs()
     highs = Highs()
     highs.setOptionValue("output_flag", False)
-    count = len(capacities)
-    scale = max(capacities)
-    weights = [capacity / scale for capacity in capacities]
+    count = len(weights_mw)
+    scale = max(weights_mw)
+    weights = [weight / scale for weight in weights_mw]
     for weight in weights:
-        # Stage 1 maximizes sum C alpha; stage 2 minimizes
-        # sum C (1 - alpha)^2 = sum C alpha^2 - 2 C alpha + const.
+        # Stage 1 maximizes sum w alpha; stage 2 minimizes
+        # sum w (1 - alpha)^2 = sum w alpha^2 - 2 w alpha + const.
         highs.addVariable(lb=0.0, ub=1.0, obj=-weight if minimum_total is None else -2.0 * weight)
     for gradient, rhs in cuts:
         nonzero = [(index, value) for index, value in enumerate(gradient) if value != 0.0]
         highs.addRow(-inf, rhs, len(nonzero), [index for index, _ in nonzero], [value for _, value in nonzero])
     if minimum_total is not None:
         highs.addRow(minimum_total / scale, inf, count, list(range(count)), weights)
-        # Hessian of (1/2) x'Qx with Q = diag(2 C).
+        # Hessian of (1/2) x'Qx with Q = diag(2 w).
         highs.passHessian(count, count, 1, list(range(count + 1)), list(range(count)), [2.0 * weight for weight in weights])
     _run_highs(highs)
     status = highs.getModelStatus()
@@ -671,6 +688,7 @@ def allocate_sites(
 
 def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | None:
     capacities = [site.capacity_mw for site in sites]
+    weights = [grid_weight_mw(site) for site in sites]
     cuts: list[tuple[list[float], float]] = []
     iterations = 0
     max_shed = 0.0
@@ -702,7 +720,7 @@ def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | Non
             iterations += 1
             if iterations > MAX_ITERATIONS:
                 raise DCOPFUnresolved("allocation did not converge")
-            alphas = _solve_master(capacities, cuts, minimum_total=minimum_total)
+            alphas = _solve_master(weights, cuts, minimum_total=minimum_total)
             if alphas is None:
                 return None
             middle = [c + IN_OUT_STEP * (a - c) for a, c in zip(alphas, core)]
@@ -750,19 +768,22 @@ def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | Non
     stage_one = solve_stage(None, [0.0] * len(sites))
     if stage_one is None:
         return None
-    best_total = sum(c * a for c, a in zip(capacities, stage_one))
-    if best_total <= EMPTY_TOTAL_MW:
+    best_total = sum(w * a for w, a in zip(weights, stage_one))
+    # Test served capacity, not the weighted total: off-grid sites carry
+    # only a floor weight but are fully served.
+    if sum(c * a for c, a in zip(capacities, stage_one)) <= EMPTY_TOTAL_MW:
         # No room at all (e.g. Submission 1 filled these buses): every
         # fraction is zero, and the tie-break problem would be degenerate.
         stage_one = [0.0] * len(capacities)
         best_total = 0.0
     minimum_total = best_total * (1.0 - TOTAL_RELATIVE_TOLERANCE)
-    alphas = solve_stage(minimum_total, stage_one) if 0.0 < best_total < requested else stage_one
+    requested_grid = sum(weights)
+    alphas = solve_stage(minimum_total, stage_one) if 0.0 < best_total < requested_grid else stage_one
     if alphas is None:
         raise DCOPFUnresolved("allocation tie-break found no point at the stage-1 total")
     return AllocationResult(
         alpha_by_site={site.key: alpha for site, alpha in zip(sites, alphas)},
-        max_total_capacity_mw=best_total,
+        max_total_capacity_mw=sum(c * a for c, a in zip(capacities, stage_one)),
         total_capacity_mw=sum(c * a for c, a in zip(capacities, alphas)),
         requested_capacity_mw=requested,
         iterations=iterations,
@@ -770,4 +791,5 @@ def _allocate(sites, requested: float, pool: _DayPool) -> AllocationResult | Non
         max_shed_mwh=max_shed,
         full_checks=full_checks,
         active_hours=active_hours,
+        max_grid_capacity_mw=best_total,
     )

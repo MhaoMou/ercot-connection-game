@@ -101,12 +101,40 @@ def test_identical_requests_split_the_room_evenly(tmp_path) -> None:
     assert fractions["b"] == pytest.approx(0.35, abs=2e-4)
 
 
-def test_the_site_that_needs_less_grid_per_mw_is_served_first(tmp_path) -> None:
-    # 70 MW of room: B's generator covers half its load, so each grid MW
-    # serves two MW at B.  Maximizing served capacity fills B, then A.
+def test_own_generation_does_not_buy_priority(tmp_path) -> None:
+    # 70 MW of room.  A asks the grid for 60 MW, B (with a 30 MW generator
+    # behind the meter) for 30 MW.  Every split that fills the room serves
+    # the same grid request, so the tie-break gives both the same fraction.
     fractions = _fractions(_flat(tmp_path), _plan("a", 60.0), _plan("b", 60.0, generator_mw=30.0))
-    assert fractions["b"] == pytest.approx(1.0, abs=2e-4)
-    assert fractions["a"] == pytest.approx(40.0 / 60.0, abs=2e-4)
+    assert fractions["a"] == pytest.approx(70.0 / 90.0, abs=2e-4)
+    assert fractions["b"] == pytest.approx(70.0 / 90.0, abs=2e-4)
+
+
+def test_a_small_generator_is_the_same_as_a_smaller_request(tmp_path) -> None:
+    # Five 100 MW requests share 70 MW.  A 1 MW generator at one site makes
+    # it a 99 MW grid request, exactly like asking for 99 MW without one.
+    artifact = _flat(tmp_path)
+    others = [_plan(team, 100.0) for team in ("b", "c", "d", "e")]
+    with_generator = _fractions(artifact, _plan("a", 100.0, generator_mw=1.0), *others)
+    smaller_request = _fractions(artifact, _plan("a", 99.0), *others)
+    for fractions in (with_generator, smaller_request):
+        for team in "abcde":
+            assert fractions[team] == pytest.approx(70.0 / 499.0, abs=2e-4)
+
+
+def test_an_off_grid_site_is_served_in_full_on_a_full_network(tmp_path) -> None:
+    # The base load fills the line: a grid site gets nothing, an off-grid
+    # site (G = C, weight floored) still gets everything.
+    artifact = _artifact(tmp_path / "full", lambda t: 100.0)
+    sites = [
+        AllocationSite("a", "s1", "2", 50.0, (50.0,) * HORIZON, generator_mw=50.0),
+        AllocationSite("b", "s1", "2", 30.0, (30.0,) * HORIZON),
+    ]
+    result = allocate_sites(artifact, sites, period_indices=PERIODS)
+    assert result.alpha_by_site[("a", "s1")] == pytest.approx(1.0, abs=1e-6)
+    assert result.alpha_by_site[("b", "s1")] == pytest.approx(0.0, abs=1e-6)
+    alone = allocate_sites(artifact, sites[:1], period_indices=PERIODS)
+    assert alone.alpha_by_site[("a", "s1")] == pytest.approx(1.0, abs=1e-6)
 
 
 def test_a_battery_lifts_a_site_limited_by_two_evening_hours(tmp_path) -> None:
@@ -216,8 +244,9 @@ def test_submission_2_base_load_uses_each_sites_own_fraction(tmp_path) -> None:
     artifact = _flat(tmp_path)
     submissions = tmp_path / "submissions"
     submissions.mkdir()
-    # 70 MW of room: the site with a 30 MW generator is served in full and
-    # the other site of the same team gets the remaining 40 MW.
+    # 70 MW of room.  The plain site asks the grid for 60 MW, the backed one
+    # (30 MW generator behind the meter) for 30 MW; both get 70/90 of their
+    # request, and their grid draw fills the 70 MW.
     _write(submissions / "a.csv", ["team-a,plain,2,60,0,0,0", "team-a,backed,2,60,30,0,0"])
     rules = BatchScoringRules(
         rules_version="test",
@@ -234,7 +263,7 @@ def test_submission_2_base_load_uses_each_sites_own_fraction(tmp_path) -> None:
         for row in site_net_withdrawal_rows(evaluation)
         if row["period_index"] == 0
     }
-    assert load == pytest.approx({"plain": 40.0, "backed": 60.0}, abs=0.02)
+    assert load == pytest.approx({"plain": 60.0 * 70 / 90, "backed": 60.0 * 70 / 90}, abs=0.02)
     net = sum(row["net_withdrawal_mw"] for row in site_net_withdrawal_rows(evaluation) if row["period_index"] == 0)
     assert net == pytest.approx(70.0, abs=0.02)
 

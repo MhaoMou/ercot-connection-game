@@ -200,7 +200,7 @@ Every row is one site. The file has no `period`, hourly `load_mw`,
 horizon rows. `bus_id` must exist in the selected block's `bus.csv`.
 Generator capacity cannot exceed connection capacity (G <= C; a site may run
 off the grid), a generator may run in every hour, the sites of one file add up
-to at most 1,000 MW of connection capacity, and storage is either zero or has
+to at most 500 MW of connection capacity, and storage is either zero or has
 energy equal to four times power (B = 4P).
 Co-located private generators of different teams share the bus's private
 generation in proportion to their capacity. The LP fixes only each bus's
@@ -210,6 +210,23 @@ around each generator's caps (capacity and segment structure, and its team's
 own load at the bus). Bus totals, flows, LMPs and the objective are unchanged.
 A bus whose proportional split cannot be applied keeps the solver split and is
 listed under `generator_split_fallbacks` in the evaluation metadata.
+
+Equally priced team generators at *different* buses are interchangeable too
+whenever the network lets their output move, so the LP's split among them
+depended on the solver's column order, which follows the generator (and so
+site) IDs: renaming sites could move generator operating cost between teams.
+Before the co-located split, every period in which some cost segment is shared
+by two or more team generators and is neither empty nor full is solved again:
+the period's cost is held at the LP optimum (relative 1e-9) and storage at
+its solved schedule, and the evaluator minimizes
+`sum_g (output_g)^2 / G_g` over team generators. This runs equally priced
+generators at the same fraction of their capacity wherever bounds and lines
+allow, and is strictly convex in their outputs, so the split no longer
+depends on IDs or file order. LMPs are kept from the LP (they stay valid
+prices for any optimal dispatch); generation, angles and flows come from the
+second solve. The QP is solved with Gurobi's barrier when licensed (HiGHS's
+QP solver otherwise); a period whose QP fails keeps the LP split and is listed
+in `generator_split_fallbacks` with reason `qp_unsolved`.
 
 Run the student-facing checker:
 
@@ -302,17 +319,24 @@ the valid joint request is infeasible, the evaluator allocates the sites:
 - every site `s` (of any team) gets a fraction `alpha_s` in [0, 1] that scales
   its connection capacity, generator capacity, storage power and storage
   energy together; different sites of one team can get different fractions;
-- stage 1 maximizes the total served capacity `sum_s alpha_s C_s` subject to
-  the joint DCOPF in all 120 periods (storage cycling daily from half full,
-  each team's generator and storage serving only its own load at the bus);
-- stage 2 breaks ties by minimizing `sum_s C_s (1 - alpha_s)^2` at the
+- stage 1 maximizes the total grid request served, `sum_s alpha_s w_s` with
+  `w_s = C_s - G_s`, subject to the joint DCOPF in all 120 periods (storage
+  cycling daily from half full, each team's generator and storage serving
+  only its own load at the bus). A site's generator is behind the meter, so
+  only `C_s - G_s` is a request to the grid; storage is dispatched by the
+  grid and is not subtracted. A site with `G_s = C_s` gets the floor weight
+  `1e-6 C_s` so that its fraction is determined (it is always 1);
+- stage 2 breaks ties by minimizing `sum_s w_s (1 - alpha_s)^2` at the
   stage-1 total (within a relative 1e-7); the objective is strictly convex, so
-  the allocation is unique and solver-independent;
+  the allocation is unique and solver-independent, and sites that tie in
+  stage 1 get the same fraction;
 - there is no minimum allocation, and capital is charged on the allocated
   capacities.
 
-The rule favors sites that need the least network per MW served: a site with
-G = C needs none and is never cut. The fractions are the same in every period,
+The rule favors sites that use the least of the bottleneck per grid MW (for
+example buses with small shift factors on it, or a battery that moves the
+site's draw out of the tightest hours); a site's own generation does not buy
+priority. A site with G = C needs no grid and is never cut. The fractions are the same in every period,
 so they couple the five days. They are computed by cutting planes: a small
 master over the fractions (an LP in stage 1, a QP in stage 2) proposes a
 point, and one load-shedding LP per representative day (built once, first
